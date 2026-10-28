@@ -1,0 +1,65 @@
+# Dependencies and build output
+node_modules/
+dist/
+build/
+out/
+*.tsbuildinfo
+.vite/
+supabase/.temp/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Local databases, dumps, and backup archives
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.dump
+*.backup
+*.bak
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.7z
+*.rar
+
+# Test output and coverage
+coverage/
+test-results/
+playwright-report/
+blob-report/
+*.lcov
+
+# Temporary files and tool caches
+*.tmp
+*.temp
+*.swp
+*.swo
+.cache/
+.eslintcache
+.turbo/
+.vercel/
+.output/
+.parcel-cache/
+.nyc_output/
+
+# Local database data
+supabase/.branches/
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+
+# Local editor and operating system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -425,3 +425,21 @@ entrypoint = "./functions/owner-status/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/owner-status/*.html" ]
+
+[functions.member-enroll-pin]
+enabled = true
+verify_jwt = false
+import_map = "./functions/deno.json"
+entrypoint = "./functions/member-enroll-pin/index.ts"
+
+[functions.owner-list-members]
+enabled = true
+verify_jwt = false
+import_map = "./functions/deno.json"
+entrypoint = "./functions/owner-list-members/index.ts"
+
+[functions.owner-list-membership-plans]
+verify_jwt = false
+
+[functions.owner-save-membership-plan]
+verify_jwt = false

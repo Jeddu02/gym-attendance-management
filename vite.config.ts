@@ -12,8 +12,8 @@ export default defineConfig({
         name: 'Gym Attendance and Membership Management',
         short_name: 'Gym Attendance',
         description: 'Private gym management and public member check-in.',
-        theme_color: '#101827',
-        background_color: '#101827',
+        theme_color: '#0b0d14',
+        background_color: '#0b0d14',
         display: 'standalone',
         icons: [
           {

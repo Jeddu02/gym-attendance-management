@@ -5,12 +5,25 @@ workflows are implemented by this document.
 
 ## Test environments and tooling
 
-- Use a local, disposable Supabase stack with synthetic seed data after the
-  database schema is approved. The current machine has no Supabase CLI,
-  Docker/Podman, `psql`, PostgreSQL server tools, or registered PostgreSQL
-  service, so Supabase migration, RLS, and pgTAP tests cannot run here today.
-  WSL exists as a command, but its available invocation returned usage text and
-  no Linux distribution/local database could be confirmed.
+- Use only a local, disposable Supabase stack with synthetic seed data after
+  the database schema is approved. No hosted project or live member data may
+  be accessed for these tests.
+- Environment check (2026-11-04): npm package `supabase@2.122.0` is installed
+  in this project, but no global `supabase` command is on `PATH`. The local CLI
+  invocation failed while attempting to write telemetry under the protected
+  `C:\Users\Banco-Sual\.supabase` directory (`EPERM`). Docker CLI `29.9.2` is
+  installed, but the Docker Engine named pipe is unavailable. Native `psql`,
+  `postgres`, `pg_ctl`, and `initdb` are not on `PATH`; no PostgreSQL service or
+  local Supabase database was verified. A Deno shim is present but did not
+  launch its associated application. **No synthetic DB/endpoint tests were
+  run.**
+- Missing immediate prerequisite: a running Docker Engine. Start Docker
+  Desktop and verify `docker info` succeeds; run the existing project CLI from
+  a normal developer terminal where the `.supabase` config/telemetry location
+  is writable. Then create/start a unique disposable local project with
+  synthetic seed data and no cloud link. Native PostgreSQL tools are optional
+  if SQL tests can run in the local Supabase database/container; do not install
+  extra tooling unless a specific test requires it.
 - Once a local stack is available, use SQL/pgTAP for constraints, RLS, role
   behavior, transition functions, local dates, and concurrency. Use endpoint
   integration tests for Edge Function authorization, PIN behavior, rate limits,
@@ -140,14 +153,79 @@ anonymous/public.
     duplicate, and throttled request use the same public failure body and
     non-revealing message. Responses do not disclose member name, existence,
     payment status, or expiry.
-24. Concurrent guesses cannot exceed identifier or network rate limits because
-    attempt counts update atomically. Test repeated failures, lockout expiry,
-    valid PIN during lockout, and distributed identifier/IP buckets.
-25. Very high-volume attempts are throttled before expensive Argon2id work.
-    Verify lockout cannot be reset by changing casing/spacing of IDs or mobile
-    formatting. Confirm rate-limit rows retain only keyed hashes and expire.
+24. Concurrent guesses cannot exceed approved limits because counters update
+    atomically: five consecutive failed PIN attempts trigger a 15-minute
+    identifier lockout; test 10 requests per identifier and 60 requests per
+    trusted source network per rolling five minutes, and 300 requests globally
+    per rolling five minutes. Test lockout expiry and valid PIN during lockout.
+25. Throttle before expensive Argon2id work. Verify identifier normalization
+    prevents casing/spacing/phone-format changes from evading limits; unknown
+    identifiers use equivalent accounting. Confirm counters retain only keyed
+    digests and expire without clearing an active lockout early.
 26. PIN reset requires the active Owner, approved identity verification, new
-    verifier, and audit event. The current PIN is never retrievable or sent.
+    verifier, and audit event. Routine government-issued ID is not mandatory.
+    The Owner verifies in person from membership, registration, and available
+    payment records; uses the registered mobile when accessible; and stops if
+    records conflict or are insufficient. The Owner directly hands a
+    single-use 15-minute capability to the verified member; only a secure token
+    hash is stored, prior unused capabilities are invalidated, and the old PIN
+    is never retrievable or disclosed.
+26a. Test lost-phone recovery using existing records, Owner-documented
+     verification method, Owner mobile-number update, privacy-conscious old/new
+     references, and previous-number notification when practical/safe. Reject
+     public unauthenticated number changes and refuse recovery while conflicting
+     records await manual resolution.
+26b. Test recovery-token expiration at 15 minutes, one-time redemption,
+     replacement invalidating prior capabilities, replay rejection, and secure
+     replacement of the old PIN verifier. Verify direct in-person handoff is
+     the only approved initial-release delivery method and no paid SMS is used.
+
+### Cash and online payment verification
+
+P1. For cash, the Owner records actual cash received, method, amount, and
+    payment date/time, then confirms it. Test that only confirmed effective
+    full payment activates eligibility and that cash is included in daily
+    reconciliation independently of allocation/confirmed-income reporting.
+P2. For e-wallet and bank-transfer payments, the Owner checks actual receipt
+    with the provider/bank before confirmation. A reference number or member
+    claim alone cannot confirm payment. Test method, actual amount, payment
+    date/time, and confirmation status recording; reject duplicate allocation
+    of the same verified transaction.
+P3. Pending, partial, rejected, and voided amounts do not qualify as confirmed
+    full payment. Correct/reverse and re-record without deleting or overwriting
+    the original record; verify actor, reason, time, evidence/reference, and
+    linked audit history. No payment-provider integration or paid service is
+    part of this test phase.
+P4. Reconcile a synthetic cash drawer using opening float, verified actual cash
+    received, closing cash, expected cash, and variance. Force a discrepancy;
+    require documented reason/evidence and separately auditable adjustment.
+    Verify retry cannot duplicate receipt or adjustment and history remains
+    unchanged.
+
+### Idempotency, operational throttles, and audit retention
+
+P5. Scope idempotency keys by operation and use high-entropy random keys.
+    Store only keyed key/fingerprint digests; ensure fingerprints exclude PINs,
+    PIN hashes, raw mobile numbers, access tokens, and other credentials.
+    Re-authenticate on every public retry.
+P6. Same key/same fingerprint safely replays one committed outcome. Same
+    key/different fingerprint is rejected without mutation. Concurrent retries
+    and distinct keys racing for the same member/date or transaction create no
+    duplicate business effect. Force idempotency/audit write failures and
+    verify the transaction rolls back completely.
+P7. Test the proposed 24-hour idempotency result retention boundary and cleanup.
+    After a key record expires, a retry must re-authenticate and remain blocked
+    from creating duplicate attendance by the unique database constraint.
+    Confirm the 24-hour duration is not treated as a statutory retention rule.
+P8. Operational rate-limit buckets remain separate from permanent audit
+    events; no permanent event is created per malformed public request. Test
+    proposed cleanup only after the relevant rolling window and lockout expire,
+    with no early reset of a live lockout.
+P9. Audit events remain append-only; archive a synthetic audit stream in
+    encrypted, integrity-verifiable form, restore it, and verify order/hash
+    chain and references. Do not test age-based deletion: audit/payment
+    retention durations and archive cadence remain unresolved pending
+    legal/accounting/privacy review.
 
 ### Offline synchronization
 
@@ -381,8 +459,13 @@ anonymous/public.
   owner; policy tests include direct-table attempts, not only UI tests.
 - A migration review confirms RLS on every exposed table, safe grants, indexes,
   constraints, timezone rules, and reversible operational procedures.
-- PIN parameters, throttles, retention, payment evidence, offline age, security
-  suspension controls, and privacy notice have explicit Owner approval.
+- The approved PIN parameters, lockout, rate limits, recovery verification,
+  capability handoff, payment confirmation, and mobile-change requirements are
+  implemented and pass synthetic tests. Their approval is not treated as proof
+  of implementation.
+- Retention durations, online payment evidence, independent review,
+  cash-drawer procedures, offline age, separate security-suspension controls,
+  and privacy notice have explicit Owner decisions before production use.
 - Backups/restore, key rotation, incident response, audit retention, and
   production access are documented. Developer access to live member data stays
   disabled by default.

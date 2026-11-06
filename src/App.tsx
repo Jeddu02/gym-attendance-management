@@ -31,6 +31,7 @@ const sectionDescriptions: Record<Section, string> = {
 export function App() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [signedIn, setSignedIn] = useState(false);
@@ -143,6 +144,7 @@ export function App() {
       setActiveSection('overview');
       setSignedIn(true);
       setPassword('');
+      setPasswordVisible(false);
       setMessage('');
     } catch (error) {
       if (supabase !== undefined) {
@@ -179,6 +181,7 @@ export function App() {
       setSignedIn(false);
       setEmail('');
       setPassword('');
+      setPasswordVisible(false);
       setActiveSection('overview');
       setMobileMenuOpen(false);
       setMessage('');
@@ -237,17 +240,29 @@ export function App() {
 
             <div className="field">
               <label htmlFor="password">Password</label>
-              <input
-                id="password"
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                placeholder="Enter your password"
-                required
-                maxLength={128}
-                disabled={busy}
-              />
+              <div className="password-control">
+                <input
+                  id="password"
+                  type={passwordVisible ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="Enter your password"
+                  required
+                  maxLength={128}
+                  disabled={busy}
+                />
+                <button
+                  className="password-toggle"
+                  type="button"
+                  aria-label={passwordVisible ? 'Hide password' : 'Show password'}
+                  aria-pressed={passwordVisible}
+                  onClick={() => setPasswordVisible((visible) => !visible)}
+                  disabled={busy}
+                >
+                  {passwordVisible ? 'Hide' : 'Show'}
+                </button>
+              </div>
             </div>
 
             <button className="primary-button" type="submit" disabled={busy}>

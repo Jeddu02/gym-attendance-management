@@ -139,7 +139,7 @@ begin
         join pg_catalog.pg_namespace n on n.oid = c.relnamespace
         cross join lateral pg_catalog.aclexplode(
             coalesce(c.relacl, pg_catalog.acldefault(
-                case when c.relkind = 'S' then 'S' else 'r' end, c.relowner
+                (case when c.relkind = 'S' then 'S' else 'r' end)::pg_catalog."char", c.relowner
             ))
         ) acl
         where ((n.nspname = 'private' and c.relkind in ('r', 'p', 'S'))
@@ -158,7 +158,7 @@ begin
         join pg_catalog.pg_class c on c.oid = a.attrelid
         join pg_catalog.pg_namespace n on n.oid = c.relnamespace
         cross join lateral pg_catalog.aclexplode(
-            coalesce(a.attacl, array[]::pg_catalog.aclitem[])
+            a.attacl
         ) acl
         where a.attnum > 0
           and not a.attisdropped

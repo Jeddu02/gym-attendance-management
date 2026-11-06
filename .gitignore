@@ -63,3 +63,5 @@ supabase/.branches/
 .idea/
 .DS_Store
 Thumbs.db
+
+/backups/

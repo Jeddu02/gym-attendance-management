@@ -29,6 +29,8 @@ type Purchase = {
   planName: string;
   pricePhp: number | string;
   purchaseStatus: PurchaseStatus;
+  paymentStatus: 'recorded' | 'confirmed' | 'rejected' | null;
+  paymentMethod: 'cash' | 'gcash' | 'bank_transfer' | null;
   activationDate: string | null;
   expiryDate: string | null;
   createdAt: string;
@@ -73,6 +75,19 @@ function statusLabel(status: PurchaseStatus): string {
 function statusClass(status: PurchaseStatus): string {
   if (status === 'active') return 'member-status-active';
   if (status === 'payment_review' || status === 'expired') return 'member-status-suspended';
+  return 'member-status-pending';
+}
+
+function paymentStatusLabel(status: Purchase['paymentStatus']): string {
+  if (status === 'confirmed') return 'Confirmed';
+  if (status === 'recorded') return 'Awaiting review';
+  if (status === 'rejected') return 'Rejected';
+  return 'Not recorded';
+}
+
+function paymentStatusClass(status: Purchase['paymentStatus']): string {
+  if (status === 'confirmed') return 'member-status-active';
+  if (status === 'rejected') return 'member-status-suspended';
   return 'member-status-pending';
 }
 
@@ -247,15 +262,16 @@ export function MembershipPurchasesPage() {
         {historyError && <p className="members-error purchase-history-error" role="alert">{historyError}</p>}
         <div className="members-table-wrap">
           <table className="members-table purchase-history-table">
-            <thead><tr><th>Purchase reference</th><th>Member</th><th>Member code</th><th>Plan</th><th>Price snapshot</th><th>Status</th><th>Activation</th><th>Expiry</th><th>Created</th></tr></thead>
+            <thead><tr><th>Purchase reference</th><th>Member</th><th>Member code</th><th>Plan</th><th>Price snapshot</th><th>Status</th><th>Payment status</th><th>Activation</th><th>Expiry</th><th>Created</th></tr></thead>
             <tbody>
-              {loadingPurchases ? <tr><td colSpan={9} className="members-empty">Loading purchase history…</td></tr>
-                : purchases.length === 0 ? <tr><td colSpan={9} className="members-empty"><strong>No purchases found</strong><span>Purchases matching your search and status will appear here.</span></td></tr>
+              {loadingPurchases ? <tr><td colSpan={10} className="members-empty">Loading purchase history…</td></tr>
+                : purchases.length === 0 ? <tr><td colSpan={10} className="members-empty"><strong>No purchases found</strong><span>Purchases matching your search and status will appear here.</span></td></tr>
                   : purchases.map((purchase) => <tr key={purchase.id}>
                     <td><strong className="purchase-reference">{purchase.id}</strong></td>
                     <td>{purchase.memberName}</td><td>{purchase.memberCode}</td><td>{purchase.planName}</td>
                     <td className="plan-price">{formatPrice(purchase.pricePhp)}</td>
                     <td><span className={`member-status ${statusClass(purchase.purchaseStatus)}`}>{statusLabel(purchase.purchaseStatus)}</span></td>
+                    <td><span className={`member-status ${paymentStatusClass(purchase.paymentStatus)}`}>{paymentStatusLabel(purchase.paymentStatus)}</span></td>
                     <td>{formatDate(purchase.activationDate)}</td><td>{formatDate(purchase.expiryDate)}</td><td>{formatDateTime(purchase.createdAt)}</td>
                   </tr>)}
             </tbody>

@@ -9,7 +9,7 @@ create extension if not exists btree_gist with schema extensions;
 alter table private.membership_purchases
     add constraint membership_purchases_no_overlapping_periods
     exclude using gist (
-        member_id with =,
+        member_id extensions.gist_uuid_ops with =,
         daterange(activation_date, expiry_date, '[]') with &&
     )
     where (

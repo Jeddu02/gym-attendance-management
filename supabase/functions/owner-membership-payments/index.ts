@@ -123,7 +123,13 @@ Deno.serve(async (request: Request) => {
   let rpcArgs: Record<string, unknown>;
   let outputKey: string;
 
-  if (input.action === "list") {
+  if (input.action === "payable") {
+    if (!onlyKeys(input, ["action", "search", "limit", "offset"])) return respond(400, { error: "INVALID_REQUEST_BODY" });
+    const search = input.search ?? ""; const limit = input.limit ?? 50; const offset = input.offset ?? 0;
+    if (typeof search !== "string" || search.length > 80 || typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > 100
+      || typeof offset !== "number" || !Number.isInteger(offset) || offset < 0 || offset > 100000) return respond(400, { error: "INVALID_PAYMENT_FILTER" });
+    rpcName = "owner_list_payable_purchases"; rpcArgs = { p_search: search.trim() || null, p_limit: limit, p_offset: offset }; outputKey = "purchases";
+  } else if (input.action === "list") {
     if (!onlyKeys(input, ["action", "search", "status", "limit", "offset"])) {
       return respond(400, { error: "INVALID_REQUEST_BODY" });
     }
@@ -133,7 +139,7 @@ Deno.serve(async (request: Request) => {
     const offset = input.offset ?? 0;
     if (
       typeof search !== "string" || search.length > 80 ||
-      typeof status !== "string" || !["all", "recorded", "confirmed", "rejected"].includes(status) ||
+      typeof status !== "string" || !["all", "recorded", "confirmed", "rejected", "confirmation_voided_in_error"].includes(status) ||
       typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > 100 ||
       typeof offset !== "number" || !Number.isInteger(offset) || offset < 0 || offset > 100000
     ) return respond(400, { error: "INVALID_PAYMENT_FILTER" });

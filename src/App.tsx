@@ -1,8 +1,17 @@
-﻿import { useEffect, useState, type FormEvent } from 'react';
+﻿import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { MembersPage } from './components/MembersPage';
 import { MembershipPlansPage } from './components/MembershipPlansPage';
 import { MembershipPurchasesPage } from './components/MembershipPurchasesPage';
 import { PaymentsPage } from './components/PaymentsPage';
+import { OverviewPage } from './components/OverviewPage';
+import { AuditLogPage } from './components/AuditLogPage';
+import { WalkinsPage } from './components/WalkinsPage';
+import { SettingsPage } from './components/SettingsPage';
+import { AttendancePage } from './components/AttendancePage';
+import { ReceiptReviewPage } from './components/ReceiptReviewPage';
+import { CashDrawerPage } from './components/CashDrawerPage';
+import { ClaimReviewPage } from './components/ClaimReviewPage';
+import { ReportsPage } from './components/ReportsPage';
 import {
   getSupabaseClient,
   SupabaseConfigurationError,
@@ -13,7 +22,13 @@ const navigation = [
   { id: 'members', label: 'Members', icon: '♙' },
   { id: 'memberships', label: 'Memberships', icon: '▣' },
   { id: 'payments', label: 'Payments', icon: '₱' },
+  { id: 'receipts', label: 'Receipt review', icon: 'R' },
+  { id: 'cash', label: 'Cash drawer', icon: 'C' },
   { id: 'attendance', label: 'Attendance', icon: '◷' },
+  { id: 'claims', label: 'Presence review', icon: 'P' },
+  { id: 'walkins', label: 'Walk-ins', icon: 'W' },
+  { id: 'audit', label: 'Audit history', icon: 'A' },
+  { id: 'reports', label: 'Reports', icon: '▤' },
   { id: 'settings', label: 'Settings', icon: '⚙' },
 ] as const;
 
@@ -24,11 +39,18 @@ const sectionDescriptions: Record<Section, string> = {
   members: 'Register members and manage their membership information.',
   memberships: 'Manage membership plans and member subscriptions.',
   payments: 'Review payments and manage financial records.',
+  receipts: 'Preserve actual receipts and document erroneous confirmations.',
+  cash: 'Reconcile verified physical cash separately from income.',
   attendance: 'Monitor member check-ins and attendance records.',
+  claims: 'Review provisional presence claims separately from valid attendance.',
   settings: 'Manage your gym configuration.',
+  audit: 'Review recorded Owner actions and system events.',
+  reports: 'Review confirmed income and upcoming membership expiries.',
+  walkins: 'Manage walk-in fees, provisional requests, and actual receipts.',
 };
 
 export function App() {
+  const authGeneration = useRef(0);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [passwordVisible, setPasswordVisible] = useState(false);
@@ -38,59 +60,95 @@ export function App() {
   const [authReady, setAuthReady] = useState(false);
   const [activeSection, setActiveSection] = useState<Section>('overview');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-    useEffect(() => {
+  useEffect(() => {
     let active = true;
+    const invalidate = () => { ++authGeneration.current; };
+    let hasSession = false;
+    let timer: number | undefined;
+    let subscription: { unsubscribe: () => void } | undefined;
 
-    async function restoreOwnerSession() {
-      try {
-        const supabase = getSupabaseClient();
-
-        const { data: sessionData, error: sessionError } =
-          await supabase.auth.getSession();
-
-        if (sessionError) throw sessionError;
-
-        if (!sessionData.session) return;
-
-        const { data, error } = await supabase.functions.invoke(
-          'owner-status',
-          {
-            method: 'POST',
-            body: {},
-          },
-        );
-
-        if (error) {
-          await supabase.auth.signOut();
-          return;
-        }
-
-        if (
-          data?.authenticated !== true ||
-          data?.isActiveOwner !== true ||
-          data?.authorizationReady !== true
-        ) {
-          await supabase.auth.signOut();
-          return;
-        }
-
-        if (active) {
-          setActiveSection('overview');
-          setSignedIn(true);
-        }
-      } catch {
-        if (active) {
-          setMessage('Unable to restore your session. Please sign in again.');
-        }
-      } finally {
-        if (active) setAuthReady(true);
-      }
+    function clearOwnerView() {
+      setSignedIn(false);
+      setPassword('');
+      setPasswordVisible(false);
+      setActiveSection('overview');
+      setMobileMenuOpen(false);
     }
 
-    void restoreOwnerSession();
+    try {
+      const supabase = getSupabaseClient();
+      async function verifyOwner(ticket: number) {
+        try {
+          const { data, error } = await supabase.functions.invoke('owner-status', {
+            method: 'POST', body: {},
+          });
+          if (!active || ticket !== authGeneration.current) return;
+          if (error || data?.authenticated !== true || data?.isActiveOwner !== true || data?.authorizationReady !== true) {
+            setMessage('Owner access could not be verified. Please sign in again.');
+            setAuthReady(true);
+            // This runs outside the Auth callback, avoiding the Auth lock.
+            await supabase.auth.signOut({ scope: 'local' });
+            return;
+          }
+          setSignedIn(true);
+          setMessage('');
+        } catch {
+          if (active && ticket === authGeneration.current) {
+            setMessage('Unable to verify owner access. Please sign in again.');
+          }
+        } finally {
+          if (active && ticket === authGeneration.current) setAuthReady(true);
+        }
+      }
 
+      function scheduleVerification() {
+        const ticket = ++authGeneration.current;
+        clearOwnerView();
+        setAuthReady(false);
+        window.clearTimeout(timer);
+        timer = window.setTimeout(() => void verifyOwner(ticket), 0);
+      }
+
+      const result = supabase.auth.onAuthStateChange((event, session) => {
+        if (!active) return;
+        hasSession = event !== 'SIGNED_OUT' && Boolean(session);
+        if (!hasSession) {
+          ++authGeneration.current;
+          window.clearTimeout(timer);
+          clearOwnerView();
+          setAuthReady(true);
+          return;
+        }
+        // Never await Supabase operations inside this callback.
+        scheduleVerification();
+      });
+      subscription = result.data.subscription;
+
+      function recheckOnFocus() {
+        if (hasSession && document.visibilityState === 'visible') scheduleVerification();
+      }
+      window.addEventListener('focus', recheckOnFocus);
+      document.addEventListener('visibilitychange', recheckOnFocus);
+      return () => {
+        active = false;
+        invalidate();
+        window.clearTimeout(timer);
+        subscription?.unsubscribe();
+        window.removeEventListener('focus', recheckOnFocus);
+        document.removeEventListener('visibilitychange', recheckOnFocus);
+      };
+    } catch {
+      timer = window.setTimeout(() => {
+        if (!active) return;
+        setAuthReady(true);
+        setMessage('Unable to restore your session. Please sign in again.');
+      }, 0);
+    }
     return () => {
       active = false;
+      invalidate();
+      window.clearTimeout(timer);
+      subscription?.unsubscribe();
     };
   }, []);
   async function handleSignIn(event: FormEvent<HTMLFormElement>) {
@@ -115,37 +173,9 @@ export function App() {
         return;
       }
 
-      const { data, error: verificationError } =
-        await supabase.functions.invoke('owner-status', {
-          method: 'POST',
-          body: {},
-        });
-
-      if (verificationError) {
-        await supabase.auth.signOut();
-        setMessage(
-          'Owner verification is unavailable. Please try again later.',
-        );
-        return;
-      }
-
-      if (
-        data?.authenticated !== true ||
-        data?.isActiveOwner !== true ||
-        data?.authorizationReady !== true
-      ) {
-        await supabase.auth.signOut();
-        setMessage(
-          'This account is not authorized for owner management access.',
-        );
-        return;
-      }
-
-      setActiveSection('overview');
-      setSignedIn(true);
+      // The Auth subscription verifies server-side Owner access before rendering.
       setPassword('');
       setPasswordVisible(false);
-      setMessage('');
     } catch (error) {
       if (supabase !== undefined) {
         try {
@@ -167,26 +197,21 @@ export function App() {
   }
 
   async function handleSignOut() {
+    ++authGeneration.current;
+    // Remove sensitive components immediately, including while offline.
+    setSignedIn(false);
+    setEmail('');
+    setPassword('');
+    setPasswordVisible(false);
+    setActiveSection('overview');
+    setMobileMenuOpen(false);
     setBusy(true);
     setMessage('');
-
     try {
-      const { error } = await getSupabaseClient().auth.signOut();
-
-      if (error) {
-        setMessage('Sign-out failed. Please try again.');
-        return;
-      }
-
-      setSignedIn(false);
-      setEmail('');
-      setPassword('');
-      setPasswordVisible(false);
-      setActiveSection('overview');
-      setMobileMenuOpen(false);
-      setMessage('');
+      const { error } = await getSupabaseClient().auth.signOut({ scope: 'local' });
+      if (error) setMessage('Unable to end the local session. Please retry signing out.');
     } catch {
-      setMessage('Unable to sign out right now. Please try again.');
+      setMessage('Unable to end the local session. Please retry signing out.');
     } finally {
       setBusy(false);
     }
@@ -400,96 +425,29 @@ export function App() {
   <MembersPage />
 ) : activeSection === 'payments' ? (
   <PaymentsPage />
+) : activeSection === 'receipts' ? (
+  <ReceiptReviewPage />
+) : activeSection === 'cash' ? (
+  <CashDrawerPage />
 ) : activeSection === 'memberships' ? (
   <>
     <MembershipPlansPage />
     <MembershipPurchasesPage />
   </>
 ) : activeSection === 'overview' ? (
-            <>
-              <section className="welcome-panel">
-                <div>
-                  <p className="welcome-eyebrow">OWNER DASHBOARD</p>
-                  <h2>Welcome back, Owner.</h2>
-                  <p>
-                    Manage your gym's members, memberships, payments, and
-                    attendance in one place.
-                  </p>
-                </div>
-                <div className="welcome-decoration" aria-hidden="true">
-                  G
-                </div>
-              </section>
-
-              <section className="section-heading">
-                <div>
-                  <h2>Gym overview</h2>
-                  <p>Your management summaries will appear here.</p>
-                </div>
-                <span className="data-badge">Awaiting connection</span>
-              </section>
-
-              <div className="summary-grid">
-                {[
-                  { label: 'Total Members', icon: '♙' },
-                  { label: 'Active Memberships', icon: '▣' },
-                  { label: "Today's Attendance", icon: '◷' },
-                  { label: "Today's Payments", icon: '₱' },
-                ].map((card) => (
-                  <article className="summary-card" key={card.label}>
-                    <div className="summary-card-top">
-                      <span>{card.label}</span>
-                      <span className="summary-icon">{card.icon}</span>
-                    </div>
-                    <div className="summary-value">—</div>
-                    <p>Not connected to live data</p>
-                  </article>
-                ))}
-              </div>
-
-              <section className="overview-grid">
-                <article className="content-card activity-card">
-                  <div className="card-heading">
-                    <div>
-                      <h2>Recent activity</h2>
-                      <p>Latest gym management activity.</p>
-                    </div>
-                  </div>
-                  <div className="empty-state">
-                    <div className="empty-icon">◷</div>
-                    <strong>No activity to display</strong>
-                    <p>
-                      Activity records will appear here once the dashboard
-                      is connected to the database.
-                    </p>
-                  </div>
-                </article>
-
-                <article className="content-card quick-card">
-                  <div className="card-heading">
-                    <div>
-                      <h2>Management sections</h2>
-                      <p>Navigate to a management area.</p>
-                    </div>
-                  </div>
-
-                  <div className="quick-links">
-                    {navigation.slice(1, 5).map((item) => (
-                      <button
-                        type="button"
-                        className="quick-link"
-                        key={item.id}
-                        onClick={() => handleNavigation(item.id)}
-                      >
-                        <span className="quick-link-icon">{item.icon}</span>
-                        <span>{item.label}</span>
-                        <span className="quick-arrow">→</span>
-                      </button>
-                    ))}
-                  </div>
-                </article>
-              </section>
-            </>
+            <OverviewPage />
+          ) : activeSection === 'audit' ? (
+            <AuditLogPage />
+          ) : activeSection === 'walkins' ? (
+            <WalkinsPage />
+          ) : activeSection === 'settings' ? (
+            <SettingsPage />
+          ) : activeSection === 'attendance' ? (
+            <AttendancePage />
+          ) : activeSection === 'claims' ? (
+            <ClaimReviewPage />
+          ) : activeSection === 'reports' ? (
+            <ReportsPage />
           ) : (
             <section className="content-card section-placeholder">
               <div className="placeholder-icon">

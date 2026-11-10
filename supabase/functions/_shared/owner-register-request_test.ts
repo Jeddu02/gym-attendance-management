@@ -3,6 +3,26 @@ import { validateOwnerRegisterRequest } from "./owner-register-request.ts";
 
 const allowedOrigin = "http://localhost:5173";
 
+Deno.test("rejects JSON-looking media type suffixes", async () => {
+  const result = await validateOwnerRegisterRequest(
+    new Request("http://localhost", {
+      method: "POST",
+      headers: {
+        Origin: allowedOrigin,
+        Authorization: "Bearer synthetic",
+        "Content-Type": "application/json-invalid",
+      },
+      body: "{}",
+    }),
+    allowedOrigin,
+  );
+  assertEquals(result, {
+    ok: false,
+    status: 415,
+    error: "UNSUPPORTED_MEDIA_TYPE",
+  });
+});
+
 Deno.test("rejects methods other than POST", async () => {
   const request = new Request("http://localhost", { method: "GET" });
   const result = await validateOwnerRegisterRequest(request, allowedOrigin);

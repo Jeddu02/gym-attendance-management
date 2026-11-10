@@ -65,3 +65,22 @@ supabase/.branches/
 Thumbs.db
 
 /backups/
+
+# Local inspection scratch files and preserved UI backups
+/batch-2a-*.txt
+/style-response.txt
+/src/style.css.before-*
+/src/style.css.redesign-backup
+
+# Machine-specific PostgreSQL identity, credentials, and test output
+pgpass.conf
+.pgpass
+cluster-marker.txt
+system-identifier.txt
+/GYMFORCE-PG18-TEST/
+/docs/local-testing/results/
+/docs/local-testing/artifacts/
+
+# Controlled-pilot local approval, backup evidence, observations and test output
+/docs/drafts/foundation-2026-11-06/controlled-pilot/local/
+/docs/drafts/foundation-2026-11-06/controlled-pilot/*.local.json

@@ -149,7 +149,7 @@ Deno.serve(async (request: Request) => {
       if (error.code === "42501") {
         return respond(403, { error: "OWNER_ACCESS_REQUIRED" });
       }
-      console.error("Owner member-list RPC failed:", error.message);
+      console.error("Owner member-list RPC failed:", error.code ?? "UNKNOWN");
       return respond(500, { error: "MEMBER_LIST_UNAVAILABLE" });
     }
 
@@ -159,7 +159,7 @@ Deno.serve(async (request: Request) => {
   } catch (error) {
     console.error(
       "Owner member-list request failed:",
-      error instanceof Error ? error.message : "Unknown error",
+      error instanceof Error ? error.name : "UNKNOWN",
     );
     return respond(500, { error: "INTERNAL_SERVER_ERROR" });
   }

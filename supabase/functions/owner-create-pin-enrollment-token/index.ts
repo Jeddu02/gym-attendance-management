@@ -13,6 +13,7 @@ const publishableKey = Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ??
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
 const appOrigin = Deno.env.get("APP_ORIGIN");
+const pinSetupEnabled = Deno.env.get("PIN_SETUP_ENABLED") === "true";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": appOrigin ?? "",
@@ -81,7 +82,7 @@ async function readLimitedBody(
   };
 }
 Deno.serve(async (request) => {
-  if (!appOrigin) {
+  if (!appOrigin || !pinSetupEnabled) {
     return new Response(
       JSON.stringify({ error: "SERVER_CONFIGURATION_ERROR" }),
       {
@@ -165,8 +166,10 @@ Deno.serve(async (request) => {
   const input = body as Record<string, unknown>;
 
   if (
-    Object.keys(input).length !== 1 ||
-    !isValidMemberId(input.memberId)
+    Object.keys(input).length !== 3 ||
+    !isValidMemberId(input.memberId) || input.identityVerified !== true ||
+    typeof input.reason !== "string" || input.reason.trim().length < 5 ||
+    input.reason.length > 500
   ) {
     return respond(400, { error: "INVALID_MEMBER_ID" });
   }
@@ -198,18 +201,14 @@ Deno.serve(async (request) => {
     // Generate a cryptographically random one-time token.
     const { rawToken, tokenHash } = await createPinEnrollmentToken();
 
-    const expiresAt = new Date(
-      Date.now() + 15 * 60 * 1000,
-    ).toISOString();
-
     // The database independently verifies active owner status.
     const { data, error } = await serviceClient
       .schema("api")
-      .rpc("owner_create_pin_enrollment_token", {
+      .rpc("owner_create_verified_pin_enrollment_token", {
         p_actor_user_id: authData.user.id,
         p_member_id: input.memberId,
         p_token_hash: tokenHash,
-        p_expires_at: expiresAt,
+        p_reason: input.reason.trim(),
       });
 
     if (error) {
@@ -228,14 +227,14 @@ Deno.serve(async (request) => {
       return respond(500, { error: "TOKEN_CREATION_FAILED" });
     }
 
-    if (!data || typeof data !== "object") {
+    if (!data || typeof data !== "object" || typeof data.expires_at !== "string") {
       return respond(500, { error: "TOKEN_CREATION_FAILED" });
     }
 
     // Return the raw token once. Never store or log it.
     return respond(200, {
       token: rawToken,
-      expiresAt,
+      expiresAt: data.expires_at,
       purpose: "enrollment",
     });
   } catch {

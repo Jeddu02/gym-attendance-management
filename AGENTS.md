@@ -51,7 +51,8 @@
   timestamp, and expiry. Only the Owner confirms actual receipt; that operation
   atomically validates the request, payment, and attendance. Expired requests
   cannot be revived; a new request uses a new ID and current fee snapshot. The
-  request lifetime is an operational setting still to be chosen.
+  request lifetime is 15 minutes (Owner approved 2026-11-10). Expired requests
+  stay closed; replacements receive a new ID and current fee snapshot.
 - Public member self-check-in requires internet access. Offline Owner-recorded
   submissions are provisional claims with unique operation IDs. The 24-hour age
   window is a triage threshold only and remains provisional pending validation;
@@ -127,16 +128,24 @@
 Do not treat these as finalized requirements or encode assumptions for them in
 schema, policy, or application behavior without Owner approval:
 
-- Walk-in request lifetime and expired-request handling; never revive expired
-  requests.
-- Offline queue expiry, clock-drift tolerance, final stale-claim review path,
-  and validation of the provisional 24-hour triage threshold.
-- Detailed payment evidence and whether periodic independent review is
-  practical for Owner-approved corrections.
-- Cash opening-float procedure, close cadence, variance escalation, and
-  adjustment evidence.
-- PIN setup/reset identity verification, token lifetime, and abuse/KDF
-  parameters after synthetic security testing.
+- Walk-in request lifetime is approved at 15 minutes; never revive expired
+  requests. Changes to that lifetime require Owner approval.
+- Offline review approved 2026-11-10: confirm physical presence only for the
+  current Manila date. Older/conflicting claims remain in Owner review and may
+  be resolved without attendance only with a recorded reason; never delete,
+  backdate, or approve automatically. Queue retention, clock-drift tolerance,
+  and the provisional 24-hour triage threshold still require validation.
+- Corrections approved 2026-11-10: Owner-only, mandatory reason and evidence
+  reference, preserved originals, linked void/re-record history, and affected
+  eligibility invalidation. Periodic independent review is deferred until a
+  practical reviewer is appointed. Detailed evidence standards remain gated.
+- Cash procedure approved 2026-11-10: Owner enters and attests opening float,
+  closes each Manila business day, records reason and evidence reference for
+  every variance, and never changes income automatically to match cash counts.
+- PIN setup/reset uses Owner-supervised in-person identity verification and
+  a one-use setup link (preparation approved 2026-11-10). Token lifetime and
+  production abuse/KDF parameters still need approval after synthetic testing;
+  preparing the flow does not authorize enabling it in production.
 - Grounds, evidence, and review procedure for separate account/member security
   suspension. Required member fields are member code, full name, and unique
   normalized mobile; finalize the mobile-change verification method.
@@ -144,8 +153,12 @@ schema, policy, or application behavior without Owner approval:
   record-specific retention after appropriate Philippine review.
 - Backup cadence, recovery objectives, key custody, and actual provider
   capabilities before production data.
-- Final trusted server-function boundary and verification of selected
-  Supabase plan limits; do not assume free-tier guarantees.
+- Trusted server boundary approved 2026-11-10: expose only the `api` RPC schema
+  to PostgREST; keep private tables unexposed, deny anon/authenticated routine
+  execution and direct service-role data access, and use verified Owner identity
+  or narrowly scoped public server handlers. Local preparation/testing only;
+  hosted configuration, migration authority and plan limits still require
+  separately authorized verification. Do not assume free-tier guarantees.
 - Emergency Developer access, if ever used, requires explicit Owner
   authorization, narrow scope, time limitation, logging, and revocation. The
   Developer has no routine live-data or privileged production-credential access.

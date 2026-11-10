@@ -1,9 +1,11 @@
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 import { hashMemberPin, validateMemberPin } from "../_shared/pin-password.ts";
+import { readPinRequestBody } from "../_shared/pin-recovery.ts";
 
 const APP_ORIGIN = Deno.env.get("APP_ORIGIN");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+const PIN_SETUP_ENABLED = Deno.env.get("PIN_SETUP_ENABLED") === "true";
 
 const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -47,7 +49,7 @@ async function hashEnrollmentToken(token: string): Promise<string> {
 Deno.serve(async (request: Request): Promise<Response> => {
   const origin = request.headers.get("origin") ?? undefined;
 
-  if (!APP_ORIGIN || !SUPABASE_URL || !SERVICE_ROLE_KEY) {
+  if (!APP_ORIGIN || !SUPABASE_URL || !SERVICE_ROLE_KEY || !PIN_SETUP_ENABLED) {
     return response(503, { error: "SERVICE_UNAVAILABLE" });
   }
 
@@ -90,13 +92,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
   let body: unknown;
 
   try {
-    const rawBody = await request.text();
-
-    if (new TextEncoder().encode(rawBody).length > 2048) {
-      return response(413, { error: "REQUEST_TOO_LARGE" }, origin);
-    }
-
-    body = JSON.parse(rawBody);
+    body = await readPinRequestBody(request);
   } catch {
     return response(400, { error: "INVALID_REQUEST" }, origin);
   }

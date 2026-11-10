@@ -1,0 +1,12 @@
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  X-Frame-Options: DENY
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Content-Security-Policy: frame-ancestors 'none'; object-src 'none'; base-uri 'self'
+
+/pin-setup*
+  Cache-Control: no-store
+
+/pin-reset*
+  Cache-Control: no-store

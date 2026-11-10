@@ -194,7 +194,7 @@ Deno.serve(async (request: Request) => {
         return respond(400, { error: "INVALID_MEMBERSHIP_PLAN" });
       }
 
-      console.error("Membership plan save RPC failed:", error.message);
+      console.error("Membership plan save RPC failed:", error.code ?? "UNKNOWN");
       return respond(500, { error: "MEMBERSHIP_PLAN_SAVE_UNAVAILABLE" });
     }
 
@@ -205,7 +205,7 @@ Deno.serve(async (request: Request) => {
   } catch (error) {
     console.error(
       "Membership plan save failed:",
-      error instanceof Error ? error.message : "Unknown error",
+      error instanceof Error ? error.name : "UNKNOWN",
     );
 
     return respond(500, { error: "INTERNAL_SERVER_ERROR" });

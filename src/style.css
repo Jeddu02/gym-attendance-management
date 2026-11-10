@@ -1934,3 +1934,65 @@ select {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Receipt, drawer and presence-review forms share the existing dark palette. */
+.entrance-page .payment-reference {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+}
+.operation-form {
+  padding: var(--space-6);
+}
+.operation-form fieldset {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: var(--space-4);
+  min-width: 0;
+  margin: 0 0 var(--space-5);
+  padding: 0;
+  border: 0;
+}
+.operation-form legend {
+  margin-bottom: var(--space-4);
+  font-weight: 650;
+}
+.operation-form label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--color-muted);
+}
+.operation-form input:not([type='checkbox']),
+.operation-form select,
+.operation-form textarea,
+.field select {
+  width: 100%;
+  min-width: 0;
+  padding: 12px;
+  border: var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-input);
+  color: var(--color-text);
+}
+.operation-form textarea {
+  min-height: 90px;
+  resize: vertical;
+}
+.operation-form label:has(input[type='checkbox']) {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  align-items: flex-start;
+}
+.operation-form input[type='checkbox'] {
+  flex: 0 0 auto;
+  margin-top: 5px;
+  accent-color: var(--color-purple);
+}
+.operation-form input:disabled,
+.operation-form select:disabled,
+.operation-form textarea:disabled {
+  opacity: 0.65;
+}

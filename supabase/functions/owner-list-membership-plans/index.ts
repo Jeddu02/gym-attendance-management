@@ -143,7 +143,7 @@ Deno.serve(async (request: Request) => {
         return respond(403, { error: "OWNER_ACCESS_REQUIRED" });
       }
 
-      console.error("Membership plan list RPC failed:", error.message);
+      console.error("Membership plan list RPC failed:", error.code ?? "UNKNOWN");
       return respond(500, { error: "MEMBERSHIP_PLAN_LIST_UNAVAILABLE" });
     }
 
@@ -153,7 +153,7 @@ Deno.serve(async (request: Request) => {
   } catch (error) {
     console.error(
       "Membership plan list failed:",
-      error instanceof Error ? error.message : "Unknown error",
+      error instanceof Error ? error.name : "UNKNOWN",
     );
 
     return respond(500, { error: "INTERNAL_SERVER_ERROR" });

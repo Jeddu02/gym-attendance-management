@@ -10,6 +10,9 @@ enabled = true
 port = 54321
 # Schemas to expose in your API. Tables, views and stored procedures in this schema will get API
 # endpoints. `public` and `graphql_public` schemas are included by default.
+# Owner-approved 2026-11-10 boundary: api contains RPCs only. Migration grants
+# deny browser execution and direct application data access, including service.
+# This local setting does not change hosted project configuration.
 schemas = ["public", "graphql_public", "api"]
 # Extra schemas to add to the search_path of every request.
 extra_search_path = ["public", "extensions"]
@@ -442,4 +445,59 @@ entrypoint = "./functions/owner-list-members/index.ts"
 verify_jwt = false
 
 [functions.owner-save-membership-plan]
+verify_jwt = false
+
+# These handlers validate bearer tokens through Auth.getUser themselves. SQL
+# independently verifies active Owner status; gateway config is not the gate.
+[functions.owner-register-member]
+verify_jwt = false
+
+[functions.owner-create-pin-enrollment-token]
+verify_jwt = false
+
+[functions.owner-create-membership-purchase]
+verify_jwt = false
+
+[functions.owner-list-membership-purchases]
+verify_jwt = false
+
+[functions.owner-membership-payments]
+verify_jwt = false
+
+[functions.owner-membership-lifecycle]
+verify_jwt = false
+
+[functions.owner-reporting]
+verify_jwt = false
+
+[functions.owner-attendance]
+verify_jwt = false
+
+[functions.owner-receipt-review]
+verify_jwt = false
+
+[functions.owner-cash]
+verify_jwt = false
+
+# Requires explicit reviewed release after queue retention/privacy validation.
+[functions.owner-attendance-claims]
+verify_jwt = false
+
+# New recovery handlers additionally refuse all operations unless the Owner's
+# reviewed release explicitly enables PIN_RECOVERY_ENABLED server-side.
+[functions.owner-create-pin-recovery-token]
+verify_jwt = false
+
+[functions.member-reset-pin]
+verify_jwt = false
+
+[functions.owner-walkins]
+verify_jwt = false
+
+# Public handlers are independently disabled until explicit server-side release
+# flags and reviewed rate/KDF settings are supplied. No browser switch enables them.
+[functions.public-walkin-request]
+verify_jwt = false
+
+[functions.member-checkin]
 verify_jwt = false

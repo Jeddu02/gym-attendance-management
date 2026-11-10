@@ -18,7 +18,7 @@ export async function validateOwnerRegisterRequest(
 
   const contentType = request.headers.get("Content-Type") ?? "";
 
-  if (!contentType.toLowerCase().startsWith("application/json")) {
+  if (contentType.split(";")[0].trim().toLowerCase() !== "application/json") {
     return { ok: false, status: 415, error: "UNSUPPORTED_MEDIA_TYPE" };
   }
 

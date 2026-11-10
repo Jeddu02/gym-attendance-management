@@ -123,12 +123,12 @@ Deno.serve(async (request: Request) => {
     );
     if (error) {
       if (error.code === "42501") return respond(403, { error: "OWNER_ACCESS_REQUIRED" });
-      console.error("Membership purchase list RPC failed:", error.message);
+      console.error("Membership purchase list RPC failed:", error.code ?? "UNKNOWN");
       return respond(500, { error: "MEMBERSHIP_PURCHASE_LIST_UNAVAILABLE" });
     }
     return respond(200, { purchases: Array.isArray(data) ? data : [] });
   } catch (error) {
-    console.error("Membership purchase list failed:", error instanceof Error ? error.message : "Unknown error");
+    console.error("Membership purchase list failed:", error instanceof Error ? error.name : "UNKNOWN");
     return respond(500, { error: "INTERNAL_SERVER_ERROR" });
   }
 });

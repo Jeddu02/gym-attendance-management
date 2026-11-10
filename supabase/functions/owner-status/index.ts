@@ -105,7 +105,7 @@ Deno.serve(async (request: Request) => {
     if (ownerError || typeof isActiveOwner !== "boolean") {
       console.error(
         "Owner authorization check failed:",
-        ownerError?.message ?? "Unexpected RPC response",
+        ownerError?.code ?? "UNKNOWN",
       );
 
       return jsonResponse(
@@ -122,7 +122,7 @@ Deno.serve(async (request: Request) => {
   } catch (error) {
     console.error(
       "Owner verification request failed:",
-      error instanceof Error ? error.message : "Unknown error",
+      error instanceof Error ? error.name : "UNKNOWN",
     );
 
     return jsonResponse(

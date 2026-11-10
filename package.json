@@ -7,16 +7,22 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "typecheck": "tsc -b --pretty"
+    "typecheck": "tsc -b --pretty",
+    "test": "node --test tests/source-security.test.mjs tests/csv.test.mjs tests/entrance-link.test.mjs tests/money.test.mjs tests/operation-error.test.mjs",
+    "test:security": "node scripts/check-source-security.mjs",
+    "test:browser": "node scripts/test-browser.mjs",
+    "test:database": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-database.ps1"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",
+    "qrcode": "1.5.4",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",
     "@types/node": "^26.6.5",
+    "@types/qrcode": "1.5.6",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.2",

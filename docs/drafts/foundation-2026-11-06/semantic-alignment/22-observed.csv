@@ -1,0 +1,2 @@
+﻿table_name,object_name,identity_exists,structural_flags_match,approved_candidate_matches
+private.membership_purchases,membership_purchases_no_overlapping_periods,t,f,f

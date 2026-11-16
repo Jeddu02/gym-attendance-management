@@ -40,6 +40,7 @@ function formatPrice(value: number | string): string {
 
 export function MembershipPlansPage() {
   const [plans, setPlans] = useState<MembershipPlan[]>([]);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -70,12 +71,14 @@ export function MembershipPlansPage() {
 
   const loadPlans = useCallback(async () => {
     setLoading(true);
+    setLoadFailed(false);
     setErrorMessage('');
 
     try {
       const fetchedPlans = await fetchPlans();
       setPlans(fetchedPlans);
     } catch (error) {
+      setLoadFailed(true);
       setErrorMessage(friendlyError(error));
     } finally {
       setLoading(false);
@@ -94,6 +97,7 @@ export function MembershipPlansPage() {
         }
       } catch (error) {
         if (!cancelled) {
+          setLoadFailed(true);
           setErrorMessage(friendlyError(error));
         }
       } finally {
@@ -247,7 +251,7 @@ export function MembershipPlansPage() {
                     Loading membership plans...
                   </td>
                 </tr>
-              ) : plans.length === 0 ? (
+              ) : loadFailed ? <tr><td colSpan={5} className="members-empty">Plan directory unavailable. Refresh to retry.</td></tr> : plans.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="members-empty">
                     <strong>No membership plans yet</strong>

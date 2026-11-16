@@ -1,0 +1,8 @@
+{
+  "resolved_check_definitions": 51,
+  "resolved_exclusion_definitions": 1,
+  "resolved_explicit_indexes": 28,
+  "remaining_constraint_mismatches": 0,
+  "remaining_index_mismatches": 0,
+  "scope": "Recorded read-only definition evidence only; NOT execution readiness"
+}

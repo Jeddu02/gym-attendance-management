@@ -1,0 +1,12 @@
+{
+ "mode":"LOCAL-TEST-ONLY-CATALOGUE-ROLLBACK",
+ "execution_authorized":false,
+ "target":{"database":"gymforce_pg18_test","host":"127.0.0.1","port":55432,"marker":"f497fabb-a12f-4068-b745-8b0729279276","system_identifier":"7704603813616068820","data_directory":"C:\\Users\\Banco-Sual\\AppData\\Local\\GYMFORCE-PG18-TEST\\data","major":18},
+ "connection_role":"postgres",
+ "prohibited_runtime_actions":["business fixture DML","nextval","setval","new roles","role membership changes","function body replacement","COMMIT","cleanup.sql","hosted access","clone creation","concurrent-session acceptance"],
+ "fixtures":"NONE; no business, audit, credential, payment or attendance rows may be created",
+ "sequence_budget":0,
+ "isolation":"Existing disposable target is a conditional catalogue-only pilot target; full executor/concurrency acceptance requires separately approved isolation and sequence/recovery scope",
+ "transaction":"One fresh client connection, one BEGIN, one terminal ROLLBACK, no intermediate transaction boundaries",
+ "post_verification":"Required separate fresh identity-guarded read-only original-baseline verification and exact before/after sequence state comparison; never infer success from ROLLBACK text alone"
+}

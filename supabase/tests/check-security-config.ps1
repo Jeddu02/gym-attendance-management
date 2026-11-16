@@ -28,7 +28,7 @@ function Get-ValidatedApiSchemas {
         }
 
         if ($section -ceq 'api' -and $line -match '^(?:schemas|"schemas")(?:\s|=|$)') {
-            if ($line -notmatch '^schemas\s*=\s*\[\s*"public"\s*,\s*"graphql_public"\s*,\s*"api"\s*\]\s*(?:#.*)?$') {
+            if ($line -notmatch '^schemas\s*=\s*\[\s*"api"\s*\]\s*(?:#.*)?$') {
                 throw "Unsupported or incorrect [api].schemas syntax: $line"
             }
             $schemaSettings.Add($line)
@@ -42,23 +42,23 @@ function Get-ValidatedApiSchemas {
         throw "Expected exactly one supported schemas setting inside [api]; found $($schemaSettings.Count)."
     }
 
-    return @('public', 'graphql_public', 'api')
+    return @('api')
 }
 
-$expectedSchemas = @('public', 'graphql_public', 'api')
-$validExample = "[api]`nschemas = [`"public`", `"graphql_public`", `"api`"]"
+$expectedSchemas = @('api')
+$validExample = "[api]`nschemas = [`"api`"]"
 if ((Get-ValidatedApiSchemas -Text $validExample) -join "`n" -cne ($expectedSchemas -join "`n")) {
     throw 'The supported exact [api].schemas example was rejected.'
 }
 
 $invalidExamples = @(
-    @{ Name = 'setting outside [api]'; Text = "schemas = [`"public`", `"graphql_public`", `"api`"]`n[api]`nenabled = true" },
+    @{ Name = 'setting outside [api]'; Text = "schemas = [`"api`"]`n[api]`nenabled = true" },
     @{ Name = 'additional schema'; Text = "[api]`nschemas = [`"public`", `"graphql_public`", `"api`", `"private`"]" },
-    @{ Name = 'missing schema'; Text = "[api]`nschemas = [`"public`", `"api`"]" },
+    @{ Name = 'missing schema'; Text = "[api]`nschemas = []" },
     @{ Name = 'wrong order'; Text = "[api]`nschemas = [`"graphql_public`", `"public`", `"api`"]" },
     @{ Name = 'unquoted schema'; Text = '[api]' + "`n" + 'schemas = [public, "graphql_public", "api"]' },
     @{ Name = 'malformed value'; Text = "[api]`nschemas = [" },
-    @{ Name = 'duplicate setting'; Text = "[api]`nschemas = [`"public`", `"graphql_public`", `"api`"]`nschemas = [`"public`", `"graphql_public`", `"api`"]" }
+    @{ Name = 'duplicate setting'; Text = "[api]`nschemas = [`"api`"]`nschemas = [`"api`"]" }
 )
 foreach ($example in $invalidExamples) {
     $rejected = $false

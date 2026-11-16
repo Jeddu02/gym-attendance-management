@@ -1,0 +1,7 @@
+﻿table_name,constraint_name,identity_exists,structural_flags_match,exact_source_definition_matches
+private.cash_reconciliations,cash_reconciliations_drawer_session_id_key,t,t,t
+private.member_pin_setup_tokens,member_pin_setup_tokens_token_hash_key,t,t,t
+private.members,members_member_code_key,t,t,t
+private.members,members_mobile_lookup_hash_key,t,t,t
+private.payment_allocations,payment_allocations_payment_id_key,t,t,t
+private.pin_attempt_buckets,pin_bucket_unique_window,t,t,t

@@ -3,6 +3,7 @@ import { getSupabaseClient } from '../lib/supabase';
 import { operationWasRejected } from '../lib/operation-error';
 type Claim = { id: string; memberCode: string; claimedLocalDate: string; submittedAt: string; status: string; reason: string | null; attendanceId: string | null };
 export function ClaimReviewPage() {
+  const [loadError, setLoadError] = useState('');
   const [rows, setRows] = useState<Claim[]>([]);
   const [page, setPage] = useState(0); const [refresh, setRefresh] = useState(0);
   const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [message, setMessage] = useState('');
@@ -16,13 +17,13 @@ export function ClaimReviewPage() {
     let active = true;
     void (async () => {
       await Promise.resolve(); if (!active) return;
-      setLoading(true); setRows([]);
+      setLoading(true); setRows([]); setLoadError('');
       try {
         const { data, error } = await getSupabaseClient().functions.invoke('owner-attendance-claims', { body: { action: 'list', limit: 50, offset: page * 50 } });
         if (!active) return;
         if (error || data?.success !== true || !Array.isArray(data.result)) throw Error();
         setRows(data.result);
-      } catch { if (active) setMessage('Presence review is unavailable. No attendance has been confirmed.'); }
+      } catch { if (active) setLoadError('Presence review is unavailable. No attendance has been confirmed.'); }
       finally { if (active) setLoading(false); }
     })();
     return () => { active = false; };
@@ -58,7 +59,7 @@ export function ClaimReviewPage() {
         <button type="button" onClick={() => { setSelected(null); setPresence(false); setReviewed(false); }}>Return to claim entry</button></>
         : <><label>Member ID<input required pattern="MBR-[0-9A-Fa-f]{12}" value={memberCode} onChange={(event) => setMemberCode(event.target.value)} /></label><label>Claimed Manila date<input type="date" required value={claimedLocalDate} onChange={(event) => setDate(event.target.value)} /></label></>}
     </fieldset><button className="primary-button" disabled={busy || (!attempt && !!selected && !reviewed)}>{busy ? 'Recording…' : attempt ? 'Retry the same operation' : selected ? 'Record resolution' : 'Submit provisional claim'}</button></form>
-    <div className="members-table-wrap"><table className="members-table"><thead><tr><th>Claim</th><th>Member ID</th><th>Claimed date</th><th>Status</th><th>Resolution reason</th><th>Review</th></tr></thead><tbody>{loading ? <tr><td colSpan={6}>Loading…</td></tr> : rows.length === 0 ? <tr><td colSpan={6}>No claims on this page.</td></tr> : rows.map((row) => <tr key={row.id}><td>{row.id}</td><td>{row.memberCode}</td><td>{row.claimedLocalDate}</td><td>{row.status}</td><td>{row.reason}</td><td>{row.status === 'provisional' && <button disabled={busy || !!attempt} onClick={() => { setSelected(row); setReason(''); setPresence(false); setReviewed(false); }}>Review claim</button>}</td></tr>)}</tbody></table></div>
+    <div className="members-table-wrap"><table className="members-table"><thead><tr><th>Claim</th><th>Member ID</th><th>Claimed date</th><th>Status</th><th>Resolution reason</th><th>Review</th></tr></thead><tbody>{loading ? <tr><td colSpan={6}>Loading…</td></tr> : loadError ? <tr><td colSpan={6} role="alert">Presence review unavailable. Refresh to retry.</td></tr> : rows.length === 0 ? <tr><td colSpan={6}>No claims on this page.</td></tr> : rows.map((row) => <tr key={row.id}><td>{row.id}</td><td>{row.memberCode}</td><td>{row.claimedLocalDate}</td><td>{row.status}</td><td>{row.reason}</td><td>{row.status === 'provisional' && <button disabled={busy || !!attempt} onClick={() => { setSelected(row); setReason(''); setPresence(false); setReviewed(false); }}>Review claim</button>}</td></tr>)}</tbody></table></div>
     <div className="purchase-history-pagination"><button disabled={loading || page === 0} onClick={() => setPage((value) => value - 1)}>Previous</button><span>Page {page + 1}</span><button disabled={loading || rows.length < 50 || (page + 1) * 50 > 100000} onClick={() => setPage((value) => value + 1)}>Next</button></div>
     <p className="members-footnote">Claimed dates are untrusted. Older or conflicting claims remain in review unless resolved with a reason without attendance. This form requires internet and does not save drafts on the device.</p>
   </section>;

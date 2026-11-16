@@ -1,0 +1,14 @@
+﻿table_name,trigger_name,identity_exists,enabled_matches,exact_source_definition_matches
+private.audit_events,audit_events_chain_insert_trigger,t,t,t
+private.audit_events,audit_events_no_truncate,t,t,t
+private.audit_events,audit_events_no_update_delete,t,t,t
+private.membership_purchases,membership_purchase_requires_confirmed_payment,t,t,t
+private.payment_allocations,payment_allocations_no_truncate,t,t,t
+private.payment_allocations,payment_allocations_no_update_delete,t,t,t
+private.payment_allocations,payment_allocations_validate_membership,t,t,t
+private.payment_events,payment_events_no_truncate,t,t,t
+private.payment_events,payment_events_no_update_delete,t,t,t
+private.payment_records,payment_records_guard_update,t,t,t
+private.payment_records,payment_records_no_delete,t,t,t
+private.payment_records,payment_records_no_truncate,t,t,t
+private.payment_records,payment_records_validate_membership_insert,t,t,t

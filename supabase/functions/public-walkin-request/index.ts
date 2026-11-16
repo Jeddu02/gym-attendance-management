@@ -19,9 +19,10 @@ const headers = {
 const respond = (status: number, body: Record<string, unknown>) => new Response(JSON.stringify(body), { status, headers });
 
 Deno.serve(async (request: Request): Promise<Response> => {
-  if (!enabled || !requestLimit || !appOrigin || !url || !serviceKey) return respond(503, { error: "REQUEST_UNAVAILABLE" });
+  if (!appOrigin) return respond(503, { error: "REQUEST_UNAVAILABLE" });
   if (request.headers.get("Origin") !== appOrigin) return respond(403, { error: "REQUEST_UNAVAILABLE" });
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers });
+  if (!enabled || !requestLimit || !url || !serviceKey) return respond(503, { error: "REQUEST_UNAVAILABLE" });
   if (request.method !== "POST") return respond(405, { error: "REQUEST_UNAVAILABLE" });
   let input;
   try { input = parsePublicWalkinInput(await readPinRequestBody(request)); }
@@ -39,6 +40,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
     });
     if (error) {
       if (error.code === "P0001" && error.message === "WALKIN_RATE_LIMITED") return respond(429, { error: "REQUEST_UNAVAILABLE" });
+      console.error("Public walk-in RPC unavailable", error.message === "WALKIN_FEE_UNAVAILABLE" ? "WALKIN_FEE_UNAVAILABLE" : /^[A-Z0-9]{5,10}$/.test(error.code ?? "") ? error.code : "UNKNOWN");
       return respond(503, { error: "REQUEST_UNAVAILABLE" });
     }
     if (!data || typeof data !== "object" || Array.isArray(data) ||

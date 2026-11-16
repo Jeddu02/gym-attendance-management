@@ -1,0 +1,61 @@
+{
+  "changes": [
+    {
+      "file": "foundation_assertions.sql.draft",
+      "statement_index": 3,
+      "tag": "$phase_assertions$",
+      "before": "e680f0f41af166d36e5057c8d5c90cfb7fb9b3061f1472fcd87307992101aa5c",
+      "after": "71383d03181ab3336627919f0b109e167010729916ece12c6e274a74437788ce"
+    },
+    {
+      "file": "foundation_assertions.sql.draft",
+      "statement_index": 5,
+      "tag": "$offline_contract$",
+      "before": "981cb323d3d5dc93e9939f39808969cd64e16ba254ee63bbb5ec065d36c38f31",
+      "after": "ae9cf56a33cdb3a3aa1f57478227b135a254df53c2f7ac9af369ee75d80fc022"
+    },
+    {
+      "file": "20261106120000_owner_executor_foundation.sql.draft",
+      "statement_index": 6,
+      "tag": "$phase_assertions$",
+      "before": "e680f0f41af166d36e5057c8d5c90cfb7fb9b3061f1472fcd87307992101aa5c",
+      "after": "71383d03181ab3336627919f0b109e167010729916ece12c6e274a74437788ce"
+    },
+    {
+      "file": "20261106120000_owner_executor_foundation.sql.draft",
+      "statement_index": 8,
+      "tag": "$offline_contract$",
+      "before": "981cb323d3d5dc93e9939f39808969cd64e16ba254ee63bbb5ec065d36c38f31",
+      "after": "ae9cf56a33cdb3a3aa1f57478227b135a254df53c2f7ac9af369ee75d80fc022"
+    },
+    {
+      "file": "20261106120000_owner_executor_foundation.sql.draft",
+      "statement_index": 11,
+      "tag": "$phase_assertions$",
+      "before": "e680f0f41af166d36e5057c8d5c90cfb7fb9b3061f1472fcd87307992101aa5c",
+      "after": "71383d03181ab3336627919f0b109e167010729916ece12c6e274a74437788ce"
+    },
+    {
+      "file": "20261106120000_owner_executor_foundation.sql.draft",
+      "statement_index": 13,
+      "tag": "$offline_contract$",
+      "before": "981cb323d3d5dc93e9939f39808969cd64e16ba254ee63bbb5ec065d36c38f31",
+      "after": "ae9cf56a33cdb3a3aa1f57478227b135a254df53c2f7ac9af369ee75d80fc022"
+    },
+    {
+      "file": "20261106120000_owner_executor_foundation.sql.draft",
+      "statement_index": 306,
+      "tag": "$phase_assertions$",
+      "before": "e680f0f41af166d36e5057c8d5c90cfb7fb9b3061f1472fcd87307992101aa5c",
+      "after": "71383d03181ab3336627919f0b109e167010729916ece12c6e274a74437788ce"
+    },
+    {
+      "file": "20261106120000_owner_executor_foundation.sql.draft",
+      "statement_index": 308,
+      "tag": "$offline_contract$",
+      "before": "981cb323d3d5dc93e9939f39808969cd64e16ba254ee63bbb5ec065d36c38f31",
+      "after": "ae9cf56a33cdb3a3aa1f57478227b135a254df53c2f7ac9af369ee75d80fc022"
+    }
+  ],
+  "unchanged": "Every non-DO statement, draft blocker, role/ownership/grant/policy instruction, dependency block and default-function proposal"
+}

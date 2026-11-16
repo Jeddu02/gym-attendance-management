@@ -162,6 +162,7 @@ export function MembersPage() {
   const [page, setPage] = useState(0);
   const [refresh, setRefresh] = useState(0);
   const [members, setMembers] = useState<Member[]>([]);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<MemberStatus>('all');
   const [loading, setLoading] = useState(true);
@@ -181,6 +182,7 @@ export function MembersPage() {
     const ticket = ++request.current;
     setLoading(true);
     setMembers([]);
+    setLoadFailed(false);
     setErrorMessage('');
     try {
       const { data, error } = await getSupabaseClient().functions.invoke(
@@ -197,7 +199,7 @@ export function MembersPage() {
       }
       setMembers(data.members as Member[]);
     } catch (error) {
-      if (mounted.current && ticket === request.current) setErrorMessage(friendlyError(error));
+      if (mounted.current && ticket === request.current) { setLoadFailed(true); setErrorMessage(friendlyError(error)); }
     } finally {
       if (mounted.current && ticket === request.current) setLoading(false);
     }
@@ -332,6 +334,9 @@ export function MembersPage() {
             <h2>Member directory</h2>
             <p>{loading ? 'Loading records…' : `${members.length} record${members.length === 1 ? '' : 's'} shown`}</p>
           </div>
+          <button type="button" className="secondary-button" disabled={loading || submitting} onClick={() => {
+            ++request.current; setLoading(true); setRefresh((value) => value + 1);
+          }}>Refresh members</button>
           <button type="button" className="secondary-button" onClick={() => void loadMembers()} disabled={loading}>
             ↻ Refresh
           </button>
@@ -351,7 +356,7 @@ export function MembersPage() {
             <tbody>
               {loading ? (
                 <tr><td colSpan={5} className="members-empty">Loading members…</td></tr>
-              ) : members.length === 0 ? (
+              ) : loadFailed ? <tr><td colSpan={5} className="members-empty">Member directory unavailable. Refresh to retry.</td></tr> : members.length === 0 ? (
                 <tr><td colSpan={5} className="members-empty">
                   <strong>No members found</strong>
                   <span>Register a member to begin testing the member workflow.</span>

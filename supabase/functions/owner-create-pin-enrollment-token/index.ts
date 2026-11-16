@@ -82,7 +82,7 @@ async function readLimitedBody(
   };
 }
 Deno.serve(async (request) => {
-  if (!appOrigin || !pinSetupEnabled) {
+  if (!appOrigin) {
     return new Response(
       JSON.stringify({ error: "SERVER_CONFIGURATION_ERROR" }),
       {
@@ -101,6 +101,7 @@ Deno.serve(async (request) => {
   if (request.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
+  if (!pinSetupEnabled) return respond(503, { error: "SERVICE_UNAVAILABLE" });
 
   if (request.method !== "POST") {
     return respond(405, { error: "METHOD_NOT_ALLOWED" });

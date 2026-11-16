@@ -25,7 +25,7 @@ const respond = (status: number, body: Record<string, unknown>) =>
   new Response(JSON.stringify(body), { status, headers });
 
 Deno.serve(async (request: Request): Promise<Response> => {
-  if (!enabled || !appOrigin || !url || !publishableKey || !serviceKey) {
+  if (!appOrigin) {
     return respond(503, { error: "SERVICE_UNAVAILABLE" });
   }
   if (request.headers.get("Origin") !== appOrigin) {
@@ -34,6 +34,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers });
   }
+  if (!enabled || !url || !publishableKey || !serviceKey) return respond(503, { error: "SERVICE_UNAVAILABLE" });
   if (request.method !== "POST") {
     return respond(405, { error: "METHOD_NOT_ALLOWED" });
   }

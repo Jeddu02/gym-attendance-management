@@ -1,0 +1,10 @@
+{
+ "approved_by_owner":false,
+ "revision":null,
+ "scope":"LOCAL-TEST-ONLY-CATALOGUE-ROLLBACK",
+ "exclusive_window_attested":false,
+ "window_start_utc":null,
+ "window_end_utc":null,
+ "backup":{"path":null,"sha256":null,"source_database":"gymforce_pg18_test","source_system_identifier":"7704603813616068820","restore_proof_path":null,"restore_proof_sha256":null,"owner_attested":false},
+ "notice":"Template only, not approval or proof of recovery. Store completed evidence outside Git. No database client is prepared."
+}

@@ -5,7 +5,7 @@ import {
 } from '../scripts/check-source-security.mjs';
 
 const config = `[api]
-schemas = ["public", "graphql_public", "api"]
+schemas = ["api"]
 auto_expose_new_tables = false
 [auth]
 enable_signup = false
@@ -18,7 +18,7 @@ enable_signup = false
 
 test('supported local config explicitly denies account creation and table auto exposure', () => {
   assert.deepEqual(checkConfig(config), []);
-  assert.deepEqual(checkConfig(config.replace('"public", "graphql_public", "api"', '"api", "public", "graphql_public"')), []);
+  assert.ok(checkConfig(config.replace('["api"]', '["public", "graphql_public", "api"]')).includes('config-api-schema-allowlist'));
 });
 
 for (const [name, mutate, rule] of [

@@ -49,7 +49,7 @@ async function hashEnrollmentToken(token: string): Promise<string> {
 Deno.serve(async (request: Request): Promise<Response> => {
   const origin = request.headers.get("origin") ?? undefined;
 
-  if (!APP_ORIGIN || !SUPABASE_URL || !SERVICE_ROLE_KEY || !PIN_SETUP_ENABLED) {
+  if (!APP_ORIGIN) {
     return response(503, { error: "SERVICE_UNAVAILABLE" });
   }
 
@@ -71,6 +71,9 @@ Deno.serve(async (request: Request): Promise<Response> => {
     });
   }
 
+  if (!SUPABASE_URL || !SERVICE_ROLE_KEY || !PIN_SETUP_ENABLED) {
+    return response(503, { error: "SERVICE_UNAVAILABLE" }, origin);
+  }
   if (request.method !== "POST") {
     return response(405, { error: "METHOD_NOT_ALLOWED" }, origin);
   }

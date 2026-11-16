@@ -1,0 +1,410 @@
+{
+  "indexes": [
+    {
+      "name": "private.attendance_checkins_pkey",
+      "parent": "private.attendance_checkins"
+    },
+    {
+      "name": "private.attendance_date_idx",
+      "parent": "private.attendance_checkins"
+    },
+    {
+      "name": "private.attendance_member_date_idx",
+      "parent": "private.attendance_checkins"
+    },
+    {
+      "name": "private.attendance_one_checkin_per_walkin",
+      "parent": "private.attendance_checkins"
+    },
+    {
+      "name": "private.attendance_one_member_valid_checkin_per_day",
+      "parent": "private.attendance_checkins"
+    },
+    {
+      "name": "private.attendance_validity_resolutions_pkey",
+      "parent": "private.attendance_validity_resolutions"
+    },
+    {
+      "name": "private.audit_chain_heads_pkey",
+      "parent": "private.audit_chain_heads"
+    },
+    {
+      "name": "private.audit_events_actor_created_idx",
+      "parent": "private.audit_events"
+    },
+    {
+      "name": "private.audit_events_created_at_idx",
+      "parent": "private.audit_events"
+    },
+    {
+      "name": "private.audit_events_pkey",
+      "parent": "private.audit_events"
+    },
+    {
+      "name": "private.audit_events_stream_created_idx",
+      "parent": "private.audit_events"
+    },
+    {
+      "name": "private.cash_adjustments_reconciliation_idx",
+      "parent": "private.cash_reconciliation_adjustments"
+    },
+    {
+      "name": "private.cash_drawer_only_one_open_session",
+      "parent": "private.cash_drawer_sessions"
+    },
+    {
+      "name": "private.cash_drawer_sessions_pkey",
+      "parent": "private.cash_drawer_sessions"
+    },
+    {
+      "name": "private.cash_reconciliation_adjustments_pkey",
+      "parent": "private.cash_reconciliation_adjustments"
+    },
+    {
+      "name": "private.cash_reconciliations_date_idx",
+      "parent": "private.cash_reconciliations"
+    },
+    {
+      "name": "private.cash_reconciliations_drawer_session_id_key",
+      "parent": "private.cash_reconciliations"
+    },
+    {
+      "name": "private.cash_reconciliations_pkey",
+      "parent": "private.cash_reconciliations"
+    },
+    {
+      "name": "private.member_pin_credentials_pkey",
+      "parent": "private.member_pin_credentials"
+    },
+    {
+      "name": "private.member_pin_setup_tokens_active_enrollment_idx",
+      "parent": "private.member_pin_setup_tokens"
+    },
+    {
+      "name": "private.member_pin_setup_tokens_expiry_idx",
+      "parent": "private.member_pin_setup_tokens"
+    },
+    {
+      "name": "private.member_pin_setup_tokens_member_idx",
+      "parent": "private.member_pin_setup_tokens"
+    },
+    {
+      "name": "private.member_pin_setup_tokens_pkey",
+      "parent": "private.member_pin_setup_tokens"
+    },
+    {
+      "name": "private.member_pin_setup_tokens_token_hash_key",
+      "parent": "private.member_pin_setup_tokens"
+    },
+    {
+      "name": "private.members_member_code_key",
+      "parent": "private.members"
+    },
+    {
+      "name": "private.members_mobile_lookup_hash_key",
+      "parent": "private.members"
+    },
+    {
+      "name": "private.members_pkey",
+      "parent": "private.members"
+    },
+    {
+      "name": "private.members_status_idx",
+      "parent": "private.members"
+    },
+    {
+      "name": "private.membership_plans_normalized_name_uidx",
+      "parent": "private.membership_plans"
+    },
+    {
+      "name": "private.membership_plans_pkey",
+      "parent": "private.membership_plans"
+    },
+    {
+      "name": "private.membership_purchases_member_idx",
+      "parent": "private.membership_purchases"
+    },
+    {
+      "name": "private.membership_purchases_no_overlapping_periods",
+      "parent": "private.membership_purchases"
+    },
+    {
+      "name": "private.membership_purchases_pkey",
+      "parent": "private.membership_purchases"
+    },
+    {
+      "name": "private.membership_purchases_plan_idx",
+      "parent": "private.membership_purchases"
+    },
+    {
+      "name": "private.owner_access_pkey",
+      "parent": "private.owner_access"
+    },
+    {
+      "name": "private.payment_allocations_membership_idx",
+      "parent": "private.payment_allocations"
+    },
+    {
+      "name": "private.payment_allocations_membership_purchase_uidx",
+      "parent": "private.payment_allocations"
+    },
+    {
+      "name": "private.payment_allocations_payment_id_key",
+      "parent": "private.payment_allocations"
+    },
+    {
+      "name": "private.payment_allocations_pkey",
+      "parent": "private.payment_allocations"
+    },
+    {
+      "name": "private.payment_allocations_walkin_idx",
+      "parent": "private.payment_allocations"
+    },
+    {
+      "name": "private.payment_corrections_payment_idx",
+      "parent": "private.payment_corrections"
+    },
+    {
+      "name": "private.payment_corrections_pkey",
+      "parent": "private.payment_corrections"
+    },
+    {
+      "name": "private.payment_events_payment_created_idx",
+      "parent": "private.payment_events"
+    },
+    {
+      "name": "private.payment_events_pkey",
+      "parent": "private.payment_events"
+    },
+    {
+      "name": "private.payment_records_membership_external_reference_uidx",
+      "parent": "private.payment_records"
+    },
+    {
+      "name": "private.payment_records_membership_idx",
+      "parent": "private.payment_records"
+    },
+    {
+      "name": "private.payment_records_operation_id_uidx",
+      "parent": "private.payment_records"
+    },
+    {
+      "name": "private.payment_records_pending_membership_uidx",
+      "parent": "private.payment_records"
+    },
+    {
+      "name": "private.payment_records_pkey",
+      "parent": "private.payment_records"
+    },
+    {
+      "name": "private.pin_attempt_buckets_blocked_idx",
+      "parent": "private.pin_attempt_buckets"
+    },
+    {
+      "name": "private.pin_attempt_buckets_pkey",
+      "parent": "private.pin_attempt_buckets"
+    },
+    {
+      "name": "private.pin_bucket_unique_window",
+      "parent": "private.pin_attempt_buckets"
+    },
+    {
+      "name": "private.pin_enrollment_global_rate_limit_events_pkey",
+      "parent": "private.pin_enrollment_global_rate_limit_events"
+    },
+    {
+      "name": "private.pin_enrollment_global_rate_limit_events_requested_at_idx",
+      "parent": "private.pin_enrollment_global_rate_limit_events"
+    },
+    {
+      "name": "private.walkin_fee_versions_pkey",
+      "parent": "private.walkin_fee_versions"
+    },
+    {
+      "name": "private.walkin_requests_pkey",
+      "parent": "private.walkin_requests"
+    },
+    {
+      "name": "public.gym_settings_pkey",
+      "parent": "public.gym_settings"
+    }
+  ],
+  "types": [
+    {
+      "name": "private._attendance_checkins",
+      "parent": "private.attendance_checkins"
+    },
+    {
+      "name": "private._attendance_validity_resolutions",
+      "parent": "private.attendance_validity_resolutions"
+    },
+    {
+      "name": "private._audit_chain_heads",
+      "parent": "private.audit_chain_heads"
+    },
+    {
+      "name": "private._audit_events",
+      "parent": "private.audit_events"
+    },
+    {
+      "name": "private._cash_drawer_sessions",
+      "parent": "private.cash_drawer_sessions"
+    },
+    {
+      "name": "private._cash_reconciliation_adjustments",
+      "parent": "private.cash_reconciliation_adjustments"
+    },
+    {
+      "name": "private._cash_reconciliations",
+      "parent": "private.cash_reconciliations"
+    },
+    {
+      "name": "private._member_pin_credentials",
+      "parent": "private.member_pin_credentials"
+    },
+    {
+      "name": "private._member_pin_setup_tokens",
+      "parent": "private.member_pin_setup_tokens"
+    },
+    {
+      "name": "private._members",
+      "parent": "private.members"
+    },
+    {
+      "name": "private._membership_plans",
+      "parent": "private.membership_plans"
+    },
+    {
+      "name": "private._membership_purchases",
+      "parent": "private.membership_purchases"
+    },
+    {
+      "name": "private._owner_access",
+      "parent": "private.owner_access"
+    },
+    {
+      "name": "private._payment_allocations",
+      "parent": "private.payment_allocations"
+    },
+    {
+      "name": "private._payment_corrections",
+      "parent": "private.payment_corrections"
+    },
+    {
+      "name": "private._payment_events",
+      "parent": "private.payment_events"
+    },
+    {
+      "name": "private._payment_records",
+      "parent": "private.payment_records"
+    },
+    {
+      "name": "private._pin_attempt_buckets",
+      "parent": "private.pin_attempt_buckets"
+    },
+    {
+      "name": "private._pin_enrollment_global_rate_limit_events",
+      "parent": "private.pin_enrollment_global_rate_limit_events"
+    },
+    {
+      "name": "private._walkin_fee_versions",
+      "parent": "private.walkin_fee_versions"
+    },
+    {
+      "name": "private._walkin_requests",
+      "parent": "private.walkin_requests"
+    },
+    {
+      "name": "private.attendance_checkins",
+      "parent": "private.attendance_checkins"
+    },
+    {
+      "name": "private.attendance_validity_resolutions",
+      "parent": "private.attendance_validity_resolutions"
+    },
+    {
+      "name": "private.audit_chain_heads",
+      "parent": "private.audit_chain_heads"
+    },
+    {
+      "name": "private.audit_events",
+      "parent": "private.audit_events"
+    },
+    {
+      "name": "private.cash_drawer_sessions",
+      "parent": "private.cash_drawer_sessions"
+    },
+    {
+      "name": "private.cash_reconciliation_adjustments",
+      "parent": "private.cash_reconciliation_adjustments"
+    },
+    {
+      "name": "private.cash_reconciliations",
+      "parent": "private.cash_reconciliations"
+    },
+    {
+      "name": "private.member_pin_credentials",
+      "parent": "private.member_pin_credentials"
+    },
+    {
+      "name": "private.member_pin_setup_tokens",
+      "parent": "private.member_pin_setup_tokens"
+    },
+    {
+      "name": "private.members",
+      "parent": "private.members"
+    },
+    {
+      "name": "private.membership_plans",
+      "parent": "private.membership_plans"
+    },
+    {
+      "name": "private.membership_purchases",
+      "parent": "private.membership_purchases"
+    },
+    {
+      "name": "private.owner_access",
+      "parent": "private.owner_access"
+    },
+    {
+      "name": "private.payment_allocations",
+      "parent": "private.payment_allocations"
+    },
+    {
+      "name": "private.payment_corrections",
+      "parent": "private.payment_corrections"
+    },
+    {
+      "name": "private.payment_events",
+      "parent": "private.payment_events"
+    },
+    {
+      "name": "private.payment_records",
+      "parent": "private.payment_records"
+    },
+    {
+      "name": "private.pin_attempt_buckets",
+      "parent": "private.pin_attempt_buckets"
+    },
+    {
+      "name": "private.pin_enrollment_global_rate_limit_events",
+      "parent": "private.pin_enrollment_global_rate_limit_events"
+    },
+    {
+      "name": "private.walkin_fee_versions",
+      "parent": "private.walkin_fee_versions"
+    },
+    {
+      "name": "private.walkin_requests",
+      "parent": "private.walkin_requests"
+    },
+    {
+      "name": "public._gym_settings",
+      "parent": "public.gym_settings"
+    },
+    {
+      "name": "public.gym_settings",
+      "parent": "public.gym_settings"
+    }
+  ]
+}

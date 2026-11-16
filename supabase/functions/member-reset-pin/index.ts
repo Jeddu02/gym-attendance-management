@@ -31,7 +31,7 @@ const respond = (
   });
 
 Deno.serve(async (request: Request): Promise<Response> => {
-  if (!enabled || !appOrigin || !url || !serviceKey) {
+  if (!appOrigin) {
     return respond(503, { error: "SERVICE_UNAVAILABLE" });
   }
   if (request.headers.get("Origin") !== appOrigin) {
@@ -40,6 +40,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers });
   }
+  if (!enabled || !url || !serviceKey) return respond(503, { error: "SERVICE_UNAVAILABLE" });
   if (request.method !== "POST") {
     return respond(405, { error: "METHOD_NOT_ALLOWED" });
   }

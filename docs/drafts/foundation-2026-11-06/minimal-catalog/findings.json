@@ -1,0 +1,177 @@
+{
+  "status": "NOT READY",
+  "accepted_queries": 11,
+  "rejected_narrowed_queries": 0,
+  "verified": {
+    "tables": 22,
+    "sequences": 3,
+    "constraints": 110,
+    "indexes": 57,
+    "columns": 149,
+    "routines": 25,
+    "user_triggers": 13,
+    "rules": 0,
+    "table_role_checks": 154,
+    "default_checks": 20
+  },
+  "observed_non_owner_default_flags": 10,
+  "default_origin_classification": [
+    {
+      "creator": "gym_data_owner",
+      "kind": "f",
+      "classification": "future_function_execution_hardening_required"
+    },
+    {
+      "creator": "gym_data_owner",
+      "kind": "T",
+      "classification": "acceptable_implicit_public_type_usage"
+    },
+    {
+      "creator": "gym_owner_executor",
+      "kind": "f",
+      "classification": "future_function_execution_hardening_required"
+    },
+    {
+      "creator": "gym_owner_executor",
+      "kind": "T",
+      "classification": "acceptable_implicit_public_type_usage"
+    },
+    {
+      "creator": "gym_public_executor",
+      "kind": "f",
+      "classification": "future_function_execution_hardening_required"
+    },
+    {
+      "creator": "gym_public_executor",
+      "kind": "T",
+      "classification": "acceptable_implicit_public_type_usage"
+    },
+    {
+      "creator": "gym_registration_login",
+      "kind": "f",
+      "classification": "future_function_execution_hardening_required"
+    },
+    {
+      "creator": "gym_registration_login",
+      "kind": "T",
+      "classification": "acceptable_implicit_public_type_usage"
+    },
+    {
+      "creator": "postgres",
+      "kind": "f",
+      "classification": "future_function_execution_hardening_required"
+    },
+    {
+      "creator": "postgres",
+      "kind": "T",
+      "classification": "acceptable_implicit_public_type_usage"
+    }
+  ],
+  "actual_default_precondition_failures": [
+    {
+      "creator": "gym_data_owner",
+      "kind": "f",
+      "classification": "future_function_execution_hardening_required"
+    },
+    {
+      "creator": "gym_owner_executor",
+      "kind": "f",
+      "classification": "future_function_execution_hardening_required"
+    },
+    {
+      "creator": "gym_public_executor",
+      "kind": "f",
+      "classification": "future_function_execution_hardening_required"
+    },
+    {
+      "creator": "gym_registration_login",
+      "kind": "f",
+      "classification": "future_function_execution_hardening_required"
+    },
+    {
+      "creator": "postgres",
+      "kind": "f",
+      "classification": "future_function_execution_hardening_required"
+    }
+  ],
+  "existing_browser_boundary": [
+    {
+      "role_name": "anon",
+      "executable_routines": "0",
+      "schema_reachable_routines": "0",
+      "directly_privileged_tables": "0"
+    },
+    {
+      "role_name": "authenticated",
+      "executable_routines": "0",
+      "schema_reachable_routines": "0",
+      "directly_privileged_tables": "0"
+    }
+  ],
+  "legitimate_type_formatting": [
+    {
+      "object": "private.cash_drawer_sessions.opening_float_php",
+      "property": "type_spacing",
+      "classification": "lexer whitespace only; canonical tokens equal"
+    },
+    {
+      "object": "private.cash_reconciliation_adjustments.amount_delta_php",
+      "property": "type_spacing",
+      "classification": "lexer whitespace only; canonical tokens equal"
+    },
+    {
+      "object": "private.cash_reconciliations.expected_cash_php",
+      "property": "type_spacing",
+      "classification": "lexer whitespace only; canonical tokens equal"
+    },
+    {
+      "object": "private.cash_reconciliations.counted_cash_php",
+      "property": "type_spacing",
+      "classification": "lexer whitespace only; canonical tokens equal"
+    },
+    {
+      "object": "private.cash_reconciliations.variance_php",
+      "property": "type_spacing",
+      "classification": "lexer whitespace only; canonical tokens equal"
+    },
+    {
+      "object": "private.membership_plans.price_php",
+      "property": "type_spacing",
+      "classification": "lexer whitespace only; canonical tokens equal"
+    },
+    {
+      "object": "private.membership_purchases.price_php",
+      "property": "type_spacing",
+      "classification": "lexer whitespace only; canonical tokens equal"
+    },
+    {
+      "object": "private.payment_corrections.proposed_amount_php",
+      "property": "type_spacing",
+      "classification": "lexer whitespace only; canonical tokens equal"
+    },
+    {
+      "object": "private.payment_records.amount_php",
+      "property": "type_spacing",
+      "classification": "lexer whitespace only; canonical tokens equal"
+    },
+    {
+      "object": "private.walkin_fee_versions.fee_php",
+      "property": "type_spacing",
+      "classification": "lexer whitespace only; canonical tokens equal"
+    },
+    {
+      "object": "private.walkin_requests.fee_php",
+      "property": "type_spacing",
+      "classification": "lexer whitespace only; canonical tokens equal"
+    }
+  ],
+  "unresolved": [
+    "Constraint/index expressions, keys, predicates and FK actions",
+    "Column default/generated expression values",
+    "Routine signatures, argument/result types/modes/default values, bodies and implementation identity",
+    "Sequence privileges and identity bindings",
+    "Definition-level trigger/RLS policy behavior",
+    "Post-migration restricted-executor behavior; hosted compatibility"
+  ],
+  "observation_scope": "Eleven independent guarded read-only transactions across follow-ups; not an atomic database snapshot or mutation-preservation proof"
+}

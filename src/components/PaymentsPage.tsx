@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { getSupabaseClient } from '../lib/supabase';
+import { functionErrorMessage } from '../lib/function-error';
 
 type PaymentMethod = 'cash' | 'gcash' | 'bank_transfer';
 type PaymentStatus = 'recorded' | 'confirmed' | 'rejected' | 'confirmation_voided_in_error';
@@ -103,6 +104,8 @@ export function PaymentsPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [historyError, setHistoryError] = useState('');
+  const [optionsError, setOptionsError] = useState('');
   const [notice, setNotice] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
@@ -129,7 +132,7 @@ export function PaymentsPage() {
     setDecisionPayment(null);
     setEvidenceReviewed(false);
     setRejectReason('');
-    setErrorMessage('');
+    setHistoryError('');
     try {
       const { data, error } = await getSupabaseClient().functions.invoke(
         'owner-membership-payments',
@@ -140,13 +143,14 @@ export function PaymentsPage() {
       );
       if (!mounted.current || ticket !== listRequest.current) return;
       if (error) throw error;
-      if (!Array.isArray(data?.result?.payments) || !Array.isArray(data?.result?.payablePurchases)) {
+      if (data?.success !== true || !Array.isArray(data?.result?.payments) || !Array.isArray(data?.result?.payablePurchases)) {
         throw new Error('Invalid payment list response');
       }
       const nextPayments = data.result.payments as Payment[];
       setPayments(nextPayments);
     } catch (error) {
-      if (mounted.current && ticket === listRequest.current) setErrorMessage(friendlyError(error));
+      const message = await functionErrorMessage(error, friendlyError(error));
+      if (mounted.current && ticket === listRequest.current) setHistoryError(message);
     } finally {
       if (mounted.current && ticket === listRequest.current) setLoading(false);
     }
@@ -162,17 +166,21 @@ export function PaymentsPage() {
     let active = true;
     const ticket = ++optionsRequest.current;
     const timer = window.setTimeout(() => void (async () => {
-      setLoadingOptions(true); setPurchases([]);
+      setLoadingOptions(true); setPurchases([]); setOptionsError('');
       try {
         const { data, error } = await getSupabaseClient().functions.invoke('owner-membership-payments', { body: { action: 'payable', search: purchaseSearch.trim(), limit: pageSize, offset: purchasePage * pageSize } });
         if (!active || ticket !== optionsRequest.current) return;
-        if (error || data?.success !== true || !Array.isArray(data.purchases)) throw Error();
+        if (error) throw error;
+        if (data?.success !== true || !Array.isArray(data.purchases)) throw Error();
         const next = [...data.purchases] as PayablePurchase[];
         const pending = recordAttempt.current;
         if (pending && !next.some((item) => item.id === pending.membershipPurchaseId)) next.push(pending.purchase);
         setPurchases(next);
         setPurchaseId((current) => pending ? pending.membershipPurchaseId : next.some((item) => item.id === current) ? current : next[0]?.id ?? '');
-      } catch { if (active && ticket === optionsRequest.current) setErrorMessage('Payable purchases could not be loaded.'); }
+      } catch (error) {
+        const message = await functionErrorMessage(error, 'Payable purchases could not be loaded. Check your connection and retry.');
+        if (active && ticket === optionsRequest.current) setOptionsError(message);
+      }
       finally { if (active && ticket === optionsRequest.current) setLoadingOptions(false); }
     })(), 250);
     return () => { active = false; window.clearTimeout(timer); };
@@ -317,7 +325,7 @@ export function PaymentsPage() {
           <strong>Record membership payment</strong>
           <p>Record one full payment attempt against a pending purchase. Recording does not confirm payment.</p>
         </div>
-        <button type="button" className="secondary-button" onClick={() => void loadPayments()} disabled={loading || submitting}>Refresh payments</button>
+        <button type="button" className="secondary-button" onClick={() => setRefresh((value) => value + 1)} disabled={loading || loadingOptions || submitting}>Refresh payments</button>
       </div>
 
       {notice && <p className="members-notice" role="status">{notice}</p>}
@@ -331,7 +339,7 @@ export function PaymentsPage() {
         </div>
         <div className="purchase-history-filters"><label>Find payable purchase<input type="search" maxLength={80} placeholder="Reference, member, ID or plan" value={purchaseSearch} disabled={submitting || recordRetryPending} onChange={(event) => { ++optionsRequest.current; setLoadingOptions(true); setPurchases([]); setPurchaseSearch(event.target.value); setPurchasePage(0); }} /></label></div>
         <div className="purchase-history-pagination"><button type="button" disabled={loadingOptions || submitting || recordRetryPending || purchasePage === 0} onClick={() => { ++optionsRequest.current; setLoadingOptions(true); setPurchasePage((value) => value - 1); }}>Previous purchases</button><span>Purchase page {purchasePage + 1}</span><button type="button" disabled={loadingOptions || submitting || recordRetryPending || purchases.length < pageSize || (purchasePage + 1) * pageSize > 100000} onClick={() => { ++optionsRequest.current; setLoadingOptions(true); setPurchasePage((value) => value + 1); }}>Next purchases</button></div>
-        {loadingOptions ? <p className="members-empty">Loading payable purchases…</p> : purchases.length === 0 ? (
+        {loadingOptions ? <p className="members-empty">Loading payable purchases…</p> : optionsError ? <p className="members-error" role="alert">{optionsError} Use Refresh payments to retry.</p> : purchases.length === 0 ? (
           <div className="members-empty payment-no-purchases"><strong>No purchases awaiting payment</strong><span>Pending purchases appear here when no payment attempt is awaiting a decision.</span></div>
         ) : (
           <form className="purchase-form" onSubmit={handleRecord}>
@@ -360,19 +368,20 @@ export function PaymentsPage() {
 
       <div className="members-table-card payment-history-card">
         <div className="members-table-heading">
-          <div><h2>Payment history</h2><p>{loading ? 'Loading payments…' : `${payments.length} payment${payments.length === 1 ? '' : 's'} on this page`}</p></div>
+          <div><h2>Payment history</h2><p>{loading ? 'Loading payments…' : historyError ? 'Payment history unavailable' : `${payments.length} payment${payments.length === 1 ? '' : 's'} on this page`}</p></div>
           <button type="button" className="secondary-button" onClick={() => void loadPayments()} disabled={loading || submitting}>Refresh history</button>
         </div>
         <div className="payment-history-filters">
           <label>Search payments<input type="search" value={searchInput} disabled={submitting} onChange={(event) => { invalidateSelection(); setSearchInput(event.target.value); }} maxLength={80} placeholder="Payment, purchase, member, or reference" /></label>
           <label>Status<select value={status} disabled={submitting} onChange={(event) => { invalidateSelection(); setStatus(event.target.value as StatusFilter); setPage(0); }}><option value="all">All statuses</option><option value="recorded">Awaiting review</option><option value="confirmed">Confirmed</option><option value="rejected">Rejected</option><option value="confirmation_voided_in_error">Confirmation voided</option></select></label>
         </div>
-        {errorMessage && decisionPayment && <p className="members-error payment-history-error" role="alert">{errorMessage}</p>}
+        {historyError && <p className="members-error payment-history-error" role="alert">{historyError}</p>}
         <div className="members-table-wrap">
           <table className="members-table payment-history-table">
             <thead><tr><th>Payment reference</th><th>Purchase / member</th><th>Amount</th><th>Method</th><th>Status</th><th>Transaction reference</th><th>Recorded</th><th>Decision / action</th></tr></thead>
             <tbody>
               {loading ? <tr><td colSpan={8} className="members-empty">Loading payment history…</td></tr>
+                : historyError ? <tr><td colSpan={8} className="members-empty">Payment history unavailable. Refresh history to retry.</td></tr>
                 : payments.length === 0 ? <tr><td colSpan={8} className="members-empty"><strong>No payment records found</strong><span>Recorded payment attempts will appear here.</span></td></tr>
                   : payments.map((payment) => <tr key={payment.id}>
                     <td><strong className="payment-reference" title={payment.id}>{payment.id}</strong></td>

@@ -1,9 +1,101 @@
 ﻿# GYMFORCE development progress
 
-Updated 2026-11-10, Asia/Manila. Current batch: integrated local acceptance and
-release gates. Development evidence below precedes the separately authorized
-Git publication preflight recorded at the end. No cloud provisioning, deployment
-or production access performed. Existing drafts and original migrations preserved.
+Updated 2026-11-16, Asia/Manila. Current batch: local bug fixing and deployment
+diagnostics. No production records, hosted settings or resources changed.
+The November 10 acceptance and Git publication notes below remain historical
+evidence. Existing drafts, unrelated edits and original migrations are preserved.
+
+## Stabilization continuation — 2026-11-16
+
+- Fresh public HTML/OPTIONS diagnostics reproduce four successful routes, seven
+  successful preflights and 14 missing Edge endpoints (HTTP 404), including
+  Payments and both walk-in endpoints. Production fixes remain deployment-gated.
+- Owner supplied 20 migration versions; 17 local versions remain unrecorded.
+  Owner's SQL Editor exposed only 51 valid/ready indexes, not the other 14
+  catalog results. Object presence, definitions and hosted prerequisites remain
+  unknown; no production catalog execution was performed by Codex.
+- Prepared [SQL Editor variants](production-preflight/sql-editor/README.md):
+  15 separate catalog SELECT files plus one marker file, exact output contracts,
+  sanitized reporting template and offline validator. PostgreSQL 17/18 static
+  checks pass; original approved SQL hashes are unchanged. Separate snapshots
+  require renewed execution approval. Scripts 03–07 and deployments remain held.
+- Rechecked lint/typecheck, 37 Node tests, source security, build, 103 Deno tests,
+  21 Edge typechecks, all 37 synthetic migrations and nine database races.
+  See [the current report](STABILIZATION-2026-11-16.md) for final browser results,
+  environment startup failures, exact evidence boundaries and release handoff.
+- No production SQL, migration, configuration change, financial/member write,
+  commit, push or deployment. Existing source fixes and unrelated work preserved.
+
+## Stabilization — 2026-11-11
+
+### Read-only production verification package — awaiting Owner review
+
+- Prepared [the manual SQL Editor guide](production-preflight/MANUAL-SQL-EDITOR-GUIDE.md)
+  for Owner execution of approved scripts 01 and 02. It includes project/context
+  confirmation, the reviewed identity excerpt, complete-file ordered execution,
+  result-display and transaction-cleanup stop conditions, and a sanitized summary
+  template. Both SQL files remain byte-for-byte unchanged. No production SQL was
+  executed while preparing the guide; scripts 03–07 and all changes remain on hold.
+- Owner subsequently authorized scripts 01 and 02 only, subject to verified
+  production connection/role, unchanged SQL, ordered separate execution and
+  private metadata handling. [The execution status](production-preflight/AUTHORIZED-01-02-STATUS.md)
+  records that neither script started: the project link matches, but no matching
+  database authentication is configured in the checked local paths. No database
+  connection was attempted and no production transaction opened. The Supabase
+  integration was offered but is not installed/connected. Catalog/role/object
+  results remain UNKNOWN; scripts 03–07 and all production changes remain gated.
+- Owner supplied 20 production migration versions, exactly matching the first
+  20 local files. Seventeen local versions remain unrecorded; no production
+  catalog query has been executed to determine which objects already exist.
+- Prepared [the review package](production-preflight/README.md) with seven SQL
+  files for catalog/signature/ACL/RLS inventory, 91 unrecorded-object markers,
+  hardening input screens, migration-authority inspection and aggregate-only
+  audit/registration/lifecycle/cash blocker checks. All SQL is available before
+  Owner execution. The lifecycle/payment query is conditional on columns added
+  by an unrecorded migration; absent prerequisites remain UNKNOWN.
+- PostgreSQL 17 and 18 parser checks PASS for all seven files. AST safety checks
+  PASS for 66 statements, limited to SELECT, local settings and read-only
+  transaction wrappers. No SQL execution or production connection occurred.
+- Identified a structural non-superuser ownership risk: hardening forbids
+  reserved-role memberships and schema CREATE while transferring ownership.
+  Actual hosted migration-role compatibility requires separately approved,
+  isolated synthetic testing; catalog checks alone cannot certify it.
+- Readiness checklist records the known migration/Edge gaps as FAIL and unrun
+  hosted catalog, RLS, audit, lifecycle, backup and compatibility checks as UNKNOWN.
+  No migrations, deployment, authentication/RLS/grant/membership changes or
+  mutation-based compatibility tests were performed. Awaiting review/approval.
+
+See [the stabilization report](STABILIZATION-2026-11-11.md) for confirmed source
+defects, modified files, test evidence, exact deployment instructions and the
+production acceptance checklist.
+
+- Corrected preflight ordering in eight payment/walk-in/PIN/check-in handlers;
+  unavailable services now return safe POST failures after valid-origin OPTIONS.
+  Owner/Auth/SQL authorization and all release switches remain enforced.
+- Payments refresh retries both history and payable purchases, with independent
+  errors. Failed management lists no longer appear empty; Member directory has
+  a dedicated retry control. Owner reads use safe status messages.
+- Local API exposure and regression checks now match the approved `api`-only
+  boundary. No SQL migration or business-rule change was needed.
+- Added synthetic handler/preflight/error regressions, broader browser recovery
+  coverage and a credential-free public HTML/OPTIONS diagnostic script.
+- Verified 37 Node tests, 103 Deno tests, all 21 Edge entrypoints and the native
+  database suite (37 migrations, final security assertions, nine races).
+  Lint/typecheck/build, source-security checks and expanded production-browser
+  tests also PASS, including all management navigation, failed-list recovery,
+  mobile layout, QR/PIN and static-only PWA caches. The harness now waits for
+  prompt-mode worker activation and navigation before checking document control.
+- Live URL supplied: `https://gym-attendance-management.pages.dev/`. Public
+  diagnostics confirm four HTML routes and seven function preflights succeed,
+  while 14 required function endpoints are absent from the frontend-configured
+  Supabase project. Payments, Owner Walk-ins and public walk-in creation each
+  return gateway HTTP 404 / `NOT_FOUND` / `Requested function was not found`.
+  This confirms a common deployment mismatch before application SQL executes.
+- User confirmed `alxhytivwybjbkjjdsyn` is the intended production project.
+  Applied migration versions and release authorization remain required.
+  No push/deployment performed and no
+  production end-to-end success is claimed. The report contains the revised
+  deployment list and exact public diagnostics command.
 
 ## Approved scope
 

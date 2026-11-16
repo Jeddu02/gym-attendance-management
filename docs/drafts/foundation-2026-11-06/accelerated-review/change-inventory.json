@@ -1,0 +1,64 @@
+{
+  "added": [
+    "offline-parser.mjs",
+    "parser-fixtures.json",
+    "check-parser-fixture.mjs",
+    "parser-fixtures.test.mjs",
+    "aligned-contract.mjs",
+    "aligned-schema-contract.json",
+    "test-aligned-negative.mjs",
+    "executor-acceptance-fixtures.json",
+    "check-executor-fixtures.mjs",
+    "accelerated-review/README.md",
+    "accelerated-review/parser-results.json",
+    "accelerated-review/draft-statement-revisions.json",
+    "accelerated-review/reviewed-pin-revisions.json"
+  ],
+  "modified": [
+    "parse-drafts-offline.mjs",
+    "render-hardening.mjs",
+    "check-offline.mjs",
+    "test-offline-negative.mjs",
+    "review-boolean-alignment.mjs",
+    "validate-offline.ps1",
+    "static-review.ps1",
+    "statement-manifest.json",
+    "20261106120000_owner_executor_foundation.sql.draft",
+    "foundation_assertions.sql.draft",
+    "executor-acceptance-plan.md",
+    "README.md",
+    "technical-review-2026-11-06.md",
+    "default-privilege-proposal.md",
+    "pre-execution-security-review.md",
+    "semantic-alignment/README.md",
+    "semantic-alignment/evidence-pins.json"
+  ],
+  "regenerated_summaries": [
+    "boolean-alignment/findings.json"
+  ],
+  "unchanged": [
+    "24 active migrations",
+    "4 protected source files",
+    "source-contract.mjs",
+    "schema-contract.json",
+    "object-manifest.json",
+    "default-function-privileges.sql.draft",
+    "historical catalog CSVs",
+    "application/UI and package files"
+  ],
+  "drafts": [
+    {
+      "file": "20261106120000_owner_executor_foundation.sql.draft",
+      "sha256": "136b011f28b40edb62f2bc87bb9f68cfb9700765002ab164b37248505c4b397b"
+    },
+    {
+      "file": "foundation_assertions.sql.draft",
+      "sha256": "bcd31b2df62f4e415d1253238a4c262b78a498b57d3510b0efa12a41c0633475"
+    },
+    {
+      "file": "default-function-privileges.sql.draft",
+      "sha256": "573ac1e964377a25922bb8556c5e0d84dbbe29a277ea758eab1e700b46658331"
+    }
+  ],
+  "caution": "No broad git add. Inherited working tree edits outside this draft follow-up are preserved and need separate review. Pattern scan is limited evidence, not a full secret-detection guarantee."
+}

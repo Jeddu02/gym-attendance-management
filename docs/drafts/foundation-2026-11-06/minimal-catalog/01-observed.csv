@@ -1,0 +1,2 @@
+﻿database,host,port,actor,read_only,tables,constraints,indexes,routines
+gymforce_pg18_test,127.0.0.1/32,55432,postgres,on,22,110,57,25

@@ -1,0 +1,73 @@
+[
+  {
+    "parser": "pg18",
+    "package_version": "18.1.4",
+    "grammar": 180004,
+    "file": "20261106120000_owner_executor_foundation.sql.draft",
+    "sha256": "757191c2bc34a31956f2393110705136182370b7350cebd98cf77d0cb1266832",
+    "sql": true,
+    "plpgsql": false,
+    "statement_count": 310,
+    "do_blocks": 10,
+    "limitation": "Offline PL/pgSQL reports syntax error at end of input; binding limitation versus draft defect unresolved"
+  },
+  {
+    "parser": "pg18",
+    "package_version": "18.1.4",
+    "grammar": 180004,
+    "file": "foundation_assertions.sql.draft",
+    "sha256": "00797aa8b8aa4444604085c96dee3e940687c28428a204ecd160f4fbf8da684b",
+    "sql": true,
+    "plpgsql": false,
+    "statement_count": 7,
+    "do_blocks": 4,
+    "limitation": "Offline PL/pgSQL reports syntax error at end of input; binding limitation versus draft defect unresolved"
+  },
+  {
+    "parser": "pg18",
+    "package_version": "18.1.4",
+    "grammar": 180004,
+    "file": "default-function-privileges.sql.draft",
+    "sha256": "573ac1e964377a25922bb8556c5e0d84dbbe29a277ea758eab1e700b46658331",
+    "sql": true,
+    "plpgsql": true,
+    "statement_count": 13,
+    "do_blocks": 3
+  },
+  {
+    "parser": "pg17",
+    "package_version": "17.8.2",
+    "grammar": 170007,
+    "file": "20261106120000_owner_executor_foundation.sql.draft",
+    "sha256": "757191c2bc34a31956f2393110705136182370b7350cebd98cf77d0cb1266832",
+    "sql": true,
+    "plpgsql": null,
+    "statement_count": 310,
+    "do_blocks": 10,
+    "limitation": "PG17 binding exposes SQL parsing only; dollar bodies are opaque"
+  },
+  {
+    "parser": "pg17",
+    "package_version": "17.8.2",
+    "grammar": 170007,
+    "file": "foundation_assertions.sql.draft",
+    "sha256": "00797aa8b8aa4444604085c96dee3e940687c28428a204ecd160f4fbf8da684b",
+    "sql": true,
+    "plpgsql": null,
+    "statement_count": 7,
+    "do_blocks": 4,
+    "limitation": "PG17 binding exposes SQL parsing only; dollar bodies are opaque"
+  },
+  {
+    "parser": "pg17",
+    "package_version": "17.8.2",
+    "grammar": 170007,
+    "file": "default-function-privileges.sql.draft",
+    "sha256": "573ac1e964377a25922bb8556c5e0d84dbbe29a277ea758eab1e700b46658331",
+    "sql": true,
+    "plpgsql": null,
+    "statement_count": 13,
+    "do_blocks": 3,
+    "limitation": "PG17 binding exposes SQL parsing only; dollar bodies are opaque"
+  }
+]

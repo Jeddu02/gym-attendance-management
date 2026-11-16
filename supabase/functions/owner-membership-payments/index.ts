@@ -27,7 +27,7 @@ function respond(status: number, body: Record<string, unknown>) {
 }
 
 function checkRequest(request: Request): Response | null {
-  if (!allowedOrigin || !supabaseUrl || !publishableKey || !serviceRoleKey) {
+  if (!allowedOrigin) {
     return respond(503, { error: "SERVER_CONFIGURATION_ERROR" });
   }
   if (request.headers.get("Origin") !== allowedOrigin) {
@@ -36,6 +36,7 @@ function checkRequest(request: Request): Response | null {
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
+  if (!supabaseUrl || !publishableKey || !serviceRoleKey) return respond(503, { error: "SERVER_CONFIGURATION_ERROR" });
   if (request.method !== "POST") return respond(405, { error: "METHOD_NOT_ALLOWED" });
   const contentType = request.headers.get("Content-Type") ?? "";
   if (contentType.split(";")[0].trim().toLowerCase() !== "application/json") {

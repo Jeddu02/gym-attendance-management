@@ -90,7 +90,7 @@ export function AuditLogPage() {
             <thead><tr><th>Time (Asia/Manila)</th><th>Event</th><th>Subject</th><th>Actor</th><th>Reason</th></tr></thead>
             <tbody>
               {loading ? <tr><td colSpan={5} className="members-empty">Loading audit history...</td></tr>
-                : events.length === 0 ? <tr><td colSpan={5} className="members-empty"><strong>No events found</strong><span>Adjust the search or gym-date range to review other events.</span></td></tr>
+                : errorMessage ? <tr><td colSpan={5} className="members-empty">Audit history unavailable. Refresh to retry.</td></tr> : events.length === 0 ? <tr><td colSpan={5} className="members-empty"><strong>No events found</strong><span>Adjust the search or gym-date range to review other events.</span></td></tr>
                   : events.map((event) => (
                     <tr key={event.id}>
                       <td>{formatDateTime(event.createdAt)}</td>

@@ -6,6 +6,7 @@ type Receipt = { paymentId: string; amountPhp: string | number; paymentMethod: s
   verificationStatus: string; actualReceiptVerified: boolean; allocated: boolean; confirmationVoided: boolean };
 
 export function ReceiptReviewPage() {
+  const [loadError, setLoadError] = useState('');
   const [rows, setRows] = useState<Receipt[]>([]);
   const [page, setPage] = useState(0);
   const [refresh, setRefresh] = useState(0);
@@ -35,13 +36,13 @@ export function ReceiptReviewPage() {
     void (async () => {
       await Promise.resolve();
       if (!active) return;
-      setLoading(true); setRows([]);
+      setLoading(true); setRows([]); setLoadError('');
       try {
         const { data, error } = await getSupabaseClient().functions.invoke('owner-receipt-review', { body: { action: 'list', limit: 50, offset: page * 50 } });
         if (!active || ticket !== generation.current) return;
         if (error || data?.success !== true || !Array.isArray(data.result)) throw Error();
         setRows(data.result);
-      } catch { if (active && ticket === generation.current) setMessage('Receipt history could not be loaded.'); }
+      } catch { if (active && ticket === generation.current) setLoadError('Receipt history could not be loaded.'); }
       finally { if (active && ticket === generation.current) setLoading(false); }
     })();
     return () => { active = false; };
@@ -105,7 +106,7 @@ export function ReceiptReviewPage() {
       <button type="submit" className="primary-button" disabled={busy || (!attempt && !attested)}>{busy ? 'Recording…' : attempt ? 'Retry the same operation' : 'Record with audit history'}</button>
     </form>
     <div className="members-table-wrap"><table className="members-table"><thead><tr><th>Payment reference</th><th>PHP amount</th><th>Method</th><th>Actual receipt</th><th>Allocation / confirmation</th><th>Review</th></tr></thead><tbody>
-      {loading ? <tr><td colSpan={6}>Loading…</td></tr> : rows.length === 0 ? <tr><td colSpan={6}>No receipts on this page.</td></tr> : rows.map((row) => <tr key={row.paymentId}>
+      {loading ? <tr><td colSpan={6}>Loading…</td></tr> : loadError ? <tr><td colSpan={6} role="alert">Receipt history unavailable. Refresh to retry.</td></tr> : rows.length === 0 ? <tr><td colSpan={6}>No receipts on this page.</td></tr> : rows.map((row) => <tr key={row.paymentId}>
         <td>{row.paymentId}</td><td>{row.amountPhp}</td><td>{row.paymentMethod}</td><td>{row.actualReceiptVerified ? 'Verified' : 'Needs verification'}</td><td>{row.verificationStatus} · {row.allocated ? 'Allocated' : 'Unallocated'}</td><td>
           {!row.actualReceiptVerified && !row.confirmationVoided && <button type="button" disabled={busy || !!attempt} onClick={() => select(row, 'verify')}>Verify receipt</button>}
           {row.actualReceiptVerified && !row.allocated && row.verificationStatus === 'recorded' && !row.confirmationVoided && <button type="button" disabled={busy || !!attempt} onClick={() => select(row, 'allocate')}>Review allocation</button>}

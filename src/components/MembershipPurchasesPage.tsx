@@ -340,6 +340,7 @@ export function MembershipPurchasesPage() {
             <thead><tr><th>Purchase reference</th><th>Member</th><th>Member code</th><th>Plan</th><th>Price snapshot</th><th>Status</th><th>Payment status</th><th>Activation</th><th>Expiry</th><th>Created</th><th>Action</th></tr></thead>
             <tbody>
               {loadingPurchases ? <tr><td colSpan={11} className="members-empty">Loading purchase history…</td></tr>
+                : historyError && purchases.length === 0 ? <tr><td colSpan={11} className="members-empty">Purchase history unavailable. Refresh history to retry.</td></tr>
                 : purchases.length === 0 ? <tr><td colSpan={11} className="members-empty"><strong>No purchases found</strong><span>Purchases matching your search and status will appear here.</span></td></tr>
                   : purchases.map((purchase) => <tr key={purchase.id}>
                     <td><strong className="purchase-reference">{purchase.id}</strong></td>

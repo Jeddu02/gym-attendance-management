@@ -1,0 +1,293 @@
+[
+  {
+    "parser": "pg18",
+    "package_version": "18.1.4",
+    "grammar": 180004,
+    "file": "20261106120000_owner_executor_foundation.sql.draft",
+    "sha256": "136b011f28b40edb62f2bc87bb9f68cfb9700765002ab164b37248505c4b397b",
+    "sql": true,
+    "plpgsql": true,
+    "statement_count": 310,
+    "procedural_body_count": 10,
+    "procedural_bodies_checked": 10,
+    "boundaries": [
+      {
+        "statement_index": 1,
+        "byte_start": 365,
+        "byte_end": 538,
+        "language": "plpgsql"
+      },
+      {
+        "statement_index": 6,
+        "byte_start": 855,
+        "byte_end": 53565,
+        "language": "plpgsql"
+      },
+      {
+        "statement_index": 7,
+        "byte_start": 53567,
+        "byte_end": 65109,
+        "language": "plpgsql"
+      },
+      {
+        "statement_index": 8,
+        "byte_start": 65111,
+        "byte_end": 181413,
+        "language": "plpgsql"
+      },
+      {
+        "statement_index": 11,
+        "byte_start": 182294,
+        "byte_end": 235004,
+        "language": "plpgsql"
+      },
+      {
+        "statement_index": 12,
+        "byte_start": 235006,
+        "byte_end": 246548,
+        "language": "plpgsql"
+      },
+      {
+        "statement_index": 13,
+        "byte_start": 246550,
+        "byte_end": 362852,
+        "language": "plpgsql"
+      },
+      {
+        "statement_index": 306,
+        "byte_start": 397958,
+        "byte_end": 450668,
+        "language": "plpgsql"
+      },
+      {
+        "statement_index": 307,
+        "byte_start": 450670,
+        "byte_end": 462212,
+        "language": "plpgsql"
+      },
+      {
+        "statement_index": 308,
+        "byte_start": 462214,
+        "byte_end": 578516,
+        "language": "plpgsql"
+      }
+    ]
+  },
+  {
+    "parser": "pg18",
+    "package_version": "18.1.4",
+    "grammar": 180004,
+    "file": "foundation_assertions.sql.draft",
+    "sha256": "bcd31b2df62f4e415d1253238a4c262b78a498b57d3510b0efa12a41c0633475",
+    "sql": true,
+    "plpgsql": true,
+    "statement_count": 7,
+    "procedural_body_count": 4,
+    "procedural_bodies_checked": 4,
+    "boundaries": [
+      {
+        "statement_index": 1,
+        "byte_start": 331,
+        "byte_end": 504,
+        "language": "plpgsql"
+      },
+      {
+        "statement_index": 3,
+        "byte_start": 540,
+        "byte_end": 53250,
+        "language": "plpgsql"
+      },
+      {
+        "statement_index": 4,
+        "byte_start": 53252,
+        "byte_end": 64794,
+        "language": "plpgsql"
+      },
+      {
+        "statement_index": 5,
+        "byte_start": 64796,
+        "byte_end": 181098,
+        "language": "plpgsql"
+      }
+    ]
+  },
+  {
+    "parser": "pg18",
+    "package_version": "18.1.4",
+    "grammar": 180004,
+    "file": "default-function-privileges.sql.draft",
+    "sha256": "573ac1e964377a25922bb8556c5e0d84dbbe29a277ea758eab1e700b46658331",
+    "sql": true,
+    "plpgsql": true,
+    "statement_count": 13,
+    "procedural_body_count": 3,
+    "procedural_bodies_checked": 3,
+    "boundaries": [
+      {
+        "statement_index": 1,
+        "byte_start": 236,
+        "byte_end": 376,
+        "language": "plpgsql"
+      },
+      {
+        "statement_index": 5,
+        "byte_start": 476,
+        "byte_end": 2270,
+        "language": "plpgsql"
+      },
+      {
+        "statement_index": 11,
+        "byte_start": 2896,
+        "byte_end": 3770,
+        "language": "plpgsql"
+      }
+    ]
+  },
+  {
+    "parser": "pg17",
+    "package_version": "17.8.2",
+    "grammar": 170007,
+    "file": "20261106120000_owner_executor_foundation.sql.draft",
+    "sha256": "136b011f28b40edb62f2bc87bb9f68cfb9700765002ab164b37248505c4b397b",
+    "sql": true,
+    "plpgsql": "UNAVAILABLE",
+    "statement_count": 310,
+    "procedural_body_count": 10,
+    "procedural_bodies_checked": 0,
+    "boundaries": [
+      {
+        "statement_index": 1,
+        "byte_start": 364,
+        "byte_end": 538,
+        "language": "plpgsql"
+      },
+      {
+        "statement_index": 6,
+        "byte_start": 698,
+        "byte_end": 53565,
+        "language": "plpgsql"
+      },
+      {
+        "statement_index": 7,
+        "byte_start": 53566,
+        "byte_end": 65109,
+        "language": "plpgsql"
+      },
+      {
+        "statement_index": 8,
+        "byte_start": 65110,
+        "byte_end": 181413,
+        "language": "plpgsql"
+      },
+      {
+        "statement_index": 11,
+        "byte_start": 182212,
+        "byte_end": 235004,
+        "language": "plpgsql"
+      },
+      {
+        "statement_index": 12,
+        "byte_start": 235005,
+        "byte_end": 246548,
+        "language": "plpgsql"
+      },
+      {
+        "statement_index": 13,
+        "byte_start": 246549,
+        "byte_end": 362852,
+        "language": "plpgsql"
+      },
+      {
+        "statement_index": 306,
+        "byte_start": 397800,
+        "byte_end": 450668,
+        "language": "plpgsql"
+      },
+      {
+        "statement_index": 307,
+        "byte_start": 450669,
+        "byte_end": 462212,
+        "language": "plpgsql"
+      },
+      {
+        "statement_index": 308,
+        "byte_start": 462213,
+        "byte_end": 578516,
+        "language": "plpgsql"
+      }
+    ],
+    "limitation": "PG17 binding SQL-only; PG18 checks every procedural body; no PG17 procedural/runtime certification"
+  },
+  {
+    "parser": "pg17",
+    "package_version": "17.8.2",
+    "grammar": 170007,
+    "file": "foundation_assertions.sql.draft",
+    "sha256": "bcd31b2df62f4e415d1253238a4c262b78a498b57d3510b0efa12a41c0633475",
+    "sql": true,
+    "plpgsql": "UNAVAILABLE",
+    "statement_count": 7,
+    "procedural_body_count": 4,
+    "procedural_bodies_checked": 0,
+    "boundaries": [
+      {
+        "statement_index": 1,
+        "byte_start": 330,
+        "byte_end": 504,
+        "language": "plpgsql"
+      },
+      {
+        "statement_index": 3,
+        "byte_start": 539,
+        "byte_end": 53250,
+        "language": "plpgsql"
+      },
+      {
+        "statement_index": 4,
+        "byte_start": 53251,
+        "byte_end": 64794,
+        "language": "plpgsql"
+      },
+      {
+        "statement_index": 5,
+        "byte_start": 64795,
+        "byte_end": 181098,
+        "language": "plpgsql"
+      }
+    ],
+    "limitation": "PG17 binding SQL-only; PG18 checks every procedural body; no PG17 procedural/runtime certification"
+  },
+  {
+    "parser": "pg17",
+    "package_version": "17.8.2",
+    "grammar": 170007,
+    "file": "default-function-privileges.sql.draft",
+    "sha256": "573ac1e964377a25922bb8556c5e0d84dbbe29a277ea758eab1e700b46658331",
+    "sql": true,
+    "plpgsql": "UNAVAILABLE",
+    "statement_count": 13,
+    "procedural_body_count": 3,
+    "procedural_bodies_checked": 0,
+    "boundaries": [
+      {
+        "statement_index": 1,
+        "byte_start": 235,
+        "byte_end": 376,
+        "language": "plpgsql"
+      },
+      {
+        "statement_index": 5,
+        "byte_start": 475,
+        "byte_end": 2270,
+        "language": "plpgsql"
+      },
+      {
+        "statement_index": 11,
+        "byte_start": 2895,
+        "byte_end": 3770,
+        "language": "plpgsql"
+      }
+    ],
+    "limitation": "PG17 binding SQL-only; PG18 checks every procedural body; no PG17 procedural/runtime certification"
+  }
+]

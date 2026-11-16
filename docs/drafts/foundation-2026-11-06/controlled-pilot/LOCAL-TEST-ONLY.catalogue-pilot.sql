@@ -1,0 +1,3171 @@
+-- LOCAL-TEST-ONLY CANDIDATE. NOT AUTHORIZED TO RUN. No hosted target or business fixtures.
+-- Fresh psql connection; -X -w -v ON_ERROR_STOP=1 mandatory. Approval/recovery gate is deliberate.
+BEGIN;
+SET LOCAL search_path=pg_catalog;
+SET LOCAL lock_timeout='3s';
+SET LOCAL statement_timeout='30s';
+DO $pilot_gate$
+BEGIN
+ IF current_database() IS DISTINCT FROM 'gymforce_pg18_test' OR inet_server_addr() IS DISTINCT FROM '127.0.0.1'::inet
+ OR inet_server_port() IS DISTINCT FROM 55432 OR current_user IS DISTINCT FROM 'postgres' OR session_user IS DISTINCT FROM 'postgres'
+ OR NOT COALESCE((SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname=current_user),false)
+ OR current_setting('server_version_num')::integer / 10000 <> 18
+ OR current_setting('gymforce.test_cluster_marker',true) IS DISTINCT FROM 'f497fabb-a12f-4068-b745-8b0729279276'
+ OR (pg_catalog.pg_control_system()).system_identifier::text IS DISTINCT FROM '7704603813616068820'
+ OR lower(rtrim(replace(current_setting('data_directory'),E'\\','/'),'/')) IS DISTINCT FROM 'c:/users/banco-sual/appdata/local/gymforce-pg18-test/data'
+ THEN RAISE EXCEPTION 'LOCAL-TEST-ONLY identity refusal'; END IF;
+ IF current_setting('gymforce.pilot.approved_revision',true) IS DISTINCT FROM '6bbebcee56628cd7860cca44c42c8a1bface104bcb7e3735498a03b3943fec37'
+ OR current_setting('gymforce.pilot.backup_verified',true) IS DISTINCT FROM 'true'
+ OR current_setting('gymforce.pilot.maintenance_approved',true) IS DISTINCT FROM 'true'
+ THEN RAISE EXCEPTION 'LOCAL-TEST-ONLY approval or recovery evidence missing'; END IF;
+ IF EXISTS (SELECT 1 FROM pg_catalog.pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() AND backend_type='client backend')
+ THEN RAISE EXCEPTION 'LOCAL-TEST-ONLY requires exclusive client maintenance window'; END IF;
+END;
+$pilot_gate$;
+-- Five default corrections and postconditions precede foundation preconditions.
+SET LOCAL search_path=pg_catalog;
+SET LOCAL lock_timeout='5s';
+SET LOCAL statement_timeout='30s';
+DO $default_preconditions$
+DECLARE creator text; creator_oid oid;
+BEGIN
+ IF current_database()<>'gymforce_pg18_test' OR inet_server_addr() IS DISTINCT FROM '127.0.0.1'::inet
+  OR inet_server_port()<>55432 OR current_user<>'postgres' OR session_user<>'postgres'
+  OR NOT (SELECT rolsuper FROM pg_roles WHERE rolname=current_user)
+  OR current_setting('gymforce.test_cluster_marker',true) IS DISTINCT FROM 'f497fabb-a12f-4068-b745-8b0729279276'
+  OR (pg_control_system()).system_identifier::text IS DISTINCT FROM '7704603813616068820'
+  OR lower(rtrim(replace(current_setting('data_directory'),E'\\','/'),'/')) IS DISTINCT FROM 'c:/users/banco-sual/appdata/local/gymforce-pg18-test/data'
+ THEN RAISE EXCEPTION 'Native approved identity mismatch'; END IF;
+ FOREACH creator IN ARRAY ARRAY['postgres','gym_data_owner','gym_owner_executor','gym_public_executor','gym_registration_login'] LOOP
+  SELECT oid INTO creator_oid FROM pg_roles WHERE rolname=creator;
+  IF creator_oid IS NULL THEN RAISE EXCEPTION 'Missing reviewed creator'; END IF;
+  IF creator<>'postgres' AND NOT EXISTS (SELECT 1 FROM pg_roles WHERE oid=creator_oid
+    AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolinherit AND NOT rolreplication
+    AND NOT rolbypassrls AND rolcanlogin=(creator='gym_registration_login')) THEN RAISE EXCEPTION 'Creator role attribute drift'; END IF;
+  IF creator<>'postgres' AND EXISTS (SELECT 1 FROM pg_auth_members WHERE member=creator_oid OR roleid=creator_oid)
+    THEN RAISE EXCEPTION 'Reserved membership drift'; END IF;
+  IF EXISTS (SELECT 1 FROM pg_default_acl WHERE defaclrole=creator_oid AND defaclobjtype IN ('f','T'))
+    THEN RAISE EXCEPTION 'Observed implicit function/type default baseline drifted; stop for review'; END IF;
+ END LOOP;
+END;
+$default_preconditions$;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE gym_data_owner REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE gym_owner_executor REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE gym_public_executor REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE gym_registration_login REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+DO $default_postconditions$
+DECLARE creator text; creator_oid oid;
+BEGIN
+ FOREACH creator IN ARRAY ARRAY['postgres','gym_data_owner','gym_owner_executor','gym_public_executor','gym_registration_login'] LOOP
+  SELECT oid INTO creator_oid FROM pg_roles WHERE rolname=creator;
+  IF EXISTS (SELECT 1 FROM aclexplode(COALESCE((SELECT defaclacl FROM pg_default_acl
+     WHERE defaclrole=creator_oid AND defaclnamespace=0 AND defaclobjtype='f'),acldefault('f',creator_oid))) a
+     WHERE a.grantee<>creator_oid) THEN RAISE EXCEPTION 'Function default hardening did not establish owner-only defaults'; END IF;
+  IF EXISTS (SELECT 1 FROM pg_default_acl WHERE defaclrole=creator_oid AND
+    (defaclobjtype='T' OR (defaclobjtype='f' AND defaclnamespace<>0))) THEN RAISE EXCEPTION 'Type or schema-specific defaults changed unexpectedly'; END IF;
+ END LOOP;
+END;
+$default_postconditions$;
+-- Exact original foundation payload; only its outer transaction/blocker omitted in this separate copy.
+SET LOCAL lock_timeout='5s';
+SET LOCAL statement_timeout='120s';
+SET LOCAL search_path=pg_catalog;
+SET LOCAL gymforce.assertion_profile='current_server_only';
+DO $phase_assertions$
+DECLARE
+    profile text := pg_catalog.current_setting('gymforce.assertion_profile',true);
+    target boolean;
+    r record; caller text; privilege_name text; v_column text; expected boolean;
+    routine_oid oid; relation_oid oid; actual_owner text; actual_columns text;
+    expected_expr text; actual_qual text; actual_check text; actual_policy record;
+BEGIN
+    IF profile IN ('historical_phase1','future_attendance') THEN
+        RAISE EXCEPTION 'Profile % is not an executable acceptance profile: historical assumptions are archival; future Attendance is unimplemented', profile;
+    END IF;
+    IF profile IS NULL OR profile NOT IN ('current_server_only','proposed_owner_executor') THEN
+        RAISE EXCEPTION 'Select an explicit current_server_only or proposed_owner_executor assertion profile';
+    END IF;
+    target := profile='proposed_owner_executor';
+    IF current_database()<>'gymforce_pg18_test'
+       OR inet_server_addr() IS DISTINCT FROM '127.0.0.1'::inet
+       OR current_setting('port')<>'55432'
+       OR current_user<>'postgres' OR session_user<>'postgres'
+       OR NOT (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname=current_user)
+       OR current_setting('gymforce.test_cluster_marker',true) IS DISTINCT FROM 'f497fabb-a12f-4068-b745-8b0729279276'
+       OR (pg_catalog.pg_control_system()).system_identifier::text IS DISTINCT FROM '7704603813616068820'
+       OR lower(rtrim(replace(current_setting('data_directory'),E'\\','/'),'/')) IS DISTINCT FROM 'c:/users/banco-sual/appdata/local/gymforce-pg18-test/data' THEN
+        RAISE EXCEPTION 'Approved native test target/actor mismatch; hosted execution is not authorized by this draft';
+    END IF;
+    -- Reserved roles remain non-login and cannot bypass RLS or assume others.
+    FOREACH caller IN ARRAY ARRAY['gym_data_owner','gym_owner_executor','gym_public_executor'] LOOP
+        IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=caller
+            AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb
+            AND NOT rolcreaterole AND NOT rolinherit AND NOT rolreplication AND NOT rolbypassrls) THEN
+            RAISE EXCEPTION 'Unsafe/missing reserved role %',caller;
+        END IF;
+    END LOOP;
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members e
+        JOIN pg_catalog.pg_roles reserved ON reserved.oid=e.member OR reserved.oid=e.roleid
+        WHERE reserved.rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor','gym_registration_login')) THEN
+        RAISE EXCEPTION 'Reserved-role membership edge exists';
+    END IF;
+    IF (SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname IN ('private','public') AND c.relkind IN ('r','p'))<>22 THEN
+        RAISE EXCEPTION 'Application table inventory drift';
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname='api' AND c.relkind IN ('r','p','v','m','S','f')) THEN
+        RAISE EXCEPTION 'API schema unexpectedly contains data relations';
+    END IF;
+    FOR r IN SELECT * FROM (VALUES
+        ('private.attendance_checkins','id:uuid|member_id:uuid|walkin_request_id:uuid|gym_local_date:date|checked_in_at:timestamp with time zone|attendance_status:text'),
+        ('private.attendance_validity_resolutions','id:uuid|attendance_id:uuid|prior_status:text|new_status:text|reason:text|resolved_by:uuid|resolved_at:timestamp with time zone'),
+        ('private.audit_chain_heads','stream_key:text|last_event_id:bigint|last_event_hash:text|updated_at:timestamp with time zone'),
+        ('private.audit_events','id:bigint|actor_user_id:uuid|event_type:text|subject_type:text|subject_id:text|details:jsonb|created_at:timestamp with time zone|stream_key:text|previous_event_hash:text|event_hash:text'),
+        ('private.cash_drawer_sessions','id:uuid|opened_at:timestamp with time zone|opened_by:uuid|opening_float_php:numeric(12,2)|session_status:text|closed_at:timestamp with time zone|closed_by:uuid'),
+        ('private.cash_reconciliation_adjustments','id:uuid|reconciliation_id:uuid|amount_delta_php:numeric(12,2)|reason:text|evidence_reference:text|recorded_by:uuid|created_at:timestamp with time zone'),
+        ('private.cash_reconciliations','id:uuid|drawer_session_id:uuid|expected_cash_php:numeric(12,2)|counted_cash_php:numeric(12,2)|variance_php:numeric(12,2)|reconciled_by:uuid|reconciled_at:timestamp with time zone|notes:text'),
+        ('private.member_pin_credentials','member_id:uuid|password_hash:text|credential_version:integer|created_at:timestamp with time zone|updated_at:timestamp with time zone'),
+        ('private.member_pin_setup_tokens','id:uuid|member_id:uuid|token_hash:text|token_purpose:text|expires_at:timestamp with time zone|consumed_at:timestamp with time zone|created_at:timestamp with time zone'),
+        ('private.members','id:uuid|member_code:text|full_name:text|mobile_lookup_hash:bytea|mobile_encrypted:bytea|status:text|created_at:timestamp with time zone|updated_at:timestamp with time zone|approved_at:timestamp with time zone'),
+        ('private.membership_plans','id:uuid|name:text|price_php:numeric(12,2)|is_active:boolean|created_at:timestamp with time zone'),
+        ('private.membership_purchases','id:uuid|member_id:uuid|plan_id:uuid|price_php:numeric(12,2)|purchase_status:text|activation_date:date|expiry_date:date|created_at:timestamp with time zone'),
+        ('private.owner_access','user_id:uuid|is_active:boolean|created_at:timestamp with time zone|deactivated_at:timestamp with time zone'),
+        ('private.payment_allocations','id:uuid|payment_id:uuid|membership_purchase_id:uuid|walkin_request_id:uuid|allocated_by:uuid|allocated_at:timestamp with time zone'),
+        ('private.payment_corrections','id:uuid|payment_id:uuid|proposed_amount_php:numeric(12,2)|proposed_payment_method:text|reason:text|evidence_reference:text|correction_status:text|proposed_by:uuid|proposed_at:timestamp with time zone|decided_by:uuid|decided_at:timestamp with time zone|decision_reason:text'),
+        ('private.payment_events','id:bigint|payment_id:uuid|event_type:text|reason:text|actor_user_id:uuid|created_at:timestamp with time zone'),
+        ('private.payment_records','id:uuid|amount_php:numeric(12,2)|payment_method:text|received_at:timestamp with time zone|verification_status:text|external_reference:text|evidence_reference:text|recorded_by:uuid|created_at:timestamp with time zone|operation_id:uuid|target_membership_purchase_id:uuid'),
+        ('private.pin_attempt_buckets','id:uuid|bucket_type:text|identifier_digest:text|window_started_at:timestamp with time zone|failed_attempts:integer|blocked_until:timestamp with time zone|updated_at:timestamp with time zone'),
+        ('private.pin_enrollment_global_rate_limit_events','id:bigint|requested_at:timestamp with time zone'),
+        ('private.walkin_fee_versions','id:uuid|fee_php:numeric(12,2)|currency:text|effective_from:timestamp with time zone|created_by:uuid|created_at:timestamp with time zone'),
+        ('private.walkin_requests','id:uuid|fee_version_id:uuid|fee_php:numeric(12,2)|currency:text|request_status:text|created_at:timestamp with time zone|expires_at:timestamp with time zone|confirmed_by:uuid|confirmed_at:timestamp with time zone'),
+        ('public.gym_settings','setting_key:text|setting_value:jsonb|updated_at:timestamp with time zone')
+    ) v(name,columns) LOOP
+        relation_oid := pg_catalog.to_regclass(r.name);
+        IF relation_oid IS NULL THEN RAISE EXCEPTION 'Missing %',r.name; END IF;
+        SELECT pg_catalog.string_agg(a.attname||':'||pg_catalog.format_type(a.atttypid,a.atttypmod),'|' ORDER BY a.attnum)
+          INTO actual_columns FROM pg_catalog.pg_attribute a
+          WHERE a.attrelid=relation_oid AND a.attnum>0 AND NOT a.attisdropped;
+        IF actual_columns IS DISTINCT FROM r.columns THEN RAISE EXCEPTION 'Column/type inventory drift: %',r.name; END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class c WHERE c.oid=relation_oid AND c.relrowsecurity
+             AND c.relowner=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=CASE WHEN target THEN 'gym_data_owner' ELSE 'postgres' END)
+             AND (NOT target OR c.relforcerowsecurity)) THEN
+            RAISE EXCEPTION 'Ownership/RLS mismatch: %',r.name;
+        END IF;
+        -- No direct browser/service/dormant-login access, including column grants.
+        FOREACH caller IN ARRAY ARRAY['anon','authenticated','service_role','gym_registration_login'] LOOP
+            IF pg_catalog.has_table_privilege(caller,relation_oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+              OR pg_catalog.has_any_column_privilege(caller,relation_oid,'SELECT,INSERT,UPDATE,REFERENCES') THEN
+                RAISE EXCEPTION 'Direct protected relation access: % / %',caller,r.name;
+            END IF;
+        END LOOP;
+        FOREACH caller IN ARRAY ARRAY['gym_owner_executor','gym_public_executor'] LOOP
+            FOREACH privilege_name IN ARRAY ARRAY['SELECT','INSERT','UPDATE','REFERENCES'] LOOP
+                FOR v_column IN SELECT attname FROM pg_catalog.pg_attribute
+                    WHERE attrelid=relation_oid AND attnum>0 AND NOT attisdropped LOOP
+                    SELECT target AND EXISTS (SELECT 1 FROM (VALUES
+                        ('private.owner_access','gym_owner_executor','SELECT','user_id'),
+        ('private.owner_access','gym_owner_executor','SELECT','is_active'),
+        ('private.owner_access','gym_owner_executor','SELECT','created_at'),
+        ('private.owner_access','gym_owner_executor','SELECT','deactivated_at'),
+        ('private.members','gym_owner_executor','SELECT','id'),
+        ('private.members','gym_owner_executor','SELECT','member_code'),
+        ('private.members','gym_owner_executor','SELECT','full_name'),
+        ('private.members','gym_owner_executor','SELECT','mobile_lookup_hash'),
+        ('private.members','gym_owner_executor','SELECT','mobile_encrypted'),
+        ('private.members','gym_owner_executor','SELECT','status'),
+        ('private.members','gym_owner_executor','SELECT','created_at'),
+        ('private.members','gym_owner_executor','SELECT','updated_at'),
+        ('private.members','gym_owner_executor','SELECT','approved_at'),
+        ('private.members','gym_owner_executor','INSERT','member_code'),
+        ('private.members','gym_owner_executor','INSERT','full_name'),
+        ('private.members','gym_owner_executor','INSERT','mobile_lookup_hash'),
+        ('private.members','gym_owner_executor','INSERT','mobile_encrypted'),
+        ('private.members','gym_owner_executor','INSERT','status'),
+        ('private.members','gym_owner_executor','UPDATE','updated_at'),
+        ('private.membership_plans','gym_owner_executor','SELECT','id'),
+        ('private.membership_plans','gym_owner_executor','SELECT','name'),
+        ('private.membership_plans','gym_owner_executor','SELECT','price_php'),
+        ('private.membership_plans','gym_owner_executor','SELECT','is_active'),
+        ('private.membership_plans','gym_owner_executor','SELECT','created_at'),
+        ('private.membership_plans','gym_owner_executor','INSERT','name'),
+        ('private.membership_plans','gym_owner_executor','INSERT','price_php'),
+        ('private.membership_plans','gym_owner_executor','INSERT','is_active'),
+        ('private.membership_plans','gym_owner_executor','UPDATE','name'),
+        ('private.membership_plans','gym_owner_executor','UPDATE','price_php'),
+        ('private.membership_plans','gym_owner_executor','UPDATE','is_active'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','id'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','member_id'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','plan_id'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','price_php'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','purchase_status'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','activation_date'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','expiry_date'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','created_at'),
+        ('private.membership_purchases','gym_owner_executor','INSERT','member_id'),
+        ('private.membership_purchases','gym_owner_executor','INSERT','plan_id'),
+        ('private.membership_purchases','gym_owner_executor','INSERT','price_php'),
+        ('private.membership_purchases','gym_owner_executor','INSERT','purchase_status'),
+        ('private.membership_purchases','gym_owner_executor','UPDATE','purchase_status'),
+        ('private.payment_records','gym_owner_executor','SELECT','id'),
+        ('private.payment_records','gym_owner_executor','SELECT','amount_php'),
+        ('private.payment_records','gym_owner_executor','SELECT','payment_method'),
+        ('private.payment_records','gym_owner_executor','SELECT','received_at'),
+        ('private.payment_records','gym_owner_executor','SELECT','verification_status'),
+        ('private.payment_records','gym_owner_executor','SELECT','external_reference'),
+        ('private.payment_records','gym_owner_executor','SELECT','evidence_reference'),
+        ('private.payment_records','gym_owner_executor','SELECT','recorded_by'),
+        ('private.payment_records','gym_owner_executor','SELECT','created_at'),
+        ('private.payment_records','gym_owner_executor','SELECT','operation_id'),
+        ('private.payment_records','gym_owner_executor','SELECT','target_membership_purchase_id'),
+        ('private.payment_records','gym_owner_executor','INSERT','amount_php'),
+        ('private.payment_records','gym_owner_executor','INSERT','payment_method'),
+        ('private.payment_records','gym_owner_executor','INSERT','verification_status'),
+        ('private.payment_records','gym_owner_executor','INSERT','external_reference'),
+        ('private.payment_records','gym_owner_executor','INSERT','recorded_by'),
+        ('private.payment_records','gym_owner_executor','INSERT','operation_id'),
+        ('private.payment_records','gym_owner_executor','INSERT','target_membership_purchase_id'),
+        ('private.payment_records','gym_owner_executor','UPDATE','verification_status'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','id'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','payment_id'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','membership_purchase_id'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','walkin_request_id'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','allocated_by'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','allocated_at'),
+        ('private.payment_allocations','gym_owner_executor','INSERT','payment_id'),
+        ('private.payment_allocations','gym_owner_executor','INSERT','membership_purchase_id'),
+        ('private.payment_allocations','gym_owner_executor','INSERT','allocated_by'),
+        ('private.payment_events','gym_owner_executor','SELECT','id'),
+        ('private.payment_events','gym_owner_executor','SELECT','payment_id'),
+        ('private.payment_events','gym_owner_executor','SELECT','event_type'),
+        ('private.payment_events','gym_owner_executor','SELECT','reason'),
+        ('private.payment_events','gym_owner_executor','SELECT','actor_user_id'),
+        ('private.payment_events','gym_owner_executor','SELECT','created_at'),
+        ('private.payment_events','gym_owner_executor','INSERT','payment_id'),
+        ('private.payment_events','gym_owner_executor','INSERT','event_type'),
+        ('private.payment_events','gym_owner_executor','INSERT','reason'),
+        ('private.payment_events','gym_owner_executor','INSERT','actor_user_id'),
+        ('private.audit_events','gym_owner_executor','SELECT','id'),
+        ('private.audit_events','gym_owner_executor','SELECT','actor_user_id'),
+        ('private.audit_events','gym_owner_executor','SELECT','event_type'),
+        ('private.audit_events','gym_owner_executor','SELECT','subject_type'),
+        ('private.audit_events','gym_owner_executor','SELECT','subject_id'),
+        ('private.audit_events','gym_owner_executor','SELECT','details'),
+        ('private.audit_events','gym_owner_executor','SELECT','created_at'),
+        ('private.audit_events','gym_owner_executor','SELECT','stream_key'),
+        ('private.audit_events','gym_owner_executor','SELECT','previous_event_hash'),
+        ('private.audit_events','gym_owner_executor','SELECT','event_hash'),
+        ('private.audit_events','gym_owner_executor','INSERT','stream_key'),
+        ('private.audit_events','gym_owner_executor','INSERT','actor_user_id'),
+        ('private.audit_events','gym_owner_executor','INSERT','event_type'),
+        ('private.audit_events','gym_owner_executor','INSERT','subject_type'),
+        ('private.audit_events','gym_owner_executor','INSERT','subject_id'),
+        ('private.audit_events','gym_owner_executor','INSERT','details'),
+        ('private.audit_chain_heads','gym_owner_executor','SELECT','stream_key'),
+        ('private.audit_chain_heads','gym_owner_executor','SELECT','last_event_id'),
+        ('private.audit_chain_heads','gym_owner_executor','SELECT','last_event_hash'),
+        ('private.audit_chain_heads','gym_owner_executor','SELECT','updated_at'),
+        ('private.audit_chain_heads','gym_owner_executor','INSERT','stream_key'),
+        ('private.audit_chain_heads','gym_owner_executor','INSERT','last_event_id'),
+        ('private.audit_chain_heads','gym_owner_executor','INSERT','last_event_hash'),
+        ('private.audit_chain_heads','gym_owner_executor','UPDATE','last_event_id'),
+        ('private.audit_chain_heads','gym_owner_executor','UPDATE','last_event_hash'),
+        ('private.audit_chain_heads','gym_owner_executor','UPDATE','updated_at'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','id'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','member_id'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','token_hash'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','token_purpose'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','expires_at'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','consumed_at'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','created_at'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','INSERT','member_id'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','INSERT','token_hash'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','INSERT','token_purpose'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','INSERT','expires_at'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','UPDATE','consumed_at'),
+        ('private.members','gym_public_executor','SELECT','id'),
+        ('private.members','gym_public_executor','SELECT','status'),
+        ('private.members','gym_public_executor','UPDATE','updated_at'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','id'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','member_id'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','token_hash'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','token_purpose'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','expires_at'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','consumed_at'),
+        ('private.member_pin_setup_tokens','gym_public_executor','UPDATE','consumed_at'),
+        ('private.member_pin_credentials','gym_public_executor','SELECT','member_id'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','member_id'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','password_hash'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','credential_version'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','created_at'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','updated_at'),
+        ('private.pin_enrollment_global_rate_limit_events','gym_public_executor','SELECT','requested_at'),
+        ('private.pin_enrollment_global_rate_limit_events','gym_public_executor','INSERT','requested_at')
+                    ) g(table_name,role_name,command,column_name)
+                    WHERE g.table_name=r.name AND g.role_name=caller
+                      AND g.command=privilege_name AND g.column_name=v_column)
+                    INTO expected;
+                    IF pg_catalog.has_column_privilege(caller,relation_oid,v_column,privilege_name) IS DISTINCT FROM expected THEN
+                        RAISE EXCEPTION 'Column ACL mismatch: %.% / % / %',r.name,v_column,caller,privilege_name;
+                    END IF;
+                END LOOP;
+            END LOOP;
+            IF pg_catalog.has_table_privilege(caller,relation_oid,'TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+               OR pg_catalog.has_table_privilege(caller,relation_oid,'DELETE') IS DISTINCT FROM
+                 (target AND caller='gym_public_executor' AND r.name='private.pin_enrollment_global_rate_limit_events') THEN
+                RAISE EXCEPTION 'Unexpected table-wide destructive privilege: % / %',caller,r.name;
+            END IF;
+        END LOOP;
+        IF EXISTS (SELECT 1 FROM pg_catalog.pg_class c,
+            LATERAL pg_catalog.aclexplode(COALESCE(c.relacl,pg_catalog.acldefault('r',c.relowner))) a
+            WHERE c.oid=relation_oid AND a.grantee<>c.relowner
+            AND NOT (target AND r.name='private.pin_enrollment_global_rate_limit_events'
+                     AND a.grantee=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='gym_public_executor')
+                     AND a.privilege_type='DELETE' AND NOT a.is_grantable)) THEN
+            RAISE EXCEPTION 'Unreviewed relation ACL principal/grant: %',r.name;
+        END IF;
+        IF EXISTS (SELECT 1 FROM pg_catalog.pg_attribute col,
+            LATERAL pg_catalog.aclexplode(col.attacl) a
+            WHERE col.attrelid=relation_oid AND col.attnum>0
+              AND a.grantee<>(SELECT relowner FROM pg_catalog.pg_class WHERE oid=relation_oid)
+              AND (a.is_grantable OR NOT (target AND EXISTS (SELECT 1 FROM (VALUES
+                  ('private.owner_access','gym_owner_executor','SELECT','user_id'),
+        ('private.owner_access','gym_owner_executor','SELECT','is_active'),
+        ('private.owner_access','gym_owner_executor','SELECT','created_at'),
+        ('private.owner_access','gym_owner_executor','SELECT','deactivated_at'),
+        ('private.members','gym_owner_executor','SELECT','id'),
+        ('private.members','gym_owner_executor','SELECT','member_code'),
+        ('private.members','gym_owner_executor','SELECT','full_name'),
+        ('private.members','gym_owner_executor','SELECT','mobile_lookup_hash'),
+        ('private.members','gym_owner_executor','SELECT','mobile_encrypted'),
+        ('private.members','gym_owner_executor','SELECT','status'),
+        ('private.members','gym_owner_executor','SELECT','created_at'),
+        ('private.members','gym_owner_executor','SELECT','updated_at'),
+        ('private.members','gym_owner_executor','SELECT','approved_at'),
+        ('private.members','gym_owner_executor','INSERT','member_code'),
+        ('private.members','gym_owner_executor','INSERT','full_name'),
+        ('private.members','gym_owner_executor','INSERT','mobile_lookup_hash'),
+        ('private.members','gym_owner_executor','INSERT','mobile_encrypted'),
+        ('private.members','gym_owner_executor','INSERT','status'),
+        ('private.members','gym_owner_executor','UPDATE','updated_at'),
+        ('private.membership_plans','gym_owner_executor','SELECT','id'),
+        ('private.membership_plans','gym_owner_executor','SELECT','name'),
+        ('private.membership_plans','gym_owner_executor','SELECT','price_php'),
+        ('private.membership_plans','gym_owner_executor','SELECT','is_active'),
+        ('private.membership_plans','gym_owner_executor','SELECT','created_at'),
+        ('private.membership_plans','gym_owner_executor','INSERT','name'),
+        ('private.membership_plans','gym_owner_executor','INSERT','price_php'),
+        ('private.membership_plans','gym_owner_executor','INSERT','is_active'),
+        ('private.membership_plans','gym_owner_executor','UPDATE','name'),
+        ('private.membership_plans','gym_owner_executor','UPDATE','price_php'),
+        ('private.membership_plans','gym_owner_executor','UPDATE','is_active'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','id'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','member_id'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','plan_id'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','price_php'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','purchase_status'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','activation_date'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','expiry_date'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','created_at'),
+        ('private.membership_purchases','gym_owner_executor','INSERT','member_id'),
+        ('private.membership_purchases','gym_owner_executor','INSERT','plan_id'),
+        ('private.membership_purchases','gym_owner_executor','INSERT','price_php'),
+        ('private.membership_purchases','gym_owner_executor','INSERT','purchase_status'),
+        ('private.membership_purchases','gym_owner_executor','UPDATE','purchase_status'),
+        ('private.payment_records','gym_owner_executor','SELECT','id'),
+        ('private.payment_records','gym_owner_executor','SELECT','amount_php'),
+        ('private.payment_records','gym_owner_executor','SELECT','payment_method'),
+        ('private.payment_records','gym_owner_executor','SELECT','received_at'),
+        ('private.payment_records','gym_owner_executor','SELECT','verification_status'),
+        ('private.payment_records','gym_owner_executor','SELECT','external_reference'),
+        ('private.payment_records','gym_owner_executor','SELECT','evidence_reference'),
+        ('private.payment_records','gym_owner_executor','SELECT','recorded_by'),
+        ('private.payment_records','gym_owner_executor','SELECT','created_at'),
+        ('private.payment_records','gym_owner_executor','SELECT','operation_id'),
+        ('private.payment_records','gym_owner_executor','SELECT','target_membership_purchase_id'),
+        ('private.payment_records','gym_owner_executor','INSERT','amount_php'),
+        ('private.payment_records','gym_owner_executor','INSERT','payment_method'),
+        ('private.payment_records','gym_owner_executor','INSERT','verification_status'),
+        ('private.payment_records','gym_owner_executor','INSERT','external_reference'),
+        ('private.payment_records','gym_owner_executor','INSERT','recorded_by'),
+        ('private.payment_records','gym_owner_executor','INSERT','operation_id'),
+        ('private.payment_records','gym_owner_executor','INSERT','target_membership_purchase_id'),
+        ('private.payment_records','gym_owner_executor','UPDATE','verification_status'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','id'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','payment_id'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','membership_purchase_id'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','walkin_request_id'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','allocated_by'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','allocated_at'),
+        ('private.payment_allocations','gym_owner_executor','INSERT','payment_id'),
+        ('private.payment_allocations','gym_owner_executor','INSERT','membership_purchase_id'),
+        ('private.payment_allocations','gym_owner_executor','INSERT','allocated_by'),
+        ('private.payment_events','gym_owner_executor','SELECT','id'),
+        ('private.payment_events','gym_owner_executor','SELECT','payment_id'),
+        ('private.payment_events','gym_owner_executor','SELECT','event_type'),
+        ('private.payment_events','gym_owner_executor','SELECT','reason'),
+        ('private.payment_events','gym_owner_executor','SELECT','actor_user_id'),
+        ('private.payment_events','gym_owner_executor','SELECT','created_at'),
+        ('private.payment_events','gym_owner_executor','INSERT','payment_id'),
+        ('private.payment_events','gym_owner_executor','INSERT','event_type'),
+        ('private.payment_events','gym_owner_executor','INSERT','reason'),
+        ('private.payment_events','gym_owner_executor','INSERT','actor_user_id'),
+        ('private.audit_events','gym_owner_executor','SELECT','id'),
+        ('private.audit_events','gym_owner_executor','SELECT','actor_user_id'),
+        ('private.audit_events','gym_owner_executor','SELECT','event_type'),
+        ('private.audit_events','gym_owner_executor','SELECT','subject_type'),
+        ('private.audit_events','gym_owner_executor','SELECT','subject_id'),
+        ('private.audit_events','gym_owner_executor','SELECT','details'),
+        ('private.audit_events','gym_owner_executor','SELECT','created_at'),
+        ('private.audit_events','gym_owner_executor','SELECT','stream_key'),
+        ('private.audit_events','gym_owner_executor','SELECT','previous_event_hash'),
+        ('private.audit_events','gym_owner_executor','SELECT','event_hash'),
+        ('private.audit_events','gym_owner_executor','INSERT','stream_key'),
+        ('private.audit_events','gym_owner_executor','INSERT','actor_user_id'),
+        ('private.audit_events','gym_owner_executor','INSERT','event_type'),
+        ('private.audit_events','gym_owner_executor','INSERT','subject_type'),
+        ('private.audit_events','gym_owner_executor','INSERT','subject_id'),
+        ('private.audit_events','gym_owner_executor','INSERT','details'),
+        ('private.audit_chain_heads','gym_owner_executor','SELECT','stream_key'),
+        ('private.audit_chain_heads','gym_owner_executor','SELECT','last_event_id'),
+        ('private.audit_chain_heads','gym_owner_executor','SELECT','last_event_hash'),
+        ('private.audit_chain_heads','gym_owner_executor','SELECT','updated_at'),
+        ('private.audit_chain_heads','gym_owner_executor','INSERT','stream_key'),
+        ('private.audit_chain_heads','gym_owner_executor','INSERT','last_event_id'),
+        ('private.audit_chain_heads','gym_owner_executor','INSERT','last_event_hash'),
+        ('private.audit_chain_heads','gym_owner_executor','UPDATE','last_event_id'),
+        ('private.audit_chain_heads','gym_owner_executor','UPDATE','last_event_hash'),
+        ('private.audit_chain_heads','gym_owner_executor','UPDATE','updated_at'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','id'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','member_id'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','token_hash'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','token_purpose'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','expires_at'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','consumed_at'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','created_at'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','INSERT','member_id'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','INSERT','token_hash'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','INSERT','token_purpose'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','INSERT','expires_at'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','UPDATE','consumed_at'),
+        ('private.members','gym_public_executor','SELECT','id'),
+        ('private.members','gym_public_executor','SELECT','status'),
+        ('private.members','gym_public_executor','UPDATE','updated_at'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','id'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','member_id'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','token_hash'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','token_purpose'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','expires_at'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','consumed_at'),
+        ('private.member_pin_setup_tokens','gym_public_executor','UPDATE','consumed_at'),
+        ('private.member_pin_credentials','gym_public_executor','SELECT','member_id'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','member_id'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','password_hash'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','credential_version'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','created_at'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','updated_at'),
+        ('private.pin_enrollment_global_rate_limit_events','gym_public_executor','SELECT','requested_at'),
+        ('private.pin_enrollment_global_rate_limit_events','gym_public_executor','INSERT','requested_at')
+              ) g(table_name,role_name,command,column_name)
+              JOIN pg_catalog.pg_roles rr ON rr.rolname=g.role_name
+              WHERE g.table_name=r.name AND g.column_name=col.attname
+                AND rr.oid=a.grantee AND g.command=a.privilege_type)))) THEN
+            RAISE EXCEPTION 'Unreviewed column ACL principal/grant: %',r.name;
+        END IF;
+    END LOOP;
+    IF NOT target AND EXISTS (SELECT 1 FROM pg_catalog.pg_policy p JOIN pg_catalog.pg_class c ON c.oid=p.polrelid
+        JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('private','public')) THEN
+        RAISE EXCEPTION 'Current profile policy inventory changed';
+    END IF;
+    IF target THEN
+        IF (SELECT count(*) FROM pg_catalog.pg_policy p JOIN pg_catalog.pg_class c ON c.oid=p.polrelid
+            JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('private','public'))<>34 THEN
+            RAISE EXCEPTION 'Policy count drift';
+        END IF;
+        FOR r IN SELECT * FROM (VALUES
+            ('private.owner_access','gym_owner_executor','SELECT','gf_owner_select'),
+        ('private.members','gym_owner_executor','SELECT','gf_owner_select'),
+        ('private.members','gym_owner_executor','INSERT','gf_owner_insert'),
+        ('private.members','gym_owner_executor','UPDATE','gf_owner_update'),
+        ('private.membership_plans','gym_owner_executor','SELECT','gf_owner_select'),
+        ('private.membership_plans','gym_owner_executor','INSERT','gf_owner_insert'),
+        ('private.membership_plans','gym_owner_executor','UPDATE','gf_owner_update'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','gf_owner_select'),
+        ('private.membership_purchases','gym_owner_executor','INSERT','gf_owner_insert'),
+        ('private.membership_purchases','gym_owner_executor','UPDATE','gf_owner_update'),
+        ('private.payment_records','gym_owner_executor','SELECT','gf_owner_select'),
+        ('private.payment_records','gym_owner_executor','INSERT','gf_owner_insert'),
+        ('private.payment_records','gym_owner_executor','UPDATE','gf_owner_update'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','gf_owner_select'),
+        ('private.payment_allocations','gym_owner_executor','INSERT','gf_owner_insert'),
+        ('private.payment_events','gym_owner_executor','SELECT','gf_owner_select'),
+        ('private.payment_events','gym_owner_executor','INSERT','gf_owner_insert'),
+        ('private.audit_events','gym_owner_executor','SELECT','gf_owner_select'),
+        ('private.audit_events','gym_owner_executor','INSERT','gf_owner_insert'),
+        ('private.audit_chain_heads','gym_owner_executor','SELECT','gf_owner_select'),
+        ('private.audit_chain_heads','gym_owner_executor','INSERT','gf_owner_insert'),
+        ('private.audit_chain_heads','gym_owner_executor','UPDATE','gf_owner_update'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','gf_owner_select'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','INSERT','gf_owner_insert'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','UPDATE','gf_owner_update'),
+        ('private.members','gym_public_executor','SELECT','gf_public_select'),
+        ('private.members','gym_public_executor','UPDATE','gf_public_update'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','gf_public_select'),
+        ('private.member_pin_setup_tokens','gym_public_executor','UPDATE','gf_public_update'),
+        ('private.member_pin_credentials','gym_public_executor','SELECT','gf_public_select'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','gf_public_insert'),
+        ('private.pin_enrollment_global_rate_limit_events','gym_public_executor','SELECT','gf_public_select'),
+        ('private.pin_enrollment_global_rate_limit_events','gym_public_executor','INSERT','gf_public_insert'),
+        ('private.pin_enrollment_global_rate_limit_events','gym_public_executor','DELETE','gf_public_delete')
+        ) v(table_name,role_name,command,policy_name) LOOP
+            SELECT * INTO actual_policy FROM pg_catalog.pg_policy
+              WHERE polrelid=pg_catalog.to_regclass(r.table_name) AND polname=r.policy_name;
+            IF NOT FOUND OR NOT actual_policy.polpermissive
+               OR actual_policy.polroles IS DISTINCT FROM ARRAY[(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=r.role_name)]
+               OR actual_policy.polcmd::text IS DISTINCT FROM (CASE r.command WHEN 'SELECT' THEN 'r' WHEN 'INSERT' THEN 'a' WHEN 'UPDATE' THEN 'w' WHEN 'DELETE' THEN 'd' END) THEN
+                RAISE EXCEPTION 'Role/command policy mismatch: % / %',r.table_name,r.policy_name;
+            END IF;
+            expected_expr := 'current_user='||quote_literal(r.role_name)||'::name';
+            actual_qual := lower(regexp_replace(pg_catalog.pg_get_expr(actual_policy.polqual,actual_policy.polrelid),'[[:space:]()]','','g'));
+            actual_check := lower(regexp_replace(pg_catalog.pg_get_expr(actual_policy.polwithcheck,actual_policy.polrelid),'[[:space:]()]','','g'));
+            IF (r.command IN ('SELECT','UPDATE','DELETE') AND actual_qual IS DISTINCT FROM expected_expr)
+               OR (r.command='INSERT' AND actual_qual IS NOT NULL)
+               OR (r.command IN ('INSERT','UPDATE') AND actual_check IS DISTINCT FROM expected_expr)
+               OR (r.command IN ('SELECT','DELETE') AND actual_check IS NOT NULL) THEN
+                RAISE EXCEPTION 'Policy predicate mismatch: % / %',r.table_name,r.policy_name;
+            END IF;
+        END LOOP;
+    END IF;
+    FOR r IN SELECT * FROM (VALUES
+        ('private.audit_events_id_seq','gym_owner_executor'),
+        ('private.payment_events_id_seq','gym_owner_executor'),
+        ('private.pin_enrollment_global_rate_limit_events_id_seq','gym_public_executor')
+    ) v(name,executor) LOOP
+        relation_oid := pg_catalog.to_regclass(r.name);
+        IF relation_oid IS NULL OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class c
+            WHERE c.oid=relation_oid AND c.relkind='S' AND c.relowner=(SELECT oid FROM pg_catalog.pg_roles
+            WHERE rolname=CASE WHEN target THEN 'gym_data_owner' ELSE 'postgres' END)) THEN
+            RAISE EXCEPTION 'Sequence ownership mismatch: %',r.name;
+        END IF;
+        FOREACH caller IN ARRAY ARRAY['anon','authenticated','service_role','gym_registration_login','gym_owner_executor','gym_public_executor'] LOOP
+            IF pg_catalog.has_sequence_privilege(caller,relation_oid,'SELECT,UPDATE')
+               OR pg_catalog.has_sequence_privilege(caller,relation_oid,'USAGE') THEN
+                RAISE EXCEPTION 'Sequence ACL mismatch: % / %',r.name,caller;
+            END IF;
+        END LOOP;
+        IF EXISTS (SELECT 1 FROM pg_catalog.pg_class c,
+            LATERAL pg_catalog.aclexplode(COALESCE(c.relacl,pg_catalog.acldefault('S',c.relowner))) a
+            WHERE c.oid=relation_oid AND a.grantee<>c.relowner) THEN
+            RAISE EXCEPTION 'Unreviewed sequence ACL: %',r.name;
+        END IF;
+    END LOOP;
+    IF (SELECT count(*) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+        WHERE n.nspname IN ('private','api'))<>25 THEN RAISE EXCEPTION 'Routine inventory drift'; END IF;
+    FOR r IN SELECT * FROM (VALUES
+        ('api.append_audit_event(text, uuid, text, text, text, jsonb)','7a05ca54592137c75b9adda7023516a8','gym_owner_executor','true','true','service_role,gym_public_executor'),
+        ('api.is_active_owner_for_user(uuid)','830f29066e37d9f2593c3cd99878ae93','gym_owner_executor','true','true','service_role'),
+        ('api.member_enroll_pin(text, text)','6bf1d4a963b2b853ba9cdc7cb582c342','gym_public_executor','true','true','service_role'),
+        ('api.owner_confirm_membership_payment(uuid, uuid, boolean)','ce58f4473d75469ef2676f232794dce0','gym_owner_executor','true','true','service_role'),
+        ('api.owner_create_membership_purchase(uuid, uuid, uuid)','f8f310bd5576274401706c5213c6746d','gym_owner_executor','true','true','service_role'),
+        ('api.owner_create_pin_enrollment_token(uuid, uuid, text, timestamp with time zone)','7a226978d83e191643a436c829f9dd07','gym_owner_executor','true','true','service_role'),
+        ('api.owner_list_members(uuid, text, text, integer, integer)','342dd9a2131e068c1a849694b053ebdf','gym_owner_executor','true','true','service_role'),
+        ('api.owner_list_membership_payments(uuid, text, text, integer, integer)','6ac0d61dfc24c15123812ec788294197','gym_owner_executor','true','true','service_role'),
+        ('api.owner_list_membership_plans(uuid)','fc3ed2be2834b6458f2835bfc18d9b4e','gym_owner_executor','true','true','service_role'),
+        ('api.owner_list_membership_purchases(uuid, text, text, integer, integer)','d6fd6f1ba099afe317dcf1606d49d64f','gym_owner_executor','true','true','service_role'),
+        ('api.owner_record_membership_payment(uuid, uuid, uuid, numeric, text, text)','c21766acb601a8b92dc26d59f73be2a3','gym_owner_executor','true','true','service_role'),
+        ('api.owner_register_member(uuid, text, bytea, bytea)','e56b20e809c8dfcebd782d4e8aa5fbb5','gym_owner_executor','true','true','service_role'),
+        ('api.owner_reject_membership_payment(uuid, uuid, text)','b55e7879cbae6d9074264826ed75eac0','gym_owner_executor','true','true','service_role'),
+        ('api.owner_save_membership_plan(uuid, uuid, text, numeric, boolean)','c128144cda372362b26ec91dc64fd6fa','gym_owner_executor','true','true','service_role'),
+        ('api.reserve_pin_enrollment_request()','ed1a67d4a3cd30fed31a0ee36222eb5b','gym_public_executor','true','true','service_role'),
+        ('api.verify_audit_stream(text)','f7c5cdb53ec4cf2d845e38f404df5fb9','gym_owner_executor','true','true','service_role'),
+        ('private.audit_events_chain_insert()','6fa6a434395de93250213752513ffb34','gym_data_owner','false','true','gym_owner_executor'),
+        ('private.compute_audit_event_hash(bigint, text, text, uuid, text, text, text, jsonb, timestamp with time zone)','a0635caf0c329b24571bd68df684f69f','gym_data_owner','false','false','gym_owner_executor'),
+        ('private.guard_membership_payment_allocation()','4836529309d8c518d42d24b9d191d6d5','gym_data_owner','false','true','gym_owner_executor'),
+        ('private.guard_membership_payment_record_insert()','edaae9f3a89330d4e55ce37d7d16d074','gym_data_owner','false','true','gym_owner_executor'),
+        ('private.guard_membership_payment_record_update()','9386192bae0b7aec6e34fce2e2aadbda','gym_data_owner','false','true','gym_owner_executor'),
+        ('private.guard_purchase_pending_activation()','c3467a65c399cf75243d4e3e9e31b36c','gym_data_owner','false','true','gym_owner_executor'),
+        ('private.is_active_owner()','76af3203b0fe03c30e1eb6d8264a04e6','gym_data_owner','false','false',''),
+        ('private.prevent_audit_event_mutation()','d835b9b2db211d2439e03ec9d8a6337d','gym_data_owner','false','true','gym_owner_executor'),
+        ('private.prevent_payment_history_mutation()','0ad4feeac81403c334c6665ff018485e','gym_data_owner','false','true','gym_owner_executor')
+    ) v(signature,body_md5,target_owner,target_definer,baseline_definer,callers) LOOP
+        routine_oid := pg_catalog.to_regprocedure(r.signature);
+        IF routine_oid IS NULL OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_proc p
+            WHERE p.oid=routine_oid AND md5(p.prosrc)=r.body_md5
+              AND p.proowner=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=CASE WHEN target THEN r.target_owner ELSE 'postgres' END)
+              AND p.prosecdef=CASE WHEN target THEN r.target_definer::boolean ELSE r.baseline_definer::boolean END
+              AND p.proconfig=ARRAY['search_path=""']::text[]) THEN
+            RAISE EXCEPTION 'Routine body/owner/execution/config mismatch: %',r.signature;
+        END IF;
+        FOREACH caller IN ARRAY ARRAY['anon','authenticated','service_role','gym_registration_login','gym_owner_executor','gym_public_executor'] LOOP
+            expected := CASE WHEN target THEN caller=r.target_owner OR caller=ANY(string_to_array(r.callers,','))
+                             ELSE caller='service_role' AND r.signature LIKE 'api.%' END;
+            IF pg_catalog.has_function_privilege(caller,routine_oid,'EXECUTE') IS DISTINCT FROM expected THEN
+                RAISE EXCEPTION 'Routine execute mismatch: % / %',r.signature,caller;
+            END IF;
+        END LOOP;
+        IF EXISTS (SELECT 1 FROM pg_catalog.pg_proc p,
+            LATERAL pg_catalog.aclexplode(COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))) a
+            WHERE p.oid=routine_oid AND (a.is_grantable AND a.grantee<>p.proowner OR
+              a.grantee<>p.proowner AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles rr
+                WHERE rr.oid=a.grantee AND rr.rolname=ANY(CASE WHEN target THEN string_to_array(r.callers,',')
+                ELSE CASE WHEN r.signature LIKE 'api.%' THEN ARRAY['service_role'] ELSE ARRAY[]::text[] END END)))) THEN
+            RAISE EXCEPTION 'PUBLIC/unreviewed routine grantee: %',r.signature;
+        END IF;
+    END LOOP;
+    FOREACH caller IN ARRAY ARRAY['anon','authenticated','gym_registration_login'] LOOP
+        IF pg_catalog.has_schema_privilege(caller,'private','USAGE,CREATE')
+           OR pg_catalog.has_schema_privilege(caller,'api','USAGE,CREATE') THEN
+            RAISE EXCEPTION 'Browser/dormant schema exposure: %',caller;
+        END IF;
+    END LOOP;
+    IF pg_catalog.has_schema_privilege('service_role','private','USAGE,CREATE')
+       OR NOT pg_catalog.has_schema_privilege('service_role','api','USAGE')
+       OR pg_catalog.has_schema_privilege('service_role','api','CREATE') THEN
+        RAISE EXCEPTION 'Service-role schema boundary mismatch';
+    END IF;
+    FOREACH caller IN ARRAY ARRAY['gym_data_owner','gym_owner_executor','gym_public_executor'] LOOP
+        IF pg_catalog.has_schema_privilege(caller,'private','CREATE')
+           OR pg_catalog.has_schema_privilege(caller,'api','CREATE')
+           OR pg_catalog.has_schema_privilege(caller,'public','CREATE') THEN
+            RAISE EXCEPTION 'Reserved role has schema CREATE: %',caller;
+        END IF;
+        IF pg_catalog.has_schema_privilege(caller,'private','USAGE') IS DISTINCT FROM target THEN
+            RAISE EXCEPTION 'Reserved private schema USAGE mismatch: %',caller;
+        END IF;
+        IF pg_catalog.has_schema_privilege(caller,'api','USAGE') IS DISTINCT FROM
+           (target AND caller IN ('gym_owner_executor','gym_public_executor')) THEN
+            RAISE EXCEPTION 'Reserved API schema USAGE mismatch: %',caller;
+        END IF;
+    END LOOP;
+    IF target AND (NOT pg_catalog.has_schema_privilege('gym_owner_executor','extensions','USAGE')
+       OR NOT pg_catalog.has_function_privilege('gym_owner_executor','extensions.digest(bytea,text)','EXECUTE')) THEN
+        RAISE EXCEPTION 'Audit digest dependency unavailable to Owner executor';
+    END IF;
+    FOR r IN SELECT * FROM (VALUES
+        ('private.audit_events','audit_events_chain_insert_trigger','CREATE TRIGGER audit_events_chain_insert_trigger BEFORE INSERT ON private.audit_events FOR EACH ROW EXECUTE FUNCTION private.audit_events_chain_insert()'),
+        ('private.audit_events','audit_events_no_truncate','CREATE TRIGGER audit_events_no_truncate BEFORE TRUNCATE ON private.audit_events FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_audit_event_mutation()'),
+        ('private.audit_events','audit_events_no_update_delete','CREATE TRIGGER audit_events_no_update_delete BEFORE DELETE OR UPDATE ON private.audit_events FOR EACH ROW EXECUTE FUNCTION private.prevent_audit_event_mutation()'),
+        ('private.membership_purchases','membership_purchase_requires_confirmed_payment','CREATE TRIGGER membership_purchase_requires_confirmed_payment BEFORE INSERT OR UPDATE ON private.membership_purchases FOR EACH ROW EXECUTE FUNCTION private.guard_purchase_pending_activation()'),
+        ('private.payment_allocations','payment_allocations_no_truncate','CREATE TRIGGER payment_allocations_no_truncate BEFORE TRUNCATE ON private.payment_allocations FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_payment_history_mutation()'),
+        ('private.payment_allocations','payment_allocations_no_update_delete','CREATE TRIGGER payment_allocations_no_update_delete BEFORE DELETE OR UPDATE ON private.payment_allocations FOR EACH ROW EXECUTE FUNCTION private.prevent_payment_history_mutation()'),
+        ('private.payment_allocations','payment_allocations_validate_membership','CREATE TRIGGER payment_allocations_validate_membership BEFORE INSERT ON private.payment_allocations FOR EACH ROW EXECUTE FUNCTION private.guard_membership_payment_allocation()'),
+        ('private.payment_events','payment_events_no_truncate','CREATE TRIGGER payment_events_no_truncate BEFORE TRUNCATE ON private.payment_events FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_payment_history_mutation()'),
+        ('private.payment_events','payment_events_no_update_delete','CREATE TRIGGER payment_events_no_update_delete BEFORE DELETE OR UPDATE ON private.payment_events FOR EACH ROW EXECUTE FUNCTION private.prevent_payment_history_mutation()'),
+        ('private.payment_records','payment_records_guard_update','CREATE TRIGGER payment_records_guard_update BEFORE UPDATE ON private.payment_records FOR EACH ROW EXECUTE FUNCTION private.guard_membership_payment_record_update()'),
+        ('private.payment_records','payment_records_no_delete','CREATE TRIGGER payment_records_no_delete BEFORE DELETE ON private.payment_records FOR EACH ROW EXECUTE FUNCTION private.prevent_payment_history_mutation()'),
+        ('private.payment_records','payment_records_no_truncate','CREATE TRIGGER payment_records_no_truncate BEFORE TRUNCATE ON private.payment_records FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_payment_history_mutation()'),
+        ('private.payment_records','payment_records_validate_membership_insert','CREATE TRIGGER payment_records_validate_membership_insert BEFORE INSERT ON private.payment_records FOR EACH ROW EXECUTE FUNCTION private.guard_membership_payment_record_insert()')
+    ) v(table_name,name,definition) LOOP
+        IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t WHERE t.tgrelid=pg_catalog.to_regclass(r.table_name)
+            AND t.tgname=r.name AND t.tgenabled='O' AND pg_catalog.pg_get_triggerdef(t.oid)=r.definition) THEN
+            RAISE EXCEPTION 'Trigger definition/state drift: %.%',r.table_name,r.name;
+        END IF;
+    END LOOP;
+    RAISE NOTICE 'PASS profile %: catalog scope only; lifecycle/Attendance/hosted behavior not certified',profile;
+    IF NOT target THEN
+        RAISE WARNING 'Ownership/executor hardening remains unsatisfied in current_server_only profile';
+    END IF;
+END;
+$phase_assertions$;
+DO $dependency_assertions$
+DECLARE r record; target boolean := current_setting('gymforce.assertion_profile')='proposed_owner_executor'; expected_owner oid;
+BEGIN
+    SELECT oid INTO expected_owner FROM pg_catalog.pg_roles WHERE rolname=CASE WHEN target THEN 'gym_data_owner' ELSE 'postgres' END;
+    IF pg_catalog.to_regclass(pg_catalog.pg_get_serial_sequence('private.audit_events','id')) IS DISTINCT FROM pg_catalog.to_regclass('private.audit_events_id_seq') THEN RAISE EXCEPTION 'Identity sequence binding drift: private.audit_events_id_seq'; END IF;
+    IF pg_catalog.to_regclass(pg_catalog.pg_get_serial_sequence('private.payment_events','id')) IS DISTINCT FROM pg_catalog.to_regclass('private.payment_events_id_seq') THEN RAISE EXCEPTION 'Identity sequence binding drift: private.payment_events_id_seq'; END IF;
+    IF pg_catalog.to_regclass(pg_catalog.pg_get_serial_sequence('private.pin_enrollment_global_rate_limit_events','id')) IS DISTINCT FROM pg_catalog.to_regclass('private.pin_enrollment_global_rate_limit_events_id_seq') THEN RAISE EXCEPTION 'Identity sequence binding drift: private.pin_enrollment_global_rate_limit_events_id_seq'; END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles login_role WHERE login_role.rolname='gym_registration_login'
+      AND login_role.rolcanlogin AND NOT login_role.rolsuper AND NOT login_role.rolcreatedb AND NOT login_role.rolcreaterole
+      AND NOT login_role.rolinherit AND NOT login_role.rolreplication AND NOT login_role.rolbypassrls)
+      OR EXISTS (SELECT 1 FROM pg_catalog.pg_authid WHERE rolname='gym_registration_login' AND rolpassword IS NOT NULL) THEN
+        RAISE EXCEPTION 'Dormant registration login attributes/credential state drift';
+    END IF;
+    FOR r IN SELECT * FROM (VALUES
+        ('index','private.attendance_checkins_pkey','private.attendance_checkins'),
+        ('index','private.attendance_date_idx','private.attendance_checkins'),
+        ('index','private.attendance_member_date_idx','private.attendance_checkins'),
+        ('index','private.attendance_one_checkin_per_walkin','private.attendance_checkins'),
+        ('index','private.attendance_one_member_valid_checkin_per_day','private.attendance_checkins'),
+        ('index','private.attendance_validity_resolutions_pkey','private.attendance_validity_resolutions'),
+        ('index','private.audit_chain_heads_pkey','private.audit_chain_heads'),
+        ('index','private.audit_events_actor_created_idx','private.audit_events'),
+        ('index','private.audit_events_created_at_idx','private.audit_events'),
+        ('index','private.audit_events_pkey','private.audit_events'),
+        ('index','private.audit_events_stream_created_idx','private.audit_events'),
+        ('index','private.cash_adjustments_reconciliation_idx','private.cash_reconciliation_adjustments'),
+        ('index','private.cash_drawer_only_one_open_session','private.cash_drawer_sessions'),
+        ('index','private.cash_drawer_sessions_pkey','private.cash_drawer_sessions'),
+        ('index','private.cash_reconciliation_adjustments_pkey','private.cash_reconciliation_adjustments'),
+        ('index','private.cash_reconciliations_date_idx','private.cash_reconciliations'),
+        ('index','private.cash_reconciliations_drawer_session_id_key','private.cash_reconciliations'),
+        ('index','private.cash_reconciliations_pkey','private.cash_reconciliations'),
+        ('index','private.member_pin_credentials_pkey','private.member_pin_credentials'),
+        ('index','private.member_pin_setup_tokens_active_enrollment_idx','private.member_pin_setup_tokens'),
+        ('index','private.member_pin_setup_tokens_expiry_idx','private.member_pin_setup_tokens'),
+        ('index','private.member_pin_setup_tokens_member_idx','private.member_pin_setup_tokens'),
+        ('index','private.member_pin_setup_tokens_pkey','private.member_pin_setup_tokens'),
+        ('index','private.member_pin_setup_tokens_token_hash_key','private.member_pin_setup_tokens'),
+        ('index','private.members_member_code_key','private.members'),
+        ('index','private.members_mobile_lookup_hash_key','private.members'),
+        ('index','private.members_pkey','private.members'),
+        ('index','private.members_status_idx','private.members'),
+        ('index','private.membership_plans_normalized_name_uidx','private.membership_plans'),
+        ('index','private.membership_plans_pkey','private.membership_plans'),
+        ('index','private.membership_purchases_member_idx','private.membership_purchases'),
+        ('index','private.membership_purchases_no_overlapping_periods','private.membership_purchases'),
+        ('index','private.membership_purchases_pkey','private.membership_purchases'),
+        ('index','private.membership_purchases_plan_idx','private.membership_purchases'),
+        ('index','private.owner_access_pkey','private.owner_access'),
+        ('index','private.payment_allocations_membership_idx','private.payment_allocations'),
+        ('index','private.payment_allocations_membership_purchase_uidx','private.payment_allocations'),
+        ('index','private.payment_allocations_payment_id_key','private.payment_allocations'),
+        ('index','private.payment_allocations_pkey','private.payment_allocations'),
+        ('index','private.payment_allocations_walkin_idx','private.payment_allocations'),
+        ('index','private.payment_corrections_payment_idx','private.payment_corrections'),
+        ('index','private.payment_corrections_pkey','private.payment_corrections'),
+        ('index','private.payment_events_payment_created_idx','private.payment_events'),
+        ('index','private.payment_events_pkey','private.payment_events'),
+        ('index','private.payment_records_membership_external_reference_uidx','private.payment_records'),
+        ('index','private.payment_records_membership_idx','private.payment_records'),
+        ('index','private.payment_records_operation_id_uidx','private.payment_records'),
+        ('index','private.payment_records_pending_membership_uidx','private.payment_records'),
+        ('index','private.payment_records_pkey','private.payment_records'),
+        ('index','private.pin_attempt_buckets_blocked_idx','private.pin_attempt_buckets'),
+        ('index','private.pin_attempt_buckets_pkey','private.pin_attempt_buckets'),
+        ('index','private.pin_bucket_unique_window','private.pin_attempt_buckets'),
+        ('index','private.pin_enrollment_global_rate_limit_events_pkey','private.pin_enrollment_global_rate_limit_events'),
+        ('index','private.pin_enrollment_global_rate_limit_events_requested_at_idx','private.pin_enrollment_global_rate_limit_events'),
+        ('index','private.walkin_fee_versions_pkey','private.walkin_fee_versions'),
+        ('index','private.walkin_requests_pkey','private.walkin_requests'),
+        ('index','public.gym_settings_pkey','public.gym_settings'),
+        ('type','private._attendance_checkins','private.attendance_checkins'),
+        ('type','private._attendance_validity_resolutions','private.attendance_validity_resolutions'),
+        ('type','private._audit_chain_heads','private.audit_chain_heads'),
+        ('type','private._audit_events','private.audit_events'),
+        ('type','private._cash_drawer_sessions','private.cash_drawer_sessions'),
+        ('type','private._cash_reconciliation_adjustments','private.cash_reconciliation_adjustments'),
+        ('type','private._cash_reconciliations','private.cash_reconciliations'),
+        ('type','private._member_pin_credentials','private.member_pin_credentials'),
+        ('type','private._member_pin_setup_tokens','private.member_pin_setup_tokens'),
+        ('type','private._members','private.members'),
+        ('type','private._membership_plans','private.membership_plans'),
+        ('type','private._membership_purchases','private.membership_purchases'),
+        ('type','private._owner_access','private.owner_access'),
+        ('type','private._payment_allocations','private.payment_allocations'),
+        ('type','private._payment_corrections','private.payment_corrections'),
+        ('type','private._payment_events','private.payment_events'),
+        ('type','private._payment_records','private.payment_records'),
+        ('type','private._pin_attempt_buckets','private.pin_attempt_buckets'),
+        ('type','private._pin_enrollment_global_rate_limit_events','private.pin_enrollment_global_rate_limit_events'),
+        ('type','private._walkin_fee_versions','private.walkin_fee_versions'),
+        ('type','private._walkin_requests','private.walkin_requests'),
+        ('type','private.attendance_checkins','private.attendance_checkins'),
+        ('type','private.attendance_validity_resolutions','private.attendance_validity_resolutions'),
+        ('type','private.audit_chain_heads','private.audit_chain_heads'),
+        ('type','private.audit_events','private.audit_events'),
+        ('type','private.cash_drawer_sessions','private.cash_drawer_sessions'),
+        ('type','private.cash_reconciliation_adjustments','private.cash_reconciliation_adjustments'),
+        ('type','private.cash_reconciliations','private.cash_reconciliations'),
+        ('type','private.member_pin_credentials','private.member_pin_credentials'),
+        ('type','private.member_pin_setup_tokens','private.member_pin_setup_tokens'),
+        ('type','private.members','private.members'),
+        ('type','private.membership_plans','private.membership_plans'),
+        ('type','private.membership_purchases','private.membership_purchases'),
+        ('type','private.owner_access','private.owner_access'),
+        ('type','private.payment_allocations','private.payment_allocations'),
+        ('type','private.payment_corrections','private.payment_corrections'),
+        ('type','private.payment_events','private.payment_events'),
+        ('type','private.payment_records','private.payment_records'),
+        ('type','private.pin_attempt_buckets','private.pin_attempt_buckets'),
+        ('type','private.pin_enrollment_global_rate_limit_events','private.pin_enrollment_global_rate_limit_events'),
+        ('type','private.walkin_fee_versions','private.walkin_fee_versions'),
+        ('type','private.walkin_requests','private.walkin_requests'),
+        ('type','public._gym_settings','public.gym_settings'),
+        ('type','public.gym_settings','public.gym_settings')
+    ) v(kind,name,parent) LOOP
+        IF r.kind='index' AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class c
+            JOIN pg_catalog.pg_index i ON i.indexrelid=c.oid WHERE c.oid=pg_catalog.to_regclass(r.name)
+              AND i.indrelid=pg_catalog.to_regclass(r.parent) AND c.relowner=expected_owner
+              AND i.indisvalid AND i.indisready) THEN
+            RAISE EXCEPTION 'Dependent index owner/binding/validity mismatch: %',r.name;
+        ELSIF r.kind='type' AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_type t
+            JOIN pg_catalog.pg_class c ON c.oid=pg_catalog.to_regclass(r.parent)
+            JOIN pg_catalog.pg_type base ON base.oid=c.reltype
+            WHERE t.oid=pg_catalog.to_regtype(r.name) AND (t.oid=base.oid OR t.oid=base.typarray)
+              AND t.typowner=expected_owner) THEN
+            RAISE EXCEPTION 'Dependent type owner/binding mismatch: %',r.name;
+        END IF;
+    END LOOP;
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_constraint c JOIN pg_catalog.pg_namespace n ON n.oid=c.connamespace
+       WHERE n.nspname IN ('private','public') AND NOT c.convalidated) THEN
+        RAISE EXCEPTION 'Unvalidated application constraint';
+    END IF;
+END;
+$dependency_assertions$;
+DO $offline_contract$
+DECLARE
+    contract jsonb := $contract_json${"format":1,"origin":"Pinned migration source; strict lexical definitions, NOT a server catalog export","native_exposed_routines":[],"hosted":{"supported":false,"reason":"Provider metadata/version/ACL inventory not approved","documented_candidate":"graphql_public.graphql(text,text,jsonb,jsonb); pg_graphql-owned SECURITY INVOKER; NOT an allowed exception"},"creators":["postgres","gym_data_owner","gym_owner_executor","gym_public_executor","gym_registration_login"],"default_privileges":{"scopes":["global","private","api","public","graphql_public"],"kinds":["r","S","f","T"],"non_owner_grants":[],"implicit_public_type_usage":"allow_only_unmodified_builtin_without_explicit_global_entry"},"tables":[{"name":"private.attendance_checkins","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"member_id","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"walkin_request_id","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"gym_local_date","type":"date","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"checked_in_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"attendance_status","type":"text","not_null":true,"default":"'valid'","identity":"","generated":"","catalog_default":"'valid' :: text"}],"constraints":[{"name":"attendance_checkins_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"attendance_checkins_member_id_fkey","kind":"f","definition":"foreign key ( member_id ) references private . members ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( member_id ) references private . members ( id ) on delete restrict","no_inherit":null},{"name":"attendance_checkins_walkin_request_id_fkey","kind":"f","definition":"foreign key ( walkin_request_id ) references private . walkin_requests ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( walkin_request_id ) references private . walkin_requests ( id ) on delete restrict","no_inherit":null},{"name":"attendance_exactly_one_subject","kind":"c","definition":"check ( ( member_id is not null ) <> ( walkin_request_id is not null ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( ( member_id is not null ) <> ( walkin_request_id is not null ) ) )","no_inherit":false},{"name":"attendance_status_valid","kind":"c","definition":"check ( attendance_status in ( 'valid' , 'invalidated_payment' , 'invalidated_correction' , 'review' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( attendance_status = any ( array [ 'valid' :: text , 'invalidated_payment' :: text , 'invalidated_correction' :: text , 'review' :: text ] ) ) )","no_inherit":false}]},{"name":"private.attendance_validity_resolutions","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"attendance_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"prior_status","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"new_status","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"reason","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"resolved_by","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"resolved_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"attendance_validity_resolutions_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"attendance_validity_resolutions_attendance_id_fkey","kind":"f","definition":"foreign key ( attendance_id ) references private . attendance_checkins ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( attendance_id ) references private . attendance_checkins ( id ) on delete restrict","no_inherit":null},{"name":"attendance_validity_resolutions_resolved_by_fkey","kind":"f","definition":"foreign key ( resolved_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( resolved_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"attendance_resolution_reason_not_blank","kind":"c","definition":"check ( length ( trim ( reason ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from reason ) ) > 0 ) )","no_inherit":false},{"name":"attendance_resolution_status_valid","kind":"c","definition":"check ( prior_status in ( 'valid' , 'invalidated_payment' , 'invalidated_correction' , 'review' ) and new_status in ( 'valid' , 'invalidated_payment' , 'invalidated_correction' , 'review' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( ( prior_status = any ( array [ 'valid' :: text , 'invalidated_payment' :: text , 'invalidated_correction' :: text , 'review' :: text ] ) ) and ( new_status = any ( array [ 'valid' :: text , 'invalidated_payment' :: text , 'invalidated_correction' :: text , 'review' :: text ] ) ) ) )","no_inherit":false}]},{"name":"private.audit_chain_heads","columns":[{"name":"stream_key","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"last_event_id","type":"bigint","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"last_event_hash","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"updated_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"audit_chain_heads_pkey","kind":"p","definition":"primary key ( stream_key )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( stream_key )","no_inherit":null},{"name":"audit_chain_stream_not_blank","kind":"c","definition":"check ( length ( trim ( stream_key ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from stream_key ) ) > 0 ) )","no_inherit":false},{"name":"audit_chain_head_consistent","kind":"c","definition":"check ( ( last_event_id is null and last_event_hash is null ) or ( last_event_id is not null and last_event_hash is not null ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( ( ( last_event_id is null ) and ( last_event_hash is null ) ) or ( ( last_event_id is not null ) and ( last_event_hash is not null ) ) ) )","no_inherit":false}]},{"name":"private.audit_events","columns":[{"name":"id","type":"bigint","not_null":true,"default":null,"identity":"a","generated":"","catalog_default":null},{"name":"actor_user_id","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"event_type","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"subject_type","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"subject_id","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"details","type":"jsonb","not_null":true,"default":"'{}' :: jsonb","identity":"","generated":"","catalog_default":"'{}' :: jsonb"},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"stream_key","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"previous_event_hash","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"event_hash","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null}],"constraints":[{"name":"audit_events_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"audit_events_actor_user_id_fkey","kind":"f","definition":"foreign key ( actor_user_id ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( actor_user_id ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"audit_event_type_not_blank","kind":"c","definition":"check ( length ( trim ( event_type ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from event_type ) ) > 0 ) )","no_inherit":false},{"name":"audit_subject_type_not_blank","kind":"c","definition":"check ( length ( trim ( subject_type ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from subject_type ) ) > 0 ) )","no_inherit":false}]},{"name":"private.cash_drawer_sessions","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"opened_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"opened_by","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"opening_float_php","type":"numeric ( 12 , 2 )","not_null":true,"default":"0","identity":"","generated":"","catalog_default":"0"},{"name":"session_status","type":"text","not_null":true,"default":"'open'","identity":"","generated":"","catalog_default":"'open' :: text"},{"name":"closed_at","type":"timestamp with time zone","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"closed_by","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null}],"constraints":[{"name":"cash_drawer_sessions_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"cash_drawer_sessions_opened_by_fkey","kind":"f","definition":"foreign key ( opened_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( opened_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"cash_drawer_sessions_closed_by_fkey","kind":"f","definition":"foreign key ( closed_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( closed_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"cash_opening_float_nonnegative","kind":"c","definition":"check ( opening_float_php >= 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( opening_float_php >= ( 0 ) :: numeric ) )","no_inherit":false},{"name":"cash_drawer_status_valid","kind":"c","definition":"check ( session_status in ( 'open' , 'closed' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( session_status = any ( array [ 'open' :: text , 'closed' :: text ] ) ) )","no_inherit":false},{"name":"cash_drawer_close_consistent","kind":"c","definition":"check ( ( session_status = 'open' and closed_at is null and closed_by is null ) or ( session_status = 'closed' and closed_at is not null and closed_by is not null ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( ( ( session_status = 'open' :: text ) and ( closed_at is null ) and ( closed_by is null ) ) or ( ( session_status = 'closed' :: text ) and ( closed_at is not null ) and ( closed_by is not null ) ) ) )","no_inherit":false}]},{"name":"private.cash_reconciliation_adjustments","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"reconciliation_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"amount_delta_php","type":"numeric ( 12 , 2 )","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"reason","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"evidence_reference","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"recorded_by","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"cash_reconciliation_adjustments_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"cash_reconciliation_adjustments_reconciliation_id_fkey","kind":"f","definition":"foreign key ( reconciliation_id ) references private . cash_reconciliations ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( reconciliation_id ) references private . cash_reconciliations ( id ) on delete restrict","no_inherit":null},{"name":"cash_reconciliation_adjustments_recorded_by_fkey","kind":"f","definition":"foreign key ( recorded_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( recorded_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"cash_adjustment_nonzero","kind":"c","definition":"check ( amount_delta_php <> 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( amount_delta_php <> ( 0 ) :: numeric ) )","no_inherit":false},{"name":"cash_adjustment_reason_not_blank","kind":"c","definition":"check ( length ( trim ( reason ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from reason ) ) > 0 ) )","no_inherit":false}]},{"name":"private.cash_reconciliations","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"drawer_session_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"expected_cash_php","type":"numeric ( 12 , 2 )","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"counted_cash_php","type":"numeric ( 12 , 2 )","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"variance_php","type":"numeric ( 12 , 2 )","not_null":false,"default":"( counted_cash_php - expected_cash_php )","identity":"","generated":"s","catalog_default":"( counted_cash_php - expected_cash_php )"},{"name":"reconciled_by","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"reconciled_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"notes","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null}],"constraints":[{"name":"cash_reconciliations_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"cash_reconciliations_drawer_session_id_key","kind":"u","definition":"unique ( drawer_session_id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"unique ( drawer_session_id )","no_inherit":null},{"name":"cash_reconciliations_drawer_session_id_fkey","kind":"f","definition":"foreign key ( drawer_session_id ) references private . cash_drawer_sessions ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( drawer_session_id ) references private . cash_drawer_sessions ( id ) on delete restrict","no_inherit":null},{"name":"cash_reconciliations_reconciled_by_fkey","kind":"f","definition":"foreign key ( reconciled_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( reconciled_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"reconciliation_expected_cash_nonnegative","kind":"c","definition":"check ( expected_cash_php >= 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( expected_cash_php >= ( 0 ) :: numeric ) )","no_inherit":false},{"name":"reconciliation_counted_cash_nonnegative","kind":"c","definition":"check ( counted_cash_php >= 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( counted_cash_php >= ( 0 ) :: numeric ) )","no_inherit":false}]},{"name":"private.member_pin_credentials","columns":[{"name":"member_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"password_hash","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"credential_version","type":"integer","not_null":true,"default":"1","identity":"","generated":"","catalog_default":"1"},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"updated_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"member_pin_credentials_pkey","kind":"p","definition":"primary key ( member_id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( member_id )","no_inherit":null},{"name":"member_pin_credentials_member_id_fkey","kind":"f","definition":"foreign key ( member_id ) references private . members ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( member_id ) references private . members ( id ) on delete restrict","no_inherit":null},{"name":"member_pin_hash_not_blank","kind":"c","definition":"check ( length ( trim ( password_hash ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from password_hash ) ) > 0 ) )","no_inherit":false},{"name":"member_pin_version_positive","kind":"c","definition":"check ( credential_version > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( credential_version > 0 ) )","no_inherit":false}]},{"name":"private.member_pin_setup_tokens","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"member_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"token_hash","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"token_purpose","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"expires_at","type":"timestamp with time zone","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"consumed_at","type":"timestamp with time zone","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"member_pin_setup_tokens_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"member_pin_setup_tokens_member_id_fkey","kind":"f","definition":"foreign key ( member_id ) references private . members ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( member_id ) references private . members ( id ) on delete restrict","no_inherit":null},{"name":"member_pin_setup_tokens_token_hash_key","kind":"u","definition":"unique ( token_hash )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"unique ( token_hash )","no_inherit":null},{"name":"pin_token_hash_not_blank","kind":"c","definition":"check ( length ( trim ( token_hash ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from token_hash ) ) > 0 ) )","no_inherit":false},{"name":"pin_token_purpose_valid","kind":"c","definition":"check ( token_purpose in ( 'enrollment' , 'reset' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( token_purpose = any ( array [ 'enrollment' :: text , 'reset' :: text ] ) ) )","no_inherit":false},{"name":"pin_token_expiry_after_creation","kind":"c","definition":"check ( expires_at > created_at )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( expires_at > created_at ) )","no_inherit":false}]},{"name":"private.members","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"member_code","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"full_name","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"mobile_lookup_hash","type":"bytea","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"mobile_encrypted","type":"bytea","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"status","type":"text","not_null":true,"default":"'pending'","identity":"","generated":"","catalog_default":"'pending' :: text"},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"updated_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"approved_at","type":"timestamp with time zone","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null}],"constraints":[{"name":"members_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"members_member_code_key","kind":"u","definition":"unique ( member_code )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"unique ( member_code )","no_inherit":null},{"name":"members_mobile_lookup_hash_key","kind":"u","definition":"unique ( mobile_lookup_hash )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"unique ( mobile_lookup_hash )","no_inherit":null},{"name":"members_code_not_blank","kind":"c","definition":"check ( length ( trim ( member_code ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from member_code ) ) > 0 ) )","no_inherit":false},{"name":"members_name_not_blank","kind":"c","definition":"check ( length ( trim ( full_name ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from full_name ) ) > 0 ) )","no_inherit":false},{"name":"members_mobile_lookup_hash_not_empty","kind":"c","definition":"check ( octet_length ( mobile_lookup_hash ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( octet_length ( mobile_lookup_hash ) > 0 ) )","no_inherit":false},{"name":"members_mobile_encrypted_not_empty","kind":"c","definition":"check ( octet_length ( mobile_encrypted ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( octet_length ( mobile_encrypted ) > 0 ) )","no_inherit":false},{"name":"members_status_valid","kind":"c","definition":"check ( status in ( 'pending' , 'active' , 'suspended' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( status = any ( array [ 'pending' :: text , 'active' :: text , 'suspended' :: text ] ) ) )","no_inherit":false}]},{"name":"private.membership_plans","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"name","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"price_php","type":"numeric ( 12 , 2 )","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"is_active","type":"boolean","not_null":true,"default":"true","identity":"","generated":"","catalog_default":"true"},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"membership_plans_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"membership_plan_name_not_blank","kind":"c","definition":"check ( length ( trim ( name ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from name ) ) > 0 ) )","no_inherit":false},{"name":"membership_plan_price_positive","kind":"c","definition":"check ( price_php > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( price_php > ( 0 ) :: numeric ) )","no_inherit":false}]},{"name":"private.membership_purchases","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"member_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"plan_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"price_php","type":"numeric ( 12 , 2 )","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"purchase_status","type":"text","not_null":true,"default":"'pending_payment'","identity":"","generated":"","catalog_default":"'pending_payment' :: text"},{"name":"activation_date","type":"date","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"expiry_date","type":"date","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"membership_purchases_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"membership_purchases_member_id_fkey","kind":"f","definition":"foreign key ( member_id ) references private . members ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( member_id ) references private . members ( id ) on delete restrict","no_inherit":null},{"name":"membership_purchases_plan_id_fkey","kind":"f","definition":"foreign key ( plan_id ) references private . membership_plans ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( plan_id ) references private . membership_plans ( id ) on delete restrict","no_inherit":null},{"name":"membership_purchase_price_positive","kind":"c","definition":"check ( price_php > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( price_php > ( 0 ) :: numeric ) )","no_inherit":false},{"name":"membership_purchase_status_valid","kind":"c","definition":"check ( purchase_status in ( 'pending_payment' , 'pending_activation' , 'active' , 'expired' , 'payment_review' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( purchase_status = any ( array [ 'pending_payment' :: text , 'pending_activation' :: text , 'active' :: text , 'expired' :: text , 'payment_review' :: text ] ) ) )","no_inherit":false},{"name":"membership_purchase_dates_consistent","kind":"c","definition":"check ( ( activation_date is null and expiry_date is null ) or ( activation_date is not null and expiry_date is not null and expiry_date >= activation_date ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( ( ( activation_date is null ) and ( expiry_date is null ) ) or ( ( activation_date is not null ) and ( expiry_date is not null ) and ( expiry_date >= activation_date ) ) ) )","no_inherit":false},{"name":"membership_purchases_no_overlapping_periods","kind":"x","definition":"exclude using gist ( member_id extensions . gist_uuid_ops with = , daterange ( activation_date , expiry_date , '[]' ) with && ) where ( activation_date is not null and expiry_date is not null )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"exclude using gist ( member_id with = , daterange ( activation_date , expiry_date , '[]' :: text ) with && ) where ( ( ( activation_date is not null ) and ( expiry_date is not null ) ) )","no_inherit":true,"exclusion":{"method":"gist","opclasses":[{"schema":"extensions","name":"gist_uuid_ops","type":"uuid"},{"schema":"pg_catalog","name":"range_ops","type":"anyrange"}],"operators":["pg_catalog.=(uuid,uuid)","pg_catalog.&&(anyrange,anyrange)"]}}]},{"name":"private.owner_access","columns":[{"name":"user_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"is_active","type":"boolean","not_null":true,"default":"false","identity":"","generated":"","catalog_default":"false"},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"deactivated_at","type":"timestamp with time zone","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null}],"constraints":[{"name":"owner_access_pkey","kind":"p","definition":"primary key ( user_id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( user_id )","no_inherit":null},{"name":"owner_access_user_id_fkey","kind":"f","definition":"foreign key ( user_id ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( user_id ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"owner_access_deactivation_consistent","kind":"c","definition":"check ( ( is_active and deactivated_at is null ) or ( not is_active ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( ( is_active and ( deactivated_at is null ) ) or ( not is_active ) ) )","no_inherit":false}]},{"name":"private.payment_allocations","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"payment_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"membership_purchase_id","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"walkin_request_id","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"allocated_by","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"allocated_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"payment_allocations_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"payment_allocations_payment_id_key","kind":"u","definition":"unique ( payment_id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"unique ( payment_id )","no_inherit":null},{"name":"payment_allocations_payment_id_fkey","kind":"f","definition":"foreign key ( payment_id ) references private . payment_records ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( payment_id ) references private . payment_records ( id ) on delete restrict","no_inherit":null},{"name":"payment_allocations_membership_purchase_id_fkey","kind":"f","definition":"foreign key ( membership_purchase_id ) references private . membership_purchases ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( membership_purchase_id ) references private . membership_purchases ( id ) on delete restrict","no_inherit":null},{"name":"payment_allocations_allocated_by_fkey","kind":"f","definition":"foreign key ( allocated_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( allocated_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"payment_allocation_exactly_one_target","kind":"c","definition":"check ( ( membership_purchase_id is not null ) <> ( walkin_request_id is not null ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( ( membership_purchase_id is not null ) <> ( walkin_request_id is not null ) ) )","no_inherit":false},{"name":"payment_allocations_walkin_request_fk","kind":"f","definition":"foreign key ( walkin_request_id ) references private . walkin_requests ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( walkin_request_id ) references private . walkin_requests ( id ) on delete restrict","no_inherit":null}]},{"name":"private.payment_corrections","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"payment_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"proposed_amount_php","type":"numeric ( 12 , 2 )","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"proposed_payment_method","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"reason","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"evidence_reference","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"correction_status","type":"text","not_null":true,"default":"'proposed'","identity":"","generated":"","catalog_default":"'proposed' :: text"},{"name":"proposed_by","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"proposed_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"decided_by","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"decided_at","type":"timestamp with time zone","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"decision_reason","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null}],"constraints":[{"name":"payment_corrections_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"payment_corrections_payment_id_fkey","kind":"f","definition":"foreign key ( payment_id ) references private . payment_records ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( payment_id ) references private . payment_records ( id ) on delete restrict","no_inherit":null},{"name":"payment_corrections_proposed_by_fkey","kind":"f","definition":"foreign key ( proposed_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( proposed_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"payment_corrections_decided_by_fkey","kind":"f","definition":"foreign key ( decided_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( decided_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"payment_correction_reason_not_blank","kind":"c","definition":"check ( length ( trim ( reason ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from reason ) ) > 0 ) )","no_inherit":false},{"name":"payment_correction_amount_valid","kind":"c","definition":"check ( proposed_amount_php is null or proposed_amount_php > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( ( proposed_amount_php is null ) or ( proposed_amount_php > ( 0 ) :: numeric ) ) )","no_inherit":false},{"name":"payment_correction_method_valid","kind":"c","definition":"check ( proposed_payment_method is null or proposed_payment_method in ( 'cash' , 'gcash' , 'bank_transfer' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( ( proposed_payment_method is null ) or ( proposed_payment_method = any ( array [ 'cash' :: text , 'gcash' :: text , 'bank_transfer' :: text ] ) ) ) )","no_inherit":false},{"name":"payment_correction_status_valid","kind":"c","definition":"check ( correction_status in ( 'proposed' , 'approved' , 'rejected' , 'withdrawn' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( correction_status = any ( array [ 'proposed' :: text , 'approved' :: text , 'rejected' :: text , 'withdrawn' :: text ] ) ) )","no_inherit":false}]},{"name":"private.payment_events","columns":[{"name":"id","type":"bigint","not_null":true,"default":null,"identity":"a","generated":"","catalog_default":null},{"name":"payment_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"event_type","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"reason","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"actor_user_id","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"payment_events_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"payment_events_payment_id_fkey","kind":"f","definition":"foreign key ( payment_id ) references private . payment_records ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( payment_id ) references private . payment_records ( id ) on delete restrict","no_inherit":null},{"name":"payment_events_actor_user_id_fkey","kind":"f","definition":"foreign key ( actor_user_id ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( actor_user_id ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"payment_event_type_not_blank","kind":"c","definition":"check ( length ( trim ( event_type ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from event_type ) ) > 0 ) )","no_inherit":false}]},{"name":"private.payment_records","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"amount_php","type":"numeric ( 12 , 2 )","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"payment_method","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"received_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"verification_status","type":"text","not_null":true,"default":"'recorded'","identity":"","generated":"","catalog_default":"'recorded' :: text"},{"name":"external_reference","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"evidence_reference","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"recorded_by","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"operation_id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"target_membership_purchase_id","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null}],"constraints":[{"name":"payment_records_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"payment_records_recorded_by_fkey","kind":"f","definition":"foreign key ( recorded_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( recorded_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"payment_amount_positive","kind":"c","definition":"check ( amount_php > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( amount_php > ( 0 ) :: numeric ) )","no_inherit":false},{"name":"payment_method_valid","kind":"c","definition":"check ( payment_method in ( 'cash' , 'gcash' , 'bank_transfer' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( payment_method = any ( array [ 'cash' :: text , 'gcash' :: text , 'bank_transfer' :: text ] ) ) )","no_inherit":false},{"name":"payment_verification_status_valid","kind":"c","definition":"check ( verification_status in ( 'recorded' , 'confirmed' , 'rejected' , 'confirmation_voided_in_error' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( verification_status = any ( array [ 'recorded' :: text , 'confirmed' :: text , 'rejected' :: text , 'confirmation_voided_in_error' :: text ] ) ) )","no_inherit":false},{"name":"payment_records_target_membership_purchase_id_fkey","kind":"f","definition":"foreign key ( target_membership_purchase_id ) references private . membership_purchases ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( target_membership_purchase_id ) references private . membership_purchases ( id ) on delete restrict","no_inherit":null}]},{"name":"private.pin_attempt_buckets","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"bucket_type","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"identifier_digest","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"window_started_at","type":"timestamp with time zone","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"failed_attempts","type":"integer","not_null":true,"default":"0","identity":"","generated":"","catalog_default":"0"},{"name":"blocked_until","type":"timestamp with time zone","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"updated_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"pin_attempt_buckets_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"pin_bucket_type_valid","kind":"c","definition":"check ( bucket_type in ( 'member_identifier' , 'trusted_network' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( bucket_type = any ( array [ 'member_identifier' :: text , 'trusted_network' :: text ] ) ) )","no_inherit":false},{"name":"pin_identifier_digest_not_blank","kind":"c","definition":"check ( length ( trim ( identifier_digest ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from identifier_digest ) ) > 0 ) )","no_inherit":false},{"name":"pin_failed_attempts_nonnegative","kind":"c","definition":"check ( failed_attempts >= 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( failed_attempts >= 0 ) )","no_inherit":false},{"name":"pin_bucket_unique_window","kind":"u","definition":"unique ( bucket_type , identifier_digest , window_started_at )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"unique ( bucket_type , identifier_digest , window_started_at )","no_inherit":null}]},{"name":"private.pin_enrollment_global_rate_limit_events","columns":[{"name":"id","type":"bigint","not_null":true,"default":null,"identity":"a","generated":"","catalog_default":null},{"name":"requested_at","type":"timestamp with time zone","not_null":true,"default":"clock_timestamp ( )","identity":"","generated":"","catalog_default":"clock_timestamp ( )"}],"constraints":[{"name":"pin_enrollment_global_rate_limit_events_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null}]},{"name":"private.walkin_fee_versions","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"fee_php","type":"numeric ( 12 , 2 )","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"currency","type":"text","not_null":true,"default":"'PHP'","identity":"","generated":"","catalog_default":"'PHP' :: text"},{"name":"effective_from","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"created_by","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"walkin_fee_versions_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"walkin_fee_versions_created_by_fkey","kind":"f","definition":"foreign key ( created_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( created_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"walkin_fee_positive","kind":"c","definition":"check ( fee_php > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( fee_php > ( 0 ) :: numeric ) )","no_inherit":false},{"name":"walkin_fee_currency_php","kind":"c","definition":"check ( currency = 'PHP' )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( currency = 'PHP' :: text ) )","no_inherit":false}]},{"name":"private.walkin_requests","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"fee_version_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"fee_php","type":"numeric ( 12 , 2 )","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"currency","type":"text","not_null":true,"default":"'PHP'","identity":"","generated":"","catalog_default":"'PHP' :: text"},{"name":"request_status","type":"text","not_null":true,"default":"'pending'","identity":"","generated":"","catalog_default":"'pending' :: text"},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"expires_at","type":"timestamp with time zone","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"confirmed_by","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"confirmed_at","type":"timestamp with time zone","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null}],"constraints":[{"name":"walkin_requests_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"walkin_requests_fee_version_id_fkey","kind":"f","definition":"foreign key ( fee_version_id ) references private . walkin_fee_versions ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( fee_version_id ) references private . walkin_fee_versions ( id ) on delete restrict","no_inherit":null},{"name":"walkin_requests_confirmed_by_fkey","kind":"f","definition":"foreign key ( confirmed_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( confirmed_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"walkin_request_fee_positive","kind":"c","definition":"check ( fee_php > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( fee_php > ( 0 ) :: numeric ) )","no_inherit":false},{"name":"walkin_request_currency_php","kind":"c","definition":"check ( currency = 'PHP' )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( currency = 'PHP' :: text ) )","no_inherit":false},{"name":"walkin_request_expiry_after_creation","kind":"c","definition":"check ( expires_at > created_at )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( expires_at > created_at ) )","no_inherit":false},{"name":"walkin_request_status_valid","kind":"c","definition":"check ( request_status in ( 'pending' , 'confirmed' , 'expired' , 'payment_review' , 'rejected' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( request_status = any ( array [ 'pending' :: text , 'confirmed' :: text , 'expired' :: text , 'payment_review' :: text , 'rejected' :: text ] ) ) )","no_inherit":false},{"name":"walkin_confirmation_consistent","kind":"c","definition":"check ( ( request_status = 'confirmed' and confirmed_by is not null and confirmed_at is not null ) or ( request_status <> 'confirmed' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( ( ( request_status = 'confirmed' :: text ) and ( confirmed_by is not null ) and ( confirmed_at is not null ) ) or ( request_status <> 'confirmed' :: text ) ) )","no_inherit":false}]},{"name":"public.gym_settings","columns":[{"name":"setting_key","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"setting_value","type":"jsonb","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"updated_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"gym_settings_pkey","kind":"p","definition":"primary key ( setting_key )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( setting_key )","no_inherit":null},{"name":"gym_settings_key_not_blank","kind":"c","definition":"check ( length ( trim ( setting_key ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from setting_key ) ) > 0 ) )","no_inherit":false}]}],"indexes":[{"name":"private.members_status_idx","parent":"private.members","unique":false,"definition":"create index members_status_idx on private . members using btree ( status )","valid":true,"ready":true,"catalog_definition":"create index members_status_idx on private . members using btree ( status )","keys":[{"position":1,"column":"status","type":"text","opclass":"text_ops","options":0,"collation":"pg_catalog.\"default\""}]},{"name":"private.audit_events_created_at_idx","parent":"private.audit_events","unique":false,"definition":"create index audit_events_created_at_idx on private . audit_events using btree ( created_at desc )","valid":true,"ready":true,"catalog_definition":"create index audit_events_created_at_idx on private . audit_events using btree ( created_at desc )","keys":[{"position":1,"column":"created_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":3,"collation":null}]},{"name":"private.audit_events_actor_created_idx","parent":"private.audit_events","unique":false,"definition":"create index audit_events_actor_created_idx on private . audit_events using btree ( actor_user_id , created_at desc )","valid":true,"ready":true,"catalog_definition":"create index audit_events_actor_created_idx on private . audit_events using btree ( actor_user_id , created_at desc )","keys":[{"position":1,"column":"actor_user_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null},{"position":2,"column":"created_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":3,"collation":null}]},{"name":"private.membership_purchases_member_idx","parent":"private.membership_purchases","unique":false,"definition":"create index membership_purchases_member_idx on private . membership_purchases using btree ( member_id , created_at desc )","valid":true,"ready":true,"catalog_definition":"create index membership_purchases_member_idx on private . membership_purchases using btree ( member_id , created_at desc )","keys":[{"position":1,"column":"member_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null},{"position":2,"column":"created_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":3,"collation":null}]},{"name":"private.membership_purchases_plan_idx","parent":"private.membership_purchases","unique":false,"definition":"create index membership_purchases_plan_idx on private . membership_purchases using btree ( plan_id )","valid":true,"ready":true,"catalog_definition":"create index membership_purchases_plan_idx on private . membership_purchases using btree ( plan_id )","keys":[{"position":1,"column":"plan_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null}]},{"name":"private.payment_allocations_membership_idx","parent":"private.payment_allocations","unique":false,"definition":"create index payment_allocations_membership_idx on private . payment_allocations using btree ( membership_purchase_id ) where membership_purchase_id is not null","valid":true,"ready":true,"catalog_definition":"create index payment_allocations_membership_idx on private . payment_allocations using btree ( membership_purchase_id ) where ( membership_purchase_id is not null )","keys":[{"position":1,"column":"membership_purchase_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null}]},{"name":"private.payment_allocations_walkin_idx","parent":"private.payment_allocations","unique":false,"definition":"create index payment_allocations_walkin_idx on private . payment_allocations using btree ( walkin_request_id ) where walkin_request_id is not null","valid":true,"ready":true,"catalog_definition":"create index payment_allocations_walkin_idx on private . payment_allocations using btree ( walkin_request_id ) where ( walkin_request_id is not null )","keys":[{"position":1,"column":"walkin_request_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null}]},{"name":"private.payment_events_payment_created_idx","parent":"private.payment_events","unique":false,"definition":"create index payment_events_payment_created_idx on private . payment_events using btree ( payment_id , created_at )","valid":true,"ready":true,"catalog_definition":"create index payment_events_payment_created_idx on private . payment_events using btree ( payment_id , created_at )","keys":[{"position":1,"column":"payment_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null},{"position":2,"column":"created_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":0,"collation":null}]},{"name":"private.payment_corrections_payment_idx","parent":"private.payment_corrections","unique":false,"definition":"create index payment_corrections_payment_idx on private . payment_corrections using btree ( payment_id , proposed_at desc )","valid":true,"ready":true,"catalog_definition":"create index payment_corrections_payment_idx on private . payment_corrections using btree ( payment_id , proposed_at desc )","keys":[{"position":1,"column":"payment_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null},{"position":2,"column":"proposed_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":3,"collation":null}]},{"name":"private.attendance_one_member_valid_checkin_per_day","parent":"private.attendance_checkins","unique":true,"definition":"create unique index attendance_one_member_valid_checkin_per_day on private . attendance_checkins using btree ( member_id , gym_local_date ) where member_id is not null and attendance_status = 'valid'","valid":true,"ready":true,"catalog_definition":"create unique index attendance_one_member_valid_checkin_per_day on private . attendance_checkins using btree ( member_id , gym_local_date ) where ( ( member_id is not null ) and ( attendance_status = 'valid' :: text ) )","keys":[{"position":1,"column":"member_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null},{"position":2,"column":"gym_local_date","type":"date","opclass":"date_ops","options":0,"collation":null}]},{"name":"private.attendance_one_checkin_per_walkin","parent":"private.attendance_checkins","unique":true,"definition":"create unique index attendance_one_checkin_per_walkin on private . attendance_checkins using btree ( walkin_request_id ) where walkin_request_id is not null","valid":true,"ready":true,"catalog_definition":"create unique index attendance_one_checkin_per_walkin on private . attendance_checkins using btree ( walkin_request_id ) where ( walkin_request_id is not null )","keys":[{"position":1,"column":"walkin_request_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null}]},{"name":"private.attendance_date_idx","parent":"private.attendance_checkins","unique":false,"definition":"create index attendance_date_idx on private . attendance_checkins using btree ( gym_local_date desc )","valid":true,"ready":true,"catalog_definition":"create index attendance_date_idx on private . attendance_checkins using btree ( gym_local_date desc )","keys":[{"position":1,"column":"gym_local_date","type":"date","opclass":"date_ops","options":3,"collation":null}]},{"name":"private.attendance_member_date_idx","parent":"private.attendance_checkins","unique":false,"definition":"create index attendance_member_date_idx on private . attendance_checkins using btree ( member_id , gym_local_date desc ) where member_id is not null","valid":true,"ready":true,"catalog_definition":"create index attendance_member_date_idx on private . attendance_checkins using btree ( member_id , gym_local_date desc ) where ( member_id is not null )","keys":[{"position":1,"column":"member_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null},{"position":2,"column":"gym_local_date","type":"date","opclass":"date_ops","options":3,"collation":null}]},{"name":"private.member_pin_setup_tokens_member_idx","parent":"private.member_pin_setup_tokens","unique":false,"definition":"create index member_pin_setup_tokens_member_idx on private . member_pin_setup_tokens using btree ( member_id , created_at desc )","valid":true,"ready":true,"catalog_definition":"create index member_pin_setup_tokens_member_idx on private . member_pin_setup_tokens using btree ( member_id , created_at desc )","keys":[{"position":1,"column":"member_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null},{"position":2,"column":"created_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":3,"collation":null}]},{"name":"private.member_pin_setup_tokens_expiry_idx","parent":"private.member_pin_setup_tokens","unique":false,"definition":"create index member_pin_setup_tokens_expiry_idx on private . member_pin_setup_tokens using btree ( expires_at ) where consumed_at is null","valid":true,"ready":true,"catalog_definition":"create index member_pin_setup_tokens_expiry_idx on private . member_pin_setup_tokens using btree ( expires_at ) where ( consumed_at is null )","keys":[{"position":1,"column":"expires_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":0,"collation":null}]},{"name":"private.pin_attempt_buckets_blocked_idx","parent":"private.pin_attempt_buckets","unique":false,"definition":"create index pin_attempt_buckets_blocked_idx on private . pin_attempt_buckets using btree ( blocked_until ) where blocked_until is not null","valid":true,"ready":true,"catalog_definition":"create index pin_attempt_buckets_blocked_idx on private . pin_attempt_buckets using btree ( blocked_until ) where ( blocked_until is not null )","keys":[{"position":1,"column":"blocked_until","type":"timestamp with time zone","opclass":"timestamptz_ops","options":0,"collation":null}]},{"name":"private.cash_drawer_only_one_open_session","parent":"private.cash_drawer_sessions","unique":true,"definition":"create unique index cash_drawer_only_one_open_session on private . cash_drawer_sessions using btree ( ( session_status ) ) where session_status = 'open'","valid":true,"ready":true,"catalog_definition":"create unique index cash_drawer_only_one_open_session on private . cash_drawer_sessions using btree ( session_status ) where ( session_status = 'open' :: text )","keys":[{"position":1,"column":"session_status","type":"text","opclass":"text_ops","options":0,"collation":"pg_catalog.\"default\""}]},{"name":"private.cash_reconciliations_date_idx","parent":"private.cash_reconciliations","unique":false,"definition":"create index cash_reconciliations_date_idx on private . cash_reconciliations using btree ( reconciled_at desc )","valid":true,"ready":true,"catalog_definition":"create index cash_reconciliations_date_idx on private . cash_reconciliations using btree ( reconciled_at desc )","keys":[{"position":1,"column":"reconciled_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":3,"collation":null}]},{"name":"private.cash_adjustments_reconciliation_idx","parent":"private.cash_reconciliation_adjustments","unique":false,"definition":"create index cash_adjustments_reconciliation_idx on private . cash_reconciliation_adjustments using btree ( reconciliation_id , created_at )","valid":true,"ready":true,"catalog_definition":"create index cash_adjustments_reconciliation_idx on private . cash_reconciliation_adjustments using btree ( reconciliation_id , created_at )","keys":[{"position":1,"column":"reconciliation_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null},{"position":2,"column":"created_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":0,"collation":null}]},{"name":"private.audit_events_stream_created_idx","parent":"private.audit_events","unique":false,"definition":"create index audit_events_stream_created_idx on private . audit_events using btree ( stream_key , created_at , id )","valid":true,"ready":true,"catalog_definition":"create index audit_events_stream_created_idx on private . audit_events using btree ( stream_key , created_at , id )","keys":[{"position":1,"column":"stream_key","type":"text","opclass":"text_ops","options":0,"collation":"pg_catalog.\"default\""},{"position":2,"column":"created_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":0,"collation":null},{"position":3,"column":"id","type":"bigint","opclass":"int8_ops","options":0,"collation":null}]},{"name":"private.member_pin_setup_tokens_active_enrollment_idx","parent":"private.member_pin_setup_tokens","unique":false,"definition":"create index member_pin_setup_tokens_active_enrollment_idx on private . member_pin_setup_tokens using btree ( member_id ) where token_purpose = 'enrollment' and consumed_at is null","valid":true,"ready":true,"catalog_definition":"create index member_pin_setup_tokens_active_enrollment_idx on private . member_pin_setup_tokens using btree ( member_id ) where ( ( token_purpose = 'enrollment' :: text ) and ( consumed_at is null ) )","keys":[{"position":1,"column":"member_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null}]},{"name":"private.pin_enrollment_global_rate_limit_events_requested_at_idx","parent":"private.pin_enrollment_global_rate_limit_events","unique":false,"definition":"create index pin_enrollment_global_rate_limit_events_requested_at_idx on private . pin_enrollment_global_rate_limit_events using btree ( requested_at )","valid":true,"ready":true,"catalog_definition":"create index pin_enrollment_global_rate_limit_events_requested_at_idx on private . pin_enrollment_global_rate_limit_events using btree ( requested_at )","keys":[{"position":1,"column":"requested_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":0,"collation":null}]},{"name":"private.membership_plans_normalized_name_uidx","parent":"private.membership_plans","unique":true,"definition":"create unique index membership_plans_normalized_name_uidx on private . membership_plans using btree ( pg_catalog . lower ( pg_catalog . btrim ( pg_catalog . regexp_replace ( name , '\\s+' , ' ' , 'g' ) ) ) )","valid":true,"ready":true,"catalog_definition":"create unique index membership_plans_normalized_name_uidx on private . membership_plans using btree ( lower ( btrim ( regexp_replace ( name , '\\s+' :: text , ' ' :: text , 'g' :: text ) ) ) )","keys":[{"position":1,"column":"","type":"text","opclass":"text_ops","options":0,"collation":"pg_catalog.\"default\""}]},{"name":"private.payment_records_operation_id_uidx","parent":"private.payment_records","unique":true,"definition":"create unique index payment_records_operation_id_uidx on private . payment_records using btree ( operation_id )","valid":true,"ready":true,"catalog_definition":"create unique index payment_records_operation_id_uidx on private . payment_records using btree ( operation_id )","keys":[{"position":1,"column":"operation_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null}]},{"name":"private.payment_records_membership_idx","parent":"private.payment_records","unique":false,"definition":"create index payment_records_membership_idx on private . payment_records using btree ( target_membership_purchase_id , created_at desc ) where target_membership_purchase_id is not null","valid":true,"ready":true,"catalog_definition":"create index payment_records_membership_idx on private . payment_records using btree ( target_membership_purchase_id , created_at desc ) where ( target_membership_purchase_id is not null )","keys":[{"position":1,"column":"target_membership_purchase_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null},{"position":2,"column":"created_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":3,"collation":null}]},{"name":"private.payment_records_membership_external_reference_uidx","parent":"private.payment_records","unique":true,"definition":"create unique index payment_records_membership_external_reference_uidx on private . payment_records using btree ( payment_method , pg_catalog . lower ( pg_catalog . btrim ( external_reference ) ) ) where target_membership_purchase_id is not null and nullif ( pg_catalog . btrim ( external_reference ) , '' ) is not null","valid":true,"ready":true,"catalog_definition":"create unique index payment_records_membership_external_reference_uidx on private . payment_records using btree ( payment_method , lower ( btrim ( external_reference ) ) ) where ( ( target_membership_purchase_id is not null ) and ( nullif ( btrim ( external_reference ) , '' :: text ) is not null ) )","keys":[{"position":1,"column":"payment_method","type":"text","opclass":"text_ops","options":0,"collation":"pg_catalog.\"default\""},{"position":2,"column":"","type":"text","opclass":"text_ops","options":0,"collation":"pg_catalog.\"default\""}]},{"name":"private.payment_records_pending_membership_uidx","parent":"private.payment_records","unique":true,"definition":"create unique index payment_records_pending_membership_uidx on private . payment_records using btree ( target_membership_purchase_id ) where target_membership_purchase_id is not null and verification_status = 'recorded'","valid":true,"ready":true,"catalog_definition":"create unique index payment_records_pending_membership_uidx on private . payment_records using btree ( target_membership_purchase_id ) where ( ( target_membership_purchase_id is not null ) and ( verification_status = 'recorded' :: text ) )","keys":[{"position":1,"column":"target_membership_purchase_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null}]},{"name":"private.payment_allocations_membership_purchase_uidx","parent":"private.payment_allocations","unique":true,"definition":"create unique index payment_allocations_membership_purchase_uidx on private . payment_allocations using btree ( membership_purchase_id ) where membership_purchase_id is not null","valid":true,"ready":true,"catalog_definition":"create unique index payment_allocations_membership_purchase_uidx on private . payment_allocations using btree ( membership_purchase_id ) where ( membership_purchase_id is not null )","keys":[{"position":1,"column":"membership_purchase_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null}]}],"routines":[{"name":"api.append_audit_event","kind":"f","language":"plpgsql","argument_names":["p_stream_key","p_actor_user_id","p_event_type","p_subject_type","p_subject_id","p_details"],"input_types":["text","uuid","text","text","text","jsonb"],"output_types":[],"argument_defaults":"null , '{}' :: jsonb","default_count":2,"result":"bigint","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"7a05ca54592137c75b9adda7023516a8","extension":null,"signature":"api.append_audit_event(text, uuid, text, text, text, jsonb)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role","gym_public_executor"],"search_path":"","catalog_argument_defaults":"null :: text , '{}' :: jsonb"},{"name":"api.is_active_owner_for_user","kind":"f","language":"sql","argument_names":["p_user_id"],"input_types":["uuid"],"output_types":[],"argument_defaults":"","default_count":0,"result":"boolean","returns_set":false,"strict":false,"volatility":"s","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"830f29066e37d9f2593c3cd99878ae93","extension":null,"signature":"api.is_active_owner_for_user(uuid)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"api.member_enroll_pin","kind":"f","language":"plpgsql","argument_names":["p_token_hash","p_password_hash"],"input_types":["text","text"],"output_types":[],"argument_defaults":"","default_count":0,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"6bf1d4a963b2b853ba9cdc7cb582c342","extension":null,"signature":"api.member_enroll_pin(text, text)","proposed_owner":"gym_public_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"api.owner_confirm_membership_payment","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id","p_payment_id","p_evidence_reviewed"],"input_types":["uuid","uuid","boolean"],"output_types":[],"argument_defaults":"","default_count":0,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"ce58f4473d75469ef2676f232794dce0","extension":null,"signature":"api.owner_confirm_membership_payment(uuid, uuid, boolean)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"api.owner_create_membership_purchase","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id","p_member_id","p_plan_id"],"input_types":["uuid","uuid","uuid"],"output_types":[],"argument_defaults":"","default_count":0,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"f8f310bd5576274401706c5213c6746d","extension":null,"signature":"api.owner_create_membership_purchase(uuid, uuid, uuid)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"api.owner_create_pin_enrollment_token","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id","p_member_id","p_token_hash","p_expires_at"],"input_types":["uuid","uuid","text","timestamp with time zone"],"output_types":[],"argument_defaults":"","default_count":0,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"7a226978d83e191643a436c829f9dd07","extension":null,"signature":"api.owner_create_pin_enrollment_token(uuid, uuid, text, timestamp with time zone)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"api.owner_list_members","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id","p_search","p_status","p_limit","p_offset"],"input_types":["uuid","text","text","integer","integer"],"output_types":[],"argument_defaults":"null , 'all' , 50 , 0","default_count":4,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"342dd9a2131e068c1a849694b053ebdf","extension":null,"signature":"api.owner_list_members(uuid, text, text, integer, integer)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":"null :: text , 'all' :: text , 50 , 0"},{"name":"api.owner_list_membership_payments","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id","p_search","p_status","p_limit","p_offset"],"input_types":["uuid","text","text","integer","integer"],"output_types":[],"argument_defaults":"null , 'all' , 50 , 0","default_count":4,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"6ac0d61dfc24c15123812ec788294197","extension":null,"signature":"api.owner_list_membership_payments(uuid, text, text, integer, integer)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":"null :: text , 'all' :: text , 50 , 0"},{"name":"api.owner_list_membership_plans","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id"],"input_types":["uuid"],"output_types":[],"argument_defaults":"","default_count":0,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"fc3ed2be2834b6458f2835bfc18d9b4e","extension":null,"signature":"api.owner_list_membership_plans(uuid)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"api.owner_list_membership_purchases","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id","p_search","p_status","p_limit","p_offset"],"input_types":["uuid","text","text","integer","integer"],"output_types":[],"argument_defaults":"null , 'all' , 50 , 0","default_count":4,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"d6fd6f1ba099afe317dcf1606d49d64f","extension":null,"signature":"api.owner_list_membership_purchases(uuid, text, text, integer, integer)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":"null :: text , 'all' :: text , 50 , 0"},{"name":"api.owner_record_membership_payment","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id","p_operation_id","p_membership_purchase_id","p_amount_php","p_payment_method","p_external_reference"],"input_types":["uuid","uuid","uuid","numeric","text","text"],"output_types":[],"argument_defaults":"null","default_count":1,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"c21766acb601a8b92dc26d59f73be2a3","extension":null,"signature":"api.owner_record_membership_payment(uuid, uuid, uuid, numeric, text, text)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":"null :: text"},{"name":"api.owner_register_member","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id","p_full_name","p_mobile_lookup_hash","p_mobile_encrypted"],"input_types":["uuid","text","bytea","bytea"],"output_types":[],"argument_defaults":"","default_count":0,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"e56b20e809c8dfcebd782d4e8aa5fbb5","extension":null,"signature":"api.owner_register_member(uuid, text, bytea, bytea)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"api.owner_reject_membership_payment","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id","p_payment_id","p_reason"],"input_types":["uuid","uuid","text"],"output_types":[],"argument_defaults":"","default_count":0,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"b55e7879cbae6d9074264826ed75eac0","extension":null,"signature":"api.owner_reject_membership_payment(uuid, uuid, text)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"api.owner_save_membership_plan","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id","p_plan_id","p_name","p_price_php","p_is_active"],"input_types":["uuid","uuid","text","numeric","boolean"],"output_types":[],"argument_defaults":"","default_count":0,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"c128144cda372362b26ec91dc64fd6fa","extension":null,"signature":"api.owner_save_membership_plan(uuid, uuid, text, numeric, boolean)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"api.reserve_pin_enrollment_request","kind":"f","language":"plpgsql","argument_names":[],"input_types":[],"output_types":[],"argument_defaults":"","default_count":0,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"ed1a67d4a3cd30fed31a0ee36222eb5b","extension":null,"signature":"api.reserve_pin_enrollment_request()","proposed_owner":"gym_public_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"api.verify_audit_stream","kind":"f","language":"plpgsql","argument_names":["p_stream_key","is_valid","checked_events","failure_event_id","reason"],"input_types":["text"],"output_types":["boolean","bigint","bigint","text"],"argument_defaults":"","default_count":0,"result":"table ( is_valid boolean , checked_events bigint , failure_event_id bigint , reason text )","returns_set":true,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":1000,"body_md5":"f7c5cdb53ec4cf2d845e38f404df5fb9","extension":null,"signature":"api.verify_audit_stream(text)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"private.audit_events_chain_insert","kind":"f","language":"plpgsql","argument_names":[],"input_types":[],"output_types":[],"argument_defaults":"","default_count":0,"result":"trigger","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"6fa6a434395de93250213752513ffb34","extension":null,"signature":"private.audit_events_chain_insert()","proposed_owner":"gym_data_owner","proposed_definer":false,"callers":["gym_owner_executor"],"search_path":"","catalog_argument_defaults":""},{"name":"private.compute_audit_event_hash","kind":"f","language":"sql","argument_names":["p_id","p_stream_key","p_previous_event_hash","p_actor_user_id","p_event_type","p_subject_type","p_subject_id","p_details","p_created_at"],"input_types":["bigint","text","text","uuid","text","text","text","jsonb","timestamp with time zone"],"output_types":[],"argument_defaults":"","default_count":0,"result":"text","returns_set":false,"strict":false,"volatility":"i","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"a0635caf0c329b24571bd68df684f69f","extension":null,"signature":"private.compute_audit_event_hash(bigint, text, text, uuid, text, text, text, jsonb, timestamp with time zone)","proposed_owner":"gym_data_owner","proposed_definer":false,"callers":["gym_owner_executor"],"search_path":"","catalog_argument_defaults":""},{"name":"private.guard_membership_payment_allocation","kind":"f","language":"plpgsql","argument_names":[],"input_types":[],"output_types":[],"argument_defaults":"","default_count":0,"result":"trigger","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"4836529309d8c518d42d24b9d191d6d5","extension":null,"signature":"private.guard_membership_payment_allocation()","proposed_owner":"gym_data_owner","proposed_definer":false,"callers":["gym_owner_executor"],"search_path":"","catalog_argument_defaults":""},{"name":"private.guard_membership_payment_record_insert","kind":"f","language":"plpgsql","argument_names":[],"input_types":[],"output_types":[],"argument_defaults":"","default_count":0,"result":"trigger","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"edaae9f3a89330d4e55ce37d7d16d074","extension":null,"signature":"private.guard_membership_payment_record_insert()","proposed_owner":"gym_data_owner","proposed_definer":false,"callers":["gym_owner_executor"],"search_path":"","catalog_argument_defaults":""},{"name":"private.guard_membership_payment_record_update","kind":"f","language":"plpgsql","argument_names":[],"input_types":[],"output_types":[],"argument_defaults":"","default_count":0,"result":"trigger","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"9386192bae0b7aec6e34fce2e2aadbda","extension":null,"signature":"private.guard_membership_payment_record_update()","proposed_owner":"gym_data_owner","proposed_definer":false,"callers":["gym_owner_executor"],"search_path":"","catalog_argument_defaults":""},{"name":"private.guard_purchase_pending_activation","kind":"f","language":"plpgsql","argument_names":[],"input_types":[],"output_types":[],"argument_defaults":"","default_count":0,"result":"trigger","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"c3467a65c399cf75243d4e3e9e31b36c","extension":null,"signature":"private.guard_purchase_pending_activation()","proposed_owner":"gym_data_owner","proposed_definer":false,"callers":["gym_owner_executor"],"search_path":"","catalog_argument_defaults":""},{"name":"private.is_active_owner","kind":"f","language":"sql","argument_names":[],"input_types":[],"output_types":[],"argument_defaults":"","default_count":0,"result":"boolean","returns_set":false,"strict":false,"volatility":"s","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"76af3203b0fe03c30e1eb6d8264a04e6","extension":null,"signature":"private.is_active_owner()","proposed_owner":"gym_data_owner","proposed_definer":false,"callers":[],"search_path":"","catalog_argument_defaults":""},{"name":"private.prevent_audit_event_mutation","kind":"f","language":"plpgsql","argument_names":[],"input_types":[],"output_types":[],"argument_defaults":"","default_count":0,"result":"trigger","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"d835b9b2db211d2439e03ec9d8a6337d","extension":null,"signature":"private.prevent_audit_event_mutation()","proposed_owner":"gym_data_owner","proposed_definer":false,"callers":["gym_owner_executor"],"search_path":"","catalog_argument_defaults":""},{"name":"private.prevent_payment_history_mutation","kind":"f","language":"plpgsql","argument_names":[],"input_types":[],"output_types":[],"argument_defaults":"","default_count":0,"result":"trigger","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"0ad4feeac81403c334c6665ff018485e","extension":null,"signature":"private.prevent_payment_history_mutation()","proposed_owner":"gym_data_owner","proposed_definer":false,"callers":["gym_owner_executor"],"search_path":"","catalog_argument_defaults":""}],"triggers":[{"table_name":"private.audit_events","name":"audit_events_chain_insert_trigger","definition":"CREATE TRIGGER audit_events_chain_insert_trigger BEFORE INSERT ON private.audit_events FOR EACH ROW EXECUTE FUNCTION private.audit_events_chain_insert()"},{"table_name":"private.audit_events","name":"audit_events_no_truncate","definition":"CREATE TRIGGER audit_events_no_truncate BEFORE TRUNCATE ON private.audit_events FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_audit_event_mutation()"},{"table_name":"private.audit_events","name":"audit_events_no_update_delete","definition":"CREATE TRIGGER audit_events_no_update_delete BEFORE DELETE OR UPDATE ON private.audit_events FOR EACH ROW EXECUTE FUNCTION private.prevent_audit_event_mutation()"},{"table_name":"private.membership_purchases","name":"membership_purchase_requires_confirmed_payment","definition":"CREATE TRIGGER membership_purchase_requires_confirmed_payment BEFORE INSERT OR UPDATE ON private.membership_purchases FOR EACH ROW EXECUTE FUNCTION private.guard_purchase_pending_activation()"},{"table_name":"private.payment_allocations","name":"payment_allocations_no_truncate","definition":"CREATE TRIGGER payment_allocations_no_truncate BEFORE TRUNCATE ON private.payment_allocations FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_payment_history_mutation()"},{"table_name":"private.payment_allocations","name":"payment_allocations_no_update_delete","definition":"CREATE TRIGGER payment_allocations_no_update_delete BEFORE DELETE OR UPDATE ON private.payment_allocations FOR EACH ROW EXECUTE FUNCTION private.prevent_payment_history_mutation()"},{"table_name":"private.payment_allocations","name":"payment_allocations_validate_membership","definition":"CREATE TRIGGER payment_allocations_validate_membership BEFORE INSERT ON private.payment_allocations FOR EACH ROW EXECUTE FUNCTION private.guard_membership_payment_allocation()"},{"table_name":"private.payment_events","name":"payment_events_no_truncate","definition":"CREATE TRIGGER payment_events_no_truncate BEFORE TRUNCATE ON private.payment_events FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_payment_history_mutation()"},{"table_name":"private.payment_events","name":"payment_events_no_update_delete","definition":"CREATE TRIGGER payment_events_no_update_delete BEFORE DELETE OR UPDATE ON private.payment_events FOR EACH ROW EXECUTE FUNCTION private.prevent_payment_history_mutation()"},{"table_name":"private.payment_records","name":"payment_records_guard_update","definition":"CREATE TRIGGER payment_records_guard_update BEFORE UPDATE ON private.payment_records FOR EACH ROW EXECUTE FUNCTION private.guard_membership_payment_record_update()"},{"table_name":"private.payment_records","name":"payment_records_no_delete","definition":"CREATE TRIGGER payment_records_no_delete BEFORE DELETE ON private.payment_records FOR EACH ROW EXECUTE FUNCTION private.prevent_payment_history_mutation()"},{"table_name":"private.payment_records","name":"payment_records_no_truncate","definition":"CREATE TRIGGER payment_records_no_truncate BEFORE TRUNCATE ON private.payment_records FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_payment_history_mutation()"},{"table_name":"private.payment_records","name":"payment_records_validate_membership_insert","definition":"CREATE TRIGGER payment_records_validate_membership_insert BEFORE INSERT ON private.payment_records FOR EACH ROW EXECUTE FUNCTION private.guard_membership_payment_record_insert()"}],"permissions":[{"table":"private.owner_access","role":"gym_owner_executor","command":"SELECT","columns":["user_id","is_active","created_at","deactivated_at"],"policy":"gf_owner_select"},{"table":"private.members","role":"gym_owner_executor","command":"SELECT","columns":["id","member_code","full_name","mobile_lookup_hash","mobile_encrypted","status","created_at","updated_at","approved_at"],"policy":"gf_owner_select"},{"table":"private.members","role":"gym_owner_executor","command":"INSERT","columns":["member_code","full_name","mobile_lookup_hash","mobile_encrypted","status"],"policy":"gf_owner_insert"},{"table":"private.members","role":"gym_owner_executor","command":"UPDATE","columns":["updated_at"],"policy":"gf_owner_update"},{"table":"private.membership_plans","role":"gym_owner_executor","command":"SELECT","columns":["id","name","price_php","is_active","created_at"],"policy":"gf_owner_select"},{"table":"private.membership_plans","role":"gym_owner_executor","command":"INSERT","columns":["name","price_php","is_active"],"policy":"gf_owner_insert"},{"table":"private.membership_plans","role":"gym_owner_executor","command":"UPDATE","columns":["name","price_php","is_active"],"policy":"gf_owner_update"},{"table":"private.membership_purchases","role":"gym_owner_executor","command":"SELECT","columns":["id","member_id","plan_id","price_php","purchase_status","activation_date","expiry_date","created_at"],"policy":"gf_owner_select"},{"table":"private.membership_purchases","role":"gym_owner_executor","command":"INSERT","columns":["member_id","plan_id","price_php","purchase_status"],"policy":"gf_owner_insert"},{"table":"private.membership_purchases","role":"gym_owner_executor","command":"UPDATE","columns":["purchase_status"],"policy":"gf_owner_update"},{"table":"private.payment_records","role":"gym_owner_executor","command":"SELECT","columns":["id","amount_php","payment_method","received_at","verification_status","external_reference","evidence_reference","recorded_by","created_at","operation_id","target_membership_purchase_id"],"policy":"gf_owner_select"},{"table":"private.payment_records","role":"gym_owner_executor","command":"INSERT","columns":["amount_php","payment_method","verification_status","external_reference","recorded_by","operation_id","target_membership_purchase_id"],"policy":"gf_owner_insert"},{"table":"private.payment_records","role":"gym_owner_executor","command":"UPDATE","columns":["verification_status"],"policy":"gf_owner_update"},{"table":"private.payment_allocations","role":"gym_owner_executor","command":"SELECT","columns":["id","payment_id","membership_purchase_id","walkin_request_id","allocated_by","allocated_at"],"policy":"gf_owner_select"},{"table":"private.payment_allocations","role":"gym_owner_executor","command":"INSERT","columns":["payment_id","membership_purchase_id","allocated_by"],"policy":"gf_owner_insert"},{"table":"private.payment_events","role":"gym_owner_executor","command":"SELECT","columns":["id","payment_id","event_type","reason","actor_user_id","created_at"],"policy":"gf_owner_select"},{"table":"private.payment_events","role":"gym_owner_executor","command":"INSERT","columns":["payment_id","event_type","reason","actor_user_id"],"policy":"gf_owner_insert"},{"table":"private.audit_events","role":"gym_owner_executor","command":"SELECT","columns":["id","actor_user_id","event_type","subject_type","subject_id","details","created_at","stream_key","previous_event_hash","event_hash"],"policy":"gf_owner_select"},{"table":"private.audit_events","role":"gym_owner_executor","command":"INSERT","columns":["stream_key","actor_user_id","event_type","subject_type","subject_id","details"],"policy":"gf_owner_insert"},{"table":"private.audit_chain_heads","role":"gym_owner_executor","command":"SELECT","columns":["stream_key","last_event_id","last_event_hash","updated_at"],"policy":"gf_owner_select"},{"table":"private.audit_chain_heads","role":"gym_owner_executor","command":"INSERT","columns":["stream_key","last_event_id","last_event_hash"],"policy":"gf_owner_insert"},{"table":"private.audit_chain_heads","role":"gym_owner_executor","command":"UPDATE","columns":["last_event_id","last_event_hash","updated_at"],"policy":"gf_owner_update"},{"table":"private.member_pin_setup_tokens","role":"gym_owner_executor","command":"SELECT","columns":["id","member_id","token_hash","token_purpose","expires_at","consumed_at","created_at"],"policy":"gf_owner_select"},{"table":"private.member_pin_setup_tokens","role":"gym_owner_executor","command":"INSERT","columns":["member_id","token_hash","token_purpose","expires_at"],"policy":"gf_owner_insert"},{"table":"private.member_pin_setup_tokens","role":"gym_owner_executor","command":"UPDATE","columns":["consumed_at"],"policy":"gf_owner_update"},{"table":"private.members","role":"gym_public_executor","command":"SELECT","columns":["id","status"],"policy":"gf_public_select"},{"table":"private.members","role":"gym_public_executor","command":"UPDATE","columns":["updated_at"],"policy":"gf_public_update"},{"table":"private.member_pin_setup_tokens","role":"gym_public_executor","command":"SELECT","columns":["id","member_id","token_hash","token_purpose","expires_at","consumed_at"],"policy":"gf_public_select"},{"table":"private.member_pin_setup_tokens","role":"gym_public_executor","command":"UPDATE","columns":["consumed_at"],"policy":"gf_public_update"},{"table":"private.member_pin_credentials","role":"gym_public_executor","command":"SELECT","columns":["member_id"],"policy":"gf_public_select"},{"table":"private.member_pin_credentials","role":"gym_public_executor","command":"INSERT","columns":["member_id","password_hash","credential_version","created_at","updated_at"],"policy":"gf_public_insert"},{"table":"private.pin_enrollment_global_rate_limit_events","role":"gym_public_executor","command":"SELECT","columns":["requested_at"],"policy":"gf_public_select"},{"table":"private.pin_enrollment_global_rate_limit_events","role":"gym_public_executor","command":"INSERT","columns":["requested_at"],"policy":"gf_public_insert"},{"table":"private.pin_enrollment_global_rate_limit_events","role":"gym_public_executor","command":"DELETE","columns":[],"policy":"gf_public_delete"}],"sequence_runtime_grants":[],"provider_profile":"native_only","executor_memberships":[],"catalog_alignment":{"source":"Original contract preserved with separately verified catalog expectations","constraints":110,"explicit_indexes":28,"index_keys":40,"columns":149,"provider":"native_pg18_only"}}$contract_json$::jsonb;
+    item jsonb; col jsonb; key_entry jsonb; obj oid; actual text; normalized text; wanted text;
+    creator text; namespace_name text; object_kind text; creator_oid oid;
+    lex_pattern text := $lex$'(?:''|[^'])*'|"(?:""|[^"])*"|[a-zA-Z_][a-zA-Z_0-9]*|[0-9]+(?:\.[0-9]+)?|::|<>|<=|>=|&&|!=|\|\||[^[:space:]]$lex$;
+BEGIN
+    IF current_setting('server_version_num')::integer / 10000 <> 18 THEN
+      RAISE EXCEPTION 'Aligned catalog assertions require the reviewed native PostgreSQL 18 target';
+    END IF;
+    -- Native profile has NO public/graphql_public functions or procedures.
+    -- No provider exemption is inferred from a name or presumed extension.
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+       WHERE n.nspname IN ('public','graphql_public')) THEN
+        RAISE EXCEPTION 'Unexpected exposed function/procedure: native profile allows none';
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_namespace n,
+       LATERAL pg_catalog.aclexplode(COALESCE(n.nspacl,pg_catalog.acldefault('n',n.nspowner))) acl
+       WHERE n.nspname IN ('public','private','api','graphql_public','extensions')
+         AND acl.privilege_type='CREATE' AND acl.grantee<>n.nspowner
+         AND acl.grantee<>(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='postgres')) THEN
+      RAISE EXCEPTION 'Unapproved schema-creating principal';
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_namespace n
+       WHERE n.nspname IN ('private','api') AND n.nspowner<>(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='postgres')) THEN
+        RAISE EXCEPTION 'Application schema owner drift';
+    END IF;
+    FOREACH creator IN ARRAY ARRAY['anon','authenticated','service_role','gym_registration_login','gym_data_owner','gym_owner_executor','gym_public_executor'] LOOP
+      FOREACH namespace_name IN ARRAY ARRAY['public','private','api','graphql_public','extensions'] LOOP
+        IF pg_catalog.to_regnamespace(namespace_name) IS NOT NULL
+           AND pg_catalog.has_schema_privilege(creator,namespace_name,'CREATE') THEN
+          RAISE EXCEPTION 'Unapproved schema CREATE: % / %',creator,namespace_name;
+        END IF;
+      END LOOP;
+    END LOOP;
+    -- Every creator independently: implicit global defaults plus additive schema defaults.
+    -- No default ACL changes here. Function EXECUTE remains owner-only.
+    -- Only unmodified implicit PUBLIC type USAGE is accepted: not table/RPC access.
+    FOR creator IN SELECT jsonb_array_elements_text(contract->'creators') LOOP
+      SELECT oid INTO creator_oid FROM pg_catalog.pg_roles WHERE rolname=creator;
+      IF creator_oid IS NULL THEN RAISE EXCEPTION 'Missing reviewed creator %',creator; END IF;
+      FOREACH object_kind IN ARRAY ARRAY['r','S','f','T'] LOOP
+        IF EXISTS (SELECT 1 FROM pg_catalog.aclexplode(COALESCE(
+          (SELECT d.defaclacl FROM pg_catalog.pg_default_acl d WHERE d.defaclrole=creator_oid
+           AND d.defaclnamespace=0 AND d.defaclobjtype=object_kind::pg_catalog."char"),
+          pg_catalog.acldefault(object_kind::pg_catalog."char",creator_oid))) acl
+          WHERE acl.grantee<>creator_oid
+            AND NOT (object_kind='T' AND acl.grantee=0 AND acl.privilege_type='USAGE' AND NOT acl.is_grantable
+              AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_default_acl implicit_type
+                WHERE implicit_type.defaclrole=creator_oid AND implicit_type.defaclnamespace=0
+                  AND implicit_type.defaclobjtype='T'))) THEN
+          RAISE EXCEPTION 'Unsafe effective global default ACL: creator % kind %',creator,object_kind;
+        END IF;
+        IF EXISTS (SELECT 1 FROM pg_catalog.pg_default_acl d JOIN pg_catalog.pg_namespace n ON n.oid=d.defaclnamespace,
+          LATERAL pg_catalog.aclexplode(d.defaclacl) acl
+          WHERE d.defaclrole=creator_oid AND d.defaclobjtype=object_kind::pg_catalog."char"
+            AND n.nspname IN ('private','api','public','graphql_public') AND acl.grantee<>creator_oid) THEN
+          RAISE EXCEPTION 'Unsafe additive schema default ACL: creator % kind %',creator,object_kind;
+        END IF;
+      END LOOP;
+    END LOOP;
+    FOR item IN SELECT value FROM jsonb_array_elements(contract->'tables') LOOP
+      obj := pg_catalog.to_regclass(item->>'name');
+      IF obj IS NULL THEN RAISE EXCEPTION 'Missing contract table'; END IF;
+      IF (SELECT count(*) FROM pg_catalog.pg_attribute WHERE attrelid=obj AND attnum>0 AND NOT attisdropped)
+         <>jsonb_array_length(item->'columns') THEN RAISE EXCEPTION 'Column inventory mismatch: %',item->>'name'; END IF;
+      FOR col IN SELECT value FROM jsonb_array_elements(item->'columns') LOOP
+        IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a WHERE a.attrelid=obj AND a.attname=col->>'name'
+          AND a.attnum>0 AND NOT a.attisdropped AND a.attnotnull=(col->>'not_null')::boolean
+          AND a.attidentity::text=col->>'identity' AND a.attgenerated::text=col->>'generated') THEN
+          RAISE EXCEPTION 'Column nullability/identity/generated mismatch: %.%',item->>'name',col->>'name';
+        END IF;
+        SELECT pg_catalog.format_type(a.atttypid,a.atttypmod) INTO actual FROM pg_catalog.pg_attribute a
+          WHERE a.attrelid=obj AND a.attname=col->>'name';
+        SELECT string_agg(CASE WHEN left(m[1],1) IN ('''','"') THEN m[1] ELSE lower(m[1]) END,' ' ORDER BY ordinal) INTO normalized
+          FROM pg_catalog.regexp_matches(actual,lex_pattern,'g') WITH ORDINALITY token(m,ordinal);
+        IF normalized IS DISTINCT FROM col->>'type' THEN RAISE EXCEPTION 'Column type drift'; END IF;
+        SELECT pg_catalog.pg_get_expr(d.adbin,d.adrelid,false) INTO actual FROM pg_catalog.pg_attrdef d
+          JOIN pg_catalog.pg_attribute a ON a.attrelid=d.adrelid AND a.attnum=d.adnum
+          WHERE a.attrelid=obj AND a.attname=col->>'name';
+        SELECT string_agg(CASE WHEN left(m[1],1) IN ('''','"') THEN m[1] ELSE lower(m[1]) END,' ' ORDER BY ordinal) INTO normalized
+          FROM pg_catalog.regexp_matches(actual,lex_pattern,'g') WITH ORDINALITY token(m,ordinal);
+        IF normalized IS DISTINCT FROM col->>'catalog_default' THEN
+          RAISE EXCEPTION 'Column default/generated expression drift (verified catalog contract): %.%',item->>'name',col->>'name';
+        END IF;
+      END LOOP;
+      -- PostgreSQL 18 NOT NULL catalog constraints are represented by attnotnull above.
+      IF (SELECT count(*) FROM pg_catalog.pg_constraint WHERE conrelid=obj AND contype<>'n')
+         <>jsonb_array_length(item->'constraints') THEN RAISE EXCEPTION 'Constraint inventory drift'; END IF;
+      FOR col IN SELECT value FROM jsonb_array_elements(item->'constraints') LOOP
+        SELECT pg_catalog.pg_get_constraintdef(c.oid,false) INTO actual FROM pg_catalog.pg_constraint c
+          WHERE c.conrelid=obj AND c.conname=col->>'name' AND c.contype::text=col->>'kind'
+            AND c.convalidated AND c.conislocal AND c.coninhcount=0 AND c.conenforced
+            AND (col->>'no_inherit' IS NULL OR c.connoinherit=(col->>'no_inherit')::boolean)
+            AND c.condeferrable=(col->>'deferrable')::boolean AND c.condeferred=(col->>'deferred')::boolean;
+        SELECT string_agg(CASE WHEN left(m[1],1) IN ('''','"') THEN m[1] ELSE lower(m[1]) END,' ' ORDER BY ordinal) INTO normalized
+          FROM pg_catalog.regexp_matches(actual,lex_pattern,'g') WITH ORDINALITY token(m,ordinal);
+        IF normalized IS DISTINCT FROM col->>'catalog_definition' THEN
+          RAISE EXCEPTION 'Constraint definition drift (verified catalog contract): %',col->>'name';
+        END IF;
+        IF col->>'kind'='x' AND NOT EXISTS (
+          SELECT 1 FROM pg_catalog.pg_constraint ck JOIN pg_catalog.pg_index ix ON ix.indexrelid=ck.conindid
+          JOIN pg_catalog.pg_class ic ON ic.oid=ix.indexrelid JOIN pg_catalog.pg_am am ON am.oid=ic.relam
+          WHERE ck.conrelid=obj AND ck.conname=col->>'name' AND am.amname=col->'exclusion'->>'method'
+            AND ix.indnkeyatts=2 AND ix.indnatts=2 AND ix.indisexclusion
+            AND ix.indkey[0]=(SELECT attnum FROM pg_catalog.pg_attribute WHERE attrelid=obj AND attname='member_id')
+            AND ix.indkey[1]=0
+            AND ck.conexclop=(SELECT array_agg(pg_catalog.to_regoperator(value)::oid ORDER BY ord)
+              FROM jsonb_array_elements_text(col->'exclusion'->'operators') WITH ORDINALITY e(value,ord))
+            AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(col->'exclusion'->'opclasses') WITH ORDINALITY e(v,ord)
+              WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_opclass oc JOIN pg_catalog.pg_namespace ns ON ns.oid=oc.opcnamespace
+                WHERE oc.oid=ix.indclass[e.ord::integer-1] AND ns.nspname=e.v->>'schema' AND oc.opcname=e.v->>'name'
+                  AND oc.opcintype=pg_catalog.to_regtype(e.v->>'type') AND oc.opcdefault AND oc.opcmethod=am.oid))
+        ) THEN RAISE EXCEPTION 'Exclusion opclass/operator/key drift'; END IF;
+      END LOOP;
+      IF EXISTS (SELECT 1 FROM pg_catalog.pg_constraint c JOIN pg_catalog.pg_index i ON i.indexrelid=c.conindid
+        WHERE c.conrelid=obj AND c.contype IN ('p','u','x') AND
+          (NOT i.indisvalid OR NOT i.indisready OR NOT i.indislive OR
+           i.indisprimary IS DISTINCT FROM (c.contype='p') OR
+           i.indisunique IS DISTINCT FROM (c.contype IN ('p','u')) OR
+           i.indisexclusion IS DISTINCT FROM (c.contype='x') OR
+           i.indimmediate IS DISTINCT FROM (NOT c.condeferrable))) THEN
+        RAISE EXCEPTION 'Constraint-backed index metadata drift';
+      END IF;
+      IF EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite WHERE ev_class=obj) THEN RAISE EXCEPTION 'Unexpected table rewrite rule'; END IF;
+    END LOOP;
+    FOR item IN SELECT value FROM jsonb_array_elements(contract->'indexes') LOOP
+      SELECT pg_catalog.pg_get_indexdef(c.oid,0,false) INTO actual FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_index i ON i.indexrelid=c.oid WHERE c.oid=pg_catalog.to_regclass(item->>'name')
+          AND i.indrelid=pg_catalog.to_regclass(item->>'parent') AND i.indisvalid AND i.indisready AND i.indislive
+          AND i.indisunique=(item->>'unique')::boolean
+          AND NOT i.indisprimary AND NOT i.indisexclusion AND i.indimmediate AND NOT i.indnullsnotdistinct
+          AND i.indnkeyatts=jsonb_array_length(item->'keys') AND i.indnatts=jsonb_array_length(item->'keys');
+      SELECT string_agg(CASE WHEN left(m[1],1) IN ('''','"') THEN m[1] ELSE lower(m[1]) END,' ' ORDER BY ordinal) INTO normalized
+        FROM pg_catalog.regexp_matches(actual,lex_pattern,'g') WITH ORDINALITY token(m,ordinal);
+      IF normalized IS DISTINCT FROM item->>'catalog_definition' THEN RAISE EXCEPTION 'Explicit index definition drift: %',item->>'name'; END IF;
+      FOR key_entry IN SELECT value FROM jsonb_array_elements(item->'keys') LOOP
+        IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_index ix
+          JOIN pg_catalog.pg_attribute ka ON ka.attrelid=ix.indexrelid AND ka.attnum=(key_entry->>'position')::integer AND NOT ka.attisdropped
+          JOIN pg_catalog.pg_opclass oc ON oc.oid=ix.indclass[(key_entry->>'position')::integer-1]
+          JOIN pg_catalog.pg_namespace ns ON ns.oid=oc.opcnamespace JOIN pg_catalog.pg_am am ON am.oid=oc.opcmethod
+          WHERE ix.indexrelid=pg_catalog.to_regclass(item->>'name') AND am.amname='btree' AND ns.nspname='pg_catalog'
+            AND oc.opcname=key_entry->>'opclass' AND oc.opcdefault AND oc.opcintype=pg_catalog.to_regtype(key_entry->>'type')
+            AND ka.atttypid=pg_catalog.to_regtype(key_entry->>'type')
+            AND ix.indkey[(key_entry->>'position')::integer-1]=CASE WHEN key_entry->>'column'='' THEN 0
+              ELSE (SELECT attnum FROM pg_catalog.pg_attribute WHERE attrelid=ix.indrelid AND attname=key_entry->>'column' AND NOT attisdropped) END
+            AND ix.indoption[(key_entry->>'position')::integer-1]=(key_entry->>'options')::integer
+            AND ix.indcollation[(key_entry->>'position')::integer-1]=CASE WHEN key_entry->>'collation' IS NULL THEN 0::oid
+              ELSE pg_catalog.to_regcollation(key_entry->>'collation')::oid END
+        ) THEN RAISE EXCEPTION 'Explicit index key/opclass/order/collation drift'; END IF;
+      END LOOP;
+    END LOOP;
+    -- Exact full index inventory (constraint-backed definitions checked via constraints).
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_index i JOIN pg_catalog.pg_class t ON t.oid=i.indrelid
+      JOIN pg_catalog.pg_namespace n ON n.oid=t.relnamespace
+      WHERE n.nspname IN ('private','public') AND NOT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_constraint c WHERE c.conindid=i.indexrelid AND c.conrelid=i.indrelid
+        AND c.contype IN ('p','u','x')) AND NOT EXISTS (
+        SELECT 1 FROM jsonb_array_elements(contract->'indexes') e
+        WHERE pg_catalog.to_regclass(e->>'name')=i.indexrelid)) THEN RAISE EXCEPTION 'Unexpected index'; END IF;
+    IF (SELECT count(*) FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_class c ON c.oid=t.tgrelid
+      JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('private','public') AND NOT t.tgisinternal)
+      <>jsonb_array_length(contract->'triggers') THEN RAISE EXCEPTION 'Unexpected/missing user trigger'; END IF;
+    FOR item IN SELECT value FROM jsonb_array_elements(contract->'routines') LOOP
+      obj := pg_catalog.to_regprocedure(item->>'signature');
+      IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_language l ON l.oid=p.prolang
+        WHERE p.oid=obj AND p.prokind::text=item->>'kind' AND l.lanname=item->>'language'
+          AND p.proisstrict=(item->>'strict')::boolean AND p.proretset=(item->>'returns_set')::boolean
+          AND p.provolatile::text=item->>'volatility' AND p.proparallel::text=item->>'parallel'
+          AND p.proleakproof=(item->>'leakproof')::boolean AND p.prosupport=0 AND p.provariadic=0
+          AND p.probin IS NULL AND p.prosqlbody IS NULL AND p.pronargs=jsonb_array_length(item->'input_types')
+          AND p.pronargdefaults=(item->>'default_count')::integer
+          AND p.protrftypes IS NULL AND p.procost=(item->>'cost')::real AND p.prorows=(item->>'rows')::real
+          AND COALESCE(to_jsonb(p.proargnames),'[]'::jsonb)=item->'argument_names') THEN
+        RAISE EXCEPTION 'Routine execution metadata drift: %',item->>'name';
+      END IF;
+      IF (SELECT COALESCE(to_jsonb(p.proargmodes),'null'::jsonb) FROM pg_catalog.pg_proc p WHERE p.oid=obj)
+         IS DISTINCT FROM (CASE WHEN jsonb_array_length(item->'output_types')=0 THEN 'null'::jsonb
+         ELSE (SELECT jsonb_agg(mode ORDER BY ordinal) FROM (
+           SELECT 'i'::text mode, ordinality ordinal FROM jsonb_array_elements(item->'input_types') WITH ORDINALITY
+           UNION ALL SELECT 't',ordinality+jsonb_array_length(item->'input_types')
+             FROM jsonb_array_elements(item->'output_types') WITH ORDINALITY) modes) END) THEN
+        RAISE EXCEPTION 'Routine argument modes drift';
+      END IF;
+      IF (SELECT COALESCE(jsonb_agg(pg_catalog.format_type(a.type_oid,NULL) ORDER BY a.ordinality),'[]'::jsonb)
+          FROM pg_catalog.pg_proc p,
+          LATERAL unnest(COALESCE(p.proallargtypes,p.proargtypes::oid[])) WITH ORDINALITY a(type_oid,ordinality)
+          WHERE p.oid=obj) IS DISTINCT FROM ((item->'input_types')||(item->'output_types')) THEN
+        RAISE EXCEPTION 'Routine input/output argument types drift';
+      END IF;
+      SELECT pg_catalog.pg_get_function_result(obj) INTO actual;
+      SELECT string_agg(CASE WHEN left(m[1],1) IN ('''','"') THEN m[1] ELSE lower(m[1]) END,' ' ORDER BY ordinal) INTO normalized
+        FROM pg_catalog.regexp_matches(actual,lex_pattern,'g') WITH ORDINALITY token(m,ordinal);
+      IF normalized IS DISTINCT FROM item->>'result' THEN RAISE EXCEPTION 'Routine result drift'; END IF;
+      SELECT COALESCE(pg_catalog.pg_get_expr(p.proargdefaults,0,false),'') INTO actual FROM pg_catalog.pg_proc p WHERE p.oid=obj;
+      SELECT COALESCE(string_agg(CASE WHEN left(m[1],1) IN ('''','"') THEN m[1] ELSE lower(m[1]) END,' ' ORDER BY ordinal),'') INTO normalized
+        FROM pg_catalog.regexp_matches(actual,lex_pattern,'g') WITH ORDINALITY token(m,ordinal);
+      IF normalized IS DISTINCT FROM item->>'catalog_argument_defaults' THEN RAISE EXCEPTION 'Routine default argument drift'; END IF;
+      IF EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass
+        AND d.objid=obj AND d.deptype='e') THEN RAISE EXCEPTION 'Unexpected routine extension membership'; END IF;
+    END LOOP;
+END;
+$offline_contract$;
+SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('gymforce-owner-executor-foundation-v1',0));
+LOCK TABLE private.attendance_checkins, private.attendance_validity_resolutions, private.audit_chain_heads, private.audit_events, private.cash_drawer_sessions, private.cash_reconciliation_adjustments, private.cash_reconciliations, private.member_pin_credentials, private.member_pin_setup_tokens, private.members, private.membership_plans, private.membership_purchases, private.owner_access, private.payment_allocations, private.payment_corrections, private.payment_events, private.payment_records, private.pin_attempt_buckets, private.pin_enrollment_global_rate_limit_events, private.walkin_fee_versions, private.walkin_requests, public.gym_settings IN ACCESS EXCLUSIVE MODE;
+DO $phase_assertions$
+DECLARE
+    profile text := pg_catalog.current_setting('gymforce.assertion_profile',true);
+    target boolean;
+    r record; caller text; privilege_name text; v_column text; expected boolean;
+    routine_oid oid; relation_oid oid; actual_owner text; actual_columns text;
+    expected_expr text; actual_qual text; actual_check text; actual_policy record;
+BEGIN
+    IF profile IN ('historical_phase1','future_attendance') THEN
+        RAISE EXCEPTION 'Profile % is not an executable acceptance profile: historical assumptions are archival; future Attendance is unimplemented', profile;
+    END IF;
+    IF profile IS NULL OR profile NOT IN ('current_server_only','proposed_owner_executor') THEN
+        RAISE EXCEPTION 'Select an explicit current_server_only or proposed_owner_executor assertion profile';
+    END IF;
+    target := profile='proposed_owner_executor';
+    IF current_database()<>'gymforce_pg18_test'
+       OR inet_server_addr() IS DISTINCT FROM '127.0.0.1'::inet
+       OR current_setting('port')<>'55432'
+       OR current_user<>'postgres' OR session_user<>'postgres'
+       OR NOT (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname=current_user)
+       OR current_setting('gymforce.test_cluster_marker',true) IS DISTINCT FROM 'f497fabb-a12f-4068-b745-8b0729279276'
+       OR (pg_catalog.pg_control_system()).system_identifier::text IS DISTINCT FROM '7704603813616068820'
+       OR lower(rtrim(replace(current_setting('data_directory'),E'\\','/'),'/')) IS DISTINCT FROM 'c:/users/banco-sual/appdata/local/gymforce-pg18-test/data' THEN
+        RAISE EXCEPTION 'Approved native test target/actor mismatch; hosted execution is not authorized by this draft';
+    END IF;
+    -- Reserved roles remain non-login and cannot bypass RLS or assume others.
+    FOREACH caller IN ARRAY ARRAY['gym_data_owner','gym_owner_executor','gym_public_executor'] LOOP
+        IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=caller
+            AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb
+            AND NOT rolcreaterole AND NOT rolinherit AND NOT rolreplication AND NOT rolbypassrls) THEN
+            RAISE EXCEPTION 'Unsafe/missing reserved role %',caller;
+        END IF;
+    END LOOP;
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members e
+        JOIN pg_catalog.pg_roles reserved ON reserved.oid=e.member OR reserved.oid=e.roleid
+        WHERE reserved.rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor','gym_registration_login')) THEN
+        RAISE EXCEPTION 'Reserved-role membership edge exists';
+    END IF;
+    IF (SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname IN ('private','public') AND c.relkind IN ('r','p'))<>22 THEN
+        RAISE EXCEPTION 'Application table inventory drift';
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname='api' AND c.relkind IN ('r','p','v','m','S','f')) THEN
+        RAISE EXCEPTION 'API schema unexpectedly contains data relations';
+    END IF;
+    FOR r IN SELECT * FROM (VALUES
+        ('private.attendance_checkins','id:uuid|member_id:uuid|walkin_request_id:uuid|gym_local_date:date|checked_in_at:timestamp with time zone|attendance_status:text'),
+        ('private.attendance_validity_resolutions','id:uuid|attendance_id:uuid|prior_status:text|new_status:text|reason:text|resolved_by:uuid|resolved_at:timestamp with time zone'),
+        ('private.audit_chain_heads','stream_key:text|last_event_id:bigint|last_event_hash:text|updated_at:timestamp with time zone'),
+        ('private.audit_events','id:bigint|actor_user_id:uuid|event_type:text|subject_type:text|subject_id:text|details:jsonb|created_at:timestamp with time zone|stream_key:text|previous_event_hash:text|event_hash:text'),
+        ('private.cash_drawer_sessions','id:uuid|opened_at:timestamp with time zone|opened_by:uuid|opening_float_php:numeric(12,2)|session_status:text|closed_at:timestamp with time zone|closed_by:uuid'),
+        ('private.cash_reconciliation_adjustments','id:uuid|reconciliation_id:uuid|amount_delta_php:numeric(12,2)|reason:text|evidence_reference:text|recorded_by:uuid|created_at:timestamp with time zone'),
+        ('private.cash_reconciliations','id:uuid|drawer_session_id:uuid|expected_cash_php:numeric(12,2)|counted_cash_php:numeric(12,2)|variance_php:numeric(12,2)|reconciled_by:uuid|reconciled_at:timestamp with time zone|notes:text'),
+        ('private.member_pin_credentials','member_id:uuid|password_hash:text|credential_version:integer|created_at:timestamp with time zone|updated_at:timestamp with time zone'),
+        ('private.member_pin_setup_tokens','id:uuid|member_id:uuid|token_hash:text|token_purpose:text|expires_at:timestamp with time zone|consumed_at:timestamp with time zone|created_at:timestamp with time zone'),
+        ('private.members','id:uuid|member_code:text|full_name:text|mobile_lookup_hash:bytea|mobile_encrypted:bytea|status:text|created_at:timestamp with time zone|updated_at:timestamp with time zone|approved_at:timestamp with time zone'),
+        ('private.membership_plans','id:uuid|name:text|price_php:numeric(12,2)|is_active:boolean|created_at:timestamp with time zone'),
+        ('private.membership_purchases','id:uuid|member_id:uuid|plan_id:uuid|price_php:numeric(12,2)|purchase_status:text|activation_date:date|expiry_date:date|created_at:timestamp with time zone'),
+        ('private.owner_access','user_id:uuid|is_active:boolean|created_at:timestamp with time zone|deactivated_at:timestamp with time zone'),
+        ('private.payment_allocations','id:uuid|payment_id:uuid|membership_purchase_id:uuid|walkin_request_id:uuid|allocated_by:uuid|allocated_at:timestamp with time zone'),
+        ('private.payment_corrections','id:uuid|payment_id:uuid|proposed_amount_php:numeric(12,2)|proposed_payment_method:text|reason:text|evidence_reference:text|correction_status:text|proposed_by:uuid|proposed_at:timestamp with time zone|decided_by:uuid|decided_at:timestamp with time zone|decision_reason:text'),
+        ('private.payment_events','id:bigint|payment_id:uuid|event_type:text|reason:text|actor_user_id:uuid|created_at:timestamp with time zone'),
+        ('private.payment_records','id:uuid|amount_php:numeric(12,2)|payment_method:text|received_at:timestamp with time zone|verification_status:text|external_reference:text|evidence_reference:text|recorded_by:uuid|created_at:timestamp with time zone|operation_id:uuid|target_membership_purchase_id:uuid'),
+        ('private.pin_attempt_buckets','id:uuid|bucket_type:text|identifier_digest:text|window_started_at:timestamp with time zone|failed_attempts:integer|blocked_until:timestamp with time zone|updated_at:timestamp with time zone'),
+        ('private.pin_enrollment_global_rate_limit_events','id:bigint|requested_at:timestamp with time zone'),
+        ('private.walkin_fee_versions','id:uuid|fee_php:numeric(12,2)|currency:text|effective_from:timestamp with time zone|created_by:uuid|created_at:timestamp with time zone'),
+        ('private.walkin_requests','id:uuid|fee_version_id:uuid|fee_php:numeric(12,2)|currency:text|request_status:text|created_at:timestamp with time zone|expires_at:timestamp with time zone|confirmed_by:uuid|confirmed_at:timestamp with time zone'),
+        ('public.gym_settings','setting_key:text|setting_value:jsonb|updated_at:timestamp with time zone')
+    ) v(name,columns) LOOP
+        relation_oid := pg_catalog.to_regclass(r.name);
+        IF relation_oid IS NULL THEN RAISE EXCEPTION 'Missing %',r.name; END IF;
+        SELECT pg_catalog.string_agg(a.attname||':'||pg_catalog.format_type(a.atttypid,a.atttypmod),'|' ORDER BY a.attnum)
+          INTO actual_columns FROM pg_catalog.pg_attribute a
+          WHERE a.attrelid=relation_oid AND a.attnum>0 AND NOT a.attisdropped;
+        IF actual_columns IS DISTINCT FROM r.columns THEN RAISE EXCEPTION 'Column/type inventory drift: %',r.name; END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class c WHERE c.oid=relation_oid AND c.relrowsecurity
+             AND c.relowner=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=CASE WHEN target THEN 'gym_data_owner' ELSE 'postgres' END)
+             AND (NOT target OR c.relforcerowsecurity)) THEN
+            RAISE EXCEPTION 'Ownership/RLS mismatch: %',r.name;
+        END IF;
+        -- No direct browser/service/dormant-login access, including column grants.
+        FOREACH caller IN ARRAY ARRAY['anon','authenticated','service_role','gym_registration_login'] LOOP
+            IF pg_catalog.has_table_privilege(caller,relation_oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+              OR pg_catalog.has_any_column_privilege(caller,relation_oid,'SELECT,INSERT,UPDATE,REFERENCES') THEN
+                RAISE EXCEPTION 'Direct protected relation access: % / %',caller,r.name;
+            END IF;
+        END LOOP;
+        FOREACH caller IN ARRAY ARRAY['gym_owner_executor','gym_public_executor'] LOOP
+            FOREACH privilege_name IN ARRAY ARRAY['SELECT','INSERT','UPDATE','REFERENCES'] LOOP
+                FOR v_column IN SELECT attname FROM pg_catalog.pg_attribute
+                    WHERE attrelid=relation_oid AND attnum>0 AND NOT attisdropped LOOP
+                    SELECT target AND EXISTS (SELECT 1 FROM (VALUES
+                        ('private.owner_access','gym_owner_executor','SELECT','user_id'),
+        ('private.owner_access','gym_owner_executor','SELECT','is_active'),
+        ('private.owner_access','gym_owner_executor','SELECT','created_at'),
+        ('private.owner_access','gym_owner_executor','SELECT','deactivated_at'),
+        ('private.members','gym_owner_executor','SELECT','id'),
+        ('private.members','gym_owner_executor','SELECT','member_code'),
+        ('private.members','gym_owner_executor','SELECT','full_name'),
+        ('private.members','gym_owner_executor','SELECT','mobile_lookup_hash'),
+        ('private.members','gym_owner_executor','SELECT','mobile_encrypted'),
+        ('private.members','gym_owner_executor','SELECT','status'),
+        ('private.members','gym_owner_executor','SELECT','created_at'),
+        ('private.members','gym_owner_executor','SELECT','updated_at'),
+        ('private.members','gym_owner_executor','SELECT','approved_at'),
+        ('private.members','gym_owner_executor','INSERT','member_code'),
+        ('private.members','gym_owner_executor','INSERT','full_name'),
+        ('private.members','gym_owner_executor','INSERT','mobile_lookup_hash'),
+        ('private.members','gym_owner_executor','INSERT','mobile_encrypted'),
+        ('private.members','gym_owner_executor','INSERT','status'),
+        ('private.members','gym_owner_executor','UPDATE','updated_at'),
+        ('private.membership_plans','gym_owner_executor','SELECT','id'),
+        ('private.membership_plans','gym_owner_executor','SELECT','name'),
+        ('private.membership_plans','gym_owner_executor','SELECT','price_php'),
+        ('private.membership_plans','gym_owner_executor','SELECT','is_active'),
+        ('private.membership_plans','gym_owner_executor','SELECT','created_at'),
+        ('private.membership_plans','gym_owner_executor','INSERT','name'),
+        ('private.membership_plans','gym_owner_executor','INSERT','price_php'),
+        ('private.membership_plans','gym_owner_executor','INSERT','is_active'),
+        ('private.membership_plans','gym_owner_executor','UPDATE','name'),
+        ('private.membership_plans','gym_owner_executor','UPDATE','price_php'),
+        ('private.membership_plans','gym_owner_executor','UPDATE','is_active'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','id'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','member_id'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','plan_id'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','price_php'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','purchase_status'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','activation_date'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','expiry_date'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','created_at'),
+        ('private.membership_purchases','gym_owner_executor','INSERT','member_id'),
+        ('private.membership_purchases','gym_owner_executor','INSERT','plan_id'),
+        ('private.membership_purchases','gym_owner_executor','INSERT','price_php'),
+        ('private.membership_purchases','gym_owner_executor','INSERT','purchase_status'),
+        ('private.membership_purchases','gym_owner_executor','UPDATE','purchase_status'),
+        ('private.payment_records','gym_owner_executor','SELECT','id'),
+        ('private.payment_records','gym_owner_executor','SELECT','amount_php'),
+        ('private.payment_records','gym_owner_executor','SELECT','payment_method'),
+        ('private.payment_records','gym_owner_executor','SELECT','received_at'),
+        ('private.payment_records','gym_owner_executor','SELECT','verification_status'),
+        ('private.payment_records','gym_owner_executor','SELECT','external_reference'),
+        ('private.payment_records','gym_owner_executor','SELECT','evidence_reference'),
+        ('private.payment_records','gym_owner_executor','SELECT','recorded_by'),
+        ('private.payment_records','gym_owner_executor','SELECT','created_at'),
+        ('private.payment_records','gym_owner_executor','SELECT','operation_id'),
+        ('private.payment_records','gym_owner_executor','SELECT','target_membership_purchase_id'),
+        ('private.payment_records','gym_owner_executor','INSERT','amount_php'),
+        ('private.payment_records','gym_owner_executor','INSERT','payment_method'),
+        ('private.payment_records','gym_owner_executor','INSERT','verification_status'),
+        ('private.payment_records','gym_owner_executor','INSERT','external_reference'),
+        ('private.payment_records','gym_owner_executor','INSERT','recorded_by'),
+        ('private.payment_records','gym_owner_executor','INSERT','operation_id'),
+        ('private.payment_records','gym_owner_executor','INSERT','target_membership_purchase_id'),
+        ('private.payment_records','gym_owner_executor','UPDATE','verification_status'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','id'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','payment_id'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','membership_purchase_id'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','walkin_request_id'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','allocated_by'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','allocated_at'),
+        ('private.payment_allocations','gym_owner_executor','INSERT','payment_id'),
+        ('private.payment_allocations','gym_owner_executor','INSERT','membership_purchase_id'),
+        ('private.payment_allocations','gym_owner_executor','INSERT','allocated_by'),
+        ('private.payment_events','gym_owner_executor','SELECT','id'),
+        ('private.payment_events','gym_owner_executor','SELECT','payment_id'),
+        ('private.payment_events','gym_owner_executor','SELECT','event_type'),
+        ('private.payment_events','gym_owner_executor','SELECT','reason'),
+        ('private.payment_events','gym_owner_executor','SELECT','actor_user_id'),
+        ('private.payment_events','gym_owner_executor','SELECT','created_at'),
+        ('private.payment_events','gym_owner_executor','INSERT','payment_id'),
+        ('private.payment_events','gym_owner_executor','INSERT','event_type'),
+        ('private.payment_events','gym_owner_executor','INSERT','reason'),
+        ('private.payment_events','gym_owner_executor','INSERT','actor_user_id'),
+        ('private.audit_events','gym_owner_executor','SELECT','id'),
+        ('private.audit_events','gym_owner_executor','SELECT','actor_user_id'),
+        ('private.audit_events','gym_owner_executor','SELECT','event_type'),
+        ('private.audit_events','gym_owner_executor','SELECT','subject_type'),
+        ('private.audit_events','gym_owner_executor','SELECT','subject_id'),
+        ('private.audit_events','gym_owner_executor','SELECT','details'),
+        ('private.audit_events','gym_owner_executor','SELECT','created_at'),
+        ('private.audit_events','gym_owner_executor','SELECT','stream_key'),
+        ('private.audit_events','gym_owner_executor','SELECT','previous_event_hash'),
+        ('private.audit_events','gym_owner_executor','SELECT','event_hash'),
+        ('private.audit_events','gym_owner_executor','INSERT','stream_key'),
+        ('private.audit_events','gym_owner_executor','INSERT','actor_user_id'),
+        ('private.audit_events','gym_owner_executor','INSERT','event_type'),
+        ('private.audit_events','gym_owner_executor','INSERT','subject_type'),
+        ('private.audit_events','gym_owner_executor','INSERT','subject_id'),
+        ('private.audit_events','gym_owner_executor','INSERT','details'),
+        ('private.audit_chain_heads','gym_owner_executor','SELECT','stream_key'),
+        ('private.audit_chain_heads','gym_owner_executor','SELECT','last_event_id'),
+        ('private.audit_chain_heads','gym_owner_executor','SELECT','last_event_hash'),
+        ('private.audit_chain_heads','gym_owner_executor','SELECT','updated_at'),
+        ('private.audit_chain_heads','gym_owner_executor','INSERT','stream_key'),
+        ('private.audit_chain_heads','gym_owner_executor','INSERT','last_event_id'),
+        ('private.audit_chain_heads','gym_owner_executor','INSERT','last_event_hash'),
+        ('private.audit_chain_heads','gym_owner_executor','UPDATE','last_event_id'),
+        ('private.audit_chain_heads','gym_owner_executor','UPDATE','last_event_hash'),
+        ('private.audit_chain_heads','gym_owner_executor','UPDATE','updated_at'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','id'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','member_id'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','token_hash'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','token_purpose'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','expires_at'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','consumed_at'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','created_at'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','INSERT','member_id'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','INSERT','token_hash'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','INSERT','token_purpose'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','INSERT','expires_at'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','UPDATE','consumed_at'),
+        ('private.members','gym_public_executor','SELECT','id'),
+        ('private.members','gym_public_executor','SELECT','status'),
+        ('private.members','gym_public_executor','UPDATE','updated_at'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','id'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','member_id'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','token_hash'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','token_purpose'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','expires_at'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','consumed_at'),
+        ('private.member_pin_setup_tokens','gym_public_executor','UPDATE','consumed_at'),
+        ('private.member_pin_credentials','gym_public_executor','SELECT','member_id'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','member_id'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','password_hash'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','credential_version'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','created_at'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','updated_at'),
+        ('private.pin_enrollment_global_rate_limit_events','gym_public_executor','SELECT','requested_at'),
+        ('private.pin_enrollment_global_rate_limit_events','gym_public_executor','INSERT','requested_at')
+                    ) g(table_name,role_name,command,column_name)
+                    WHERE g.table_name=r.name AND g.role_name=caller
+                      AND g.command=privilege_name AND g.column_name=v_column)
+                    INTO expected;
+                    IF pg_catalog.has_column_privilege(caller,relation_oid,v_column,privilege_name) IS DISTINCT FROM expected THEN
+                        RAISE EXCEPTION 'Column ACL mismatch: %.% / % / %',r.name,v_column,caller,privilege_name;
+                    END IF;
+                END LOOP;
+            END LOOP;
+            IF pg_catalog.has_table_privilege(caller,relation_oid,'TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+               OR pg_catalog.has_table_privilege(caller,relation_oid,'DELETE') IS DISTINCT FROM
+                 (target AND caller='gym_public_executor' AND r.name='private.pin_enrollment_global_rate_limit_events') THEN
+                RAISE EXCEPTION 'Unexpected table-wide destructive privilege: % / %',caller,r.name;
+            END IF;
+        END LOOP;
+        IF EXISTS (SELECT 1 FROM pg_catalog.pg_class c,
+            LATERAL pg_catalog.aclexplode(COALESCE(c.relacl,pg_catalog.acldefault('r',c.relowner))) a
+            WHERE c.oid=relation_oid AND a.grantee<>c.relowner
+            AND NOT (target AND r.name='private.pin_enrollment_global_rate_limit_events'
+                     AND a.grantee=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='gym_public_executor')
+                     AND a.privilege_type='DELETE' AND NOT a.is_grantable)) THEN
+            RAISE EXCEPTION 'Unreviewed relation ACL principal/grant: %',r.name;
+        END IF;
+        IF EXISTS (SELECT 1 FROM pg_catalog.pg_attribute col,
+            LATERAL pg_catalog.aclexplode(col.attacl) a
+            WHERE col.attrelid=relation_oid AND col.attnum>0
+              AND a.grantee<>(SELECT relowner FROM pg_catalog.pg_class WHERE oid=relation_oid)
+              AND (a.is_grantable OR NOT (target AND EXISTS (SELECT 1 FROM (VALUES
+                  ('private.owner_access','gym_owner_executor','SELECT','user_id'),
+        ('private.owner_access','gym_owner_executor','SELECT','is_active'),
+        ('private.owner_access','gym_owner_executor','SELECT','created_at'),
+        ('private.owner_access','gym_owner_executor','SELECT','deactivated_at'),
+        ('private.members','gym_owner_executor','SELECT','id'),
+        ('private.members','gym_owner_executor','SELECT','member_code'),
+        ('private.members','gym_owner_executor','SELECT','full_name'),
+        ('private.members','gym_owner_executor','SELECT','mobile_lookup_hash'),
+        ('private.members','gym_owner_executor','SELECT','mobile_encrypted'),
+        ('private.members','gym_owner_executor','SELECT','status'),
+        ('private.members','gym_owner_executor','SELECT','created_at'),
+        ('private.members','gym_owner_executor','SELECT','updated_at'),
+        ('private.members','gym_owner_executor','SELECT','approved_at'),
+        ('private.members','gym_owner_executor','INSERT','member_code'),
+        ('private.members','gym_owner_executor','INSERT','full_name'),
+        ('private.members','gym_owner_executor','INSERT','mobile_lookup_hash'),
+        ('private.members','gym_owner_executor','INSERT','mobile_encrypted'),
+        ('private.members','gym_owner_executor','INSERT','status'),
+        ('private.members','gym_owner_executor','UPDATE','updated_at'),
+        ('private.membership_plans','gym_owner_executor','SELECT','id'),
+        ('private.membership_plans','gym_owner_executor','SELECT','name'),
+        ('private.membership_plans','gym_owner_executor','SELECT','price_php'),
+        ('private.membership_plans','gym_owner_executor','SELECT','is_active'),
+        ('private.membership_plans','gym_owner_executor','SELECT','created_at'),
+        ('private.membership_plans','gym_owner_executor','INSERT','name'),
+        ('private.membership_plans','gym_owner_executor','INSERT','price_php'),
+        ('private.membership_plans','gym_owner_executor','INSERT','is_active'),
+        ('private.membership_plans','gym_owner_executor','UPDATE','name'),
+        ('private.membership_plans','gym_owner_executor','UPDATE','price_php'),
+        ('private.membership_plans','gym_owner_executor','UPDATE','is_active'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','id'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','member_id'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','plan_id'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','price_php'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','purchase_status'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','activation_date'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','expiry_date'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','created_at'),
+        ('private.membership_purchases','gym_owner_executor','INSERT','member_id'),
+        ('private.membership_purchases','gym_owner_executor','INSERT','plan_id'),
+        ('private.membership_purchases','gym_owner_executor','INSERT','price_php'),
+        ('private.membership_purchases','gym_owner_executor','INSERT','purchase_status'),
+        ('private.membership_purchases','gym_owner_executor','UPDATE','purchase_status'),
+        ('private.payment_records','gym_owner_executor','SELECT','id'),
+        ('private.payment_records','gym_owner_executor','SELECT','amount_php'),
+        ('private.payment_records','gym_owner_executor','SELECT','payment_method'),
+        ('private.payment_records','gym_owner_executor','SELECT','received_at'),
+        ('private.payment_records','gym_owner_executor','SELECT','verification_status'),
+        ('private.payment_records','gym_owner_executor','SELECT','external_reference'),
+        ('private.payment_records','gym_owner_executor','SELECT','evidence_reference'),
+        ('private.payment_records','gym_owner_executor','SELECT','recorded_by'),
+        ('private.payment_records','gym_owner_executor','SELECT','created_at'),
+        ('private.payment_records','gym_owner_executor','SELECT','operation_id'),
+        ('private.payment_records','gym_owner_executor','SELECT','target_membership_purchase_id'),
+        ('private.payment_records','gym_owner_executor','INSERT','amount_php'),
+        ('private.payment_records','gym_owner_executor','INSERT','payment_method'),
+        ('private.payment_records','gym_owner_executor','INSERT','verification_status'),
+        ('private.payment_records','gym_owner_executor','INSERT','external_reference'),
+        ('private.payment_records','gym_owner_executor','INSERT','recorded_by'),
+        ('private.payment_records','gym_owner_executor','INSERT','operation_id'),
+        ('private.payment_records','gym_owner_executor','INSERT','target_membership_purchase_id'),
+        ('private.payment_records','gym_owner_executor','UPDATE','verification_status'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','id'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','payment_id'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','membership_purchase_id'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','walkin_request_id'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','allocated_by'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','allocated_at'),
+        ('private.payment_allocations','gym_owner_executor','INSERT','payment_id'),
+        ('private.payment_allocations','gym_owner_executor','INSERT','membership_purchase_id'),
+        ('private.payment_allocations','gym_owner_executor','INSERT','allocated_by'),
+        ('private.payment_events','gym_owner_executor','SELECT','id'),
+        ('private.payment_events','gym_owner_executor','SELECT','payment_id'),
+        ('private.payment_events','gym_owner_executor','SELECT','event_type'),
+        ('private.payment_events','gym_owner_executor','SELECT','reason'),
+        ('private.payment_events','gym_owner_executor','SELECT','actor_user_id'),
+        ('private.payment_events','gym_owner_executor','SELECT','created_at'),
+        ('private.payment_events','gym_owner_executor','INSERT','payment_id'),
+        ('private.payment_events','gym_owner_executor','INSERT','event_type'),
+        ('private.payment_events','gym_owner_executor','INSERT','reason'),
+        ('private.payment_events','gym_owner_executor','INSERT','actor_user_id'),
+        ('private.audit_events','gym_owner_executor','SELECT','id'),
+        ('private.audit_events','gym_owner_executor','SELECT','actor_user_id'),
+        ('private.audit_events','gym_owner_executor','SELECT','event_type'),
+        ('private.audit_events','gym_owner_executor','SELECT','subject_type'),
+        ('private.audit_events','gym_owner_executor','SELECT','subject_id'),
+        ('private.audit_events','gym_owner_executor','SELECT','details'),
+        ('private.audit_events','gym_owner_executor','SELECT','created_at'),
+        ('private.audit_events','gym_owner_executor','SELECT','stream_key'),
+        ('private.audit_events','gym_owner_executor','SELECT','previous_event_hash'),
+        ('private.audit_events','gym_owner_executor','SELECT','event_hash'),
+        ('private.audit_events','gym_owner_executor','INSERT','stream_key'),
+        ('private.audit_events','gym_owner_executor','INSERT','actor_user_id'),
+        ('private.audit_events','gym_owner_executor','INSERT','event_type'),
+        ('private.audit_events','gym_owner_executor','INSERT','subject_type'),
+        ('private.audit_events','gym_owner_executor','INSERT','subject_id'),
+        ('private.audit_events','gym_owner_executor','INSERT','details'),
+        ('private.audit_chain_heads','gym_owner_executor','SELECT','stream_key'),
+        ('private.audit_chain_heads','gym_owner_executor','SELECT','last_event_id'),
+        ('private.audit_chain_heads','gym_owner_executor','SELECT','last_event_hash'),
+        ('private.audit_chain_heads','gym_owner_executor','SELECT','updated_at'),
+        ('private.audit_chain_heads','gym_owner_executor','INSERT','stream_key'),
+        ('private.audit_chain_heads','gym_owner_executor','INSERT','last_event_id'),
+        ('private.audit_chain_heads','gym_owner_executor','INSERT','last_event_hash'),
+        ('private.audit_chain_heads','gym_owner_executor','UPDATE','last_event_id'),
+        ('private.audit_chain_heads','gym_owner_executor','UPDATE','last_event_hash'),
+        ('private.audit_chain_heads','gym_owner_executor','UPDATE','updated_at'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','id'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','member_id'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','token_hash'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','token_purpose'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','expires_at'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','consumed_at'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','created_at'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','INSERT','member_id'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','INSERT','token_hash'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','INSERT','token_purpose'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','INSERT','expires_at'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','UPDATE','consumed_at'),
+        ('private.members','gym_public_executor','SELECT','id'),
+        ('private.members','gym_public_executor','SELECT','status'),
+        ('private.members','gym_public_executor','UPDATE','updated_at'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','id'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','member_id'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','token_hash'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','token_purpose'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','expires_at'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','consumed_at'),
+        ('private.member_pin_setup_tokens','gym_public_executor','UPDATE','consumed_at'),
+        ('private.member_pin_credentials','gym_public_executor','SELECT','member_id'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','member_id'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','password_hash'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','credential_version'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','created_at'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','updated_at'),
+        ('private.pin_enrollment_global_rate_limit_events','gym_public_executor','SELECT','requested_at'),
+        ('private.pin_enrollment_global_rate_limit_events','gym_public_executor','INSERT','requested_at')
+              ) g(table_name,role_name,command,column_name)
+              JOIN pg_catalog.pg_roles rr ON rr.rolname=g.role_name
+              WHERE g.table_name=r.name AND g.column_name=col.attname
+                AND rr.oid=a.grantee AND g.command=a.privilege_type)))) THEN
+            RAISE EXCEPTION 'Unreviewed column ACL principal/grant: %',r.name;
+        END IF;
+    END LOOP;
+    IF NOT target AND EXISTS (SELECT 1 FROM pg_catalog.pg_policy p JOIN pg_catalog.pg_class c ON c.oid=p.polrelid
+        JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('private','public')) THEN
+        RAISE EXCEPTION 'Current profile policy inventory changed';
+    END IF;
+    IF target THEN
+        IF (SELECT count(*) FROM pg_catalog.pg_policy p JOIN pg_catalog.pg_class c ON c.oid=p.polrelid
+            JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('private','public'))<>34 THEN
+            RAISE EXCEPTION 'Policy count drift';
+        END IF;
+        FOR r IN SELECT * FROM (VALUES
+            ('private.owner_access','gym_owner_executor','SELECT','gf_owner_select'),
+        ('private.members','gym_owner_executor','SELECT','gf_owner_select'),
+        ('private.members','gym_owner_executor','INSERT','gf_owner_insert'),
+        ('private.members','gym_owner_executor','UPDATE','gf_owner_update'),
+        ('private.membership_plans','gym_owner_executor','SELECT','gf_owner_select'),
+        ('private.membership_plans','gym_owner_executor','INSERT','gf_owner_insert'),
+        ('private.membership_plans','gym_owner_executor','UPDATE','gf_owner_update'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','gf_owner_select'),
+        ('private.membership_purchases','gym_owner_executor','INSERT','gf_owner_insert'),
+        ('private.membership_purchases','gym_owner_executor','UPDATE','gf_owner_update'),
+        ('private.payment_records','gym_owner_executor','SELECT','gf_owner_select'),
+        ('private.payment_records','gym_owner_executor','INSERT','gf_owner_insert'),
+        ('private.payment_records','gym_owner_executor','UPDATE','gf_owner_update'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','gf_owner_select'),
+        ('private.payment_allocations','gym_owner_executor','INSERT','gf_owner_insert'),
+        ('private.payment_events','gym_owner_executor','SELECT','gf_owner_select'),
+        ('private.payment_events','gym_owner_executor','INSERT','gf_owner_insert'),
+        ('private.audit_events','gym_owner_executor','SELECT','gf_owner_select'),
+        ('private.audit_events','gym_owner_executor','INSERT','gf_owner_insert'),
+        ('private.audit_chain_heads','gym_owner_executor','SELECT','gf_owner_select'),
+        ('private.audit_chain_heads','gym_owner_executor','INSERT','gf_owner_insert'),
+        ('private.audit_chain_heads','gym_owner_executor','UPDATE','gf_owner_update'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','gf_owner_select'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','INSERT','gf_owner_insert'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','UPDATE','gf_owner_update'),
+        ('private.members','gym_public_executor','SELECT','gf_public_select'),
+        ('private.members','gym_public_executor','UPDATE','gf_public_update'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','gf_public_select'),
+        ('private.member_pin_setup_tokens','gym_public_executor','UPDATE','gf_public_update'),
+        ('private.member_pin_credentials','gym_public_executor','SELECT','gf_public_select'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','gf_public_insert'),
+        ('private.pin_enrollment_global_rate_limit_events','gym_public_executor','SELECT','gf_public_select'),
+        ('private.pin_enrollment_global_rate_limit_events','gym_public_executor','INSERT','gf_public_insert'),
+        ('private.pin_enrollment_global_rate_limit_events','gym_public_executor','DELETE','gf_public_delete')
+        ) v(table_name,role_name,command,policy_name) LOOP
+            SELECT * INTO actual_policy FROM pg_catalog.pg_policy
+              WHERE polrelid=pg_catalog.to_regclass(r.table_name) AND polname=r.policy_name;
+            IF NOT FOUND OR NOT actual_policy.polpermissive
+               OR actual_policy.polroles IS DISTINCT FROM ARRAY[(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=r.role_name)]
+               OR actual_policy.polcmd::text IS DISTINCT FROM (CASE r.command WHEN 'SELECT' THEN 'r' WHEN 'INSERT' THEN 'a' WHEN 'UPDATE' THEN 'w' WHEN 'DELETE' THEN 'd' END) THEN
+                RAISE EXCEPTION 'Role/command policy mismatch: % / %',r.table_name,r.policy_name;
+            END IF;
+            expected_expr := 'current_user='||quote_literal(r.role_name)||'::name';
+            actual_qual := lower(regexp_replace(pg_catalog.pg_get_expr(actual_policy.polqual,actual_policy.polrelid),'[[:space:]()]','','g'));
+            actual_check := lower(regexp_replace(pg_catalog.pg_get_expr(actual_policy.polwithcheck,actual_policy.polrelid),'[[:space:]()]','','g'));
+            IF (r.command IN ('SELECT','UPDATE','DELETE') AND actual_qual IS DISTINCT FROM expected_expr)
+               OR (r.command='INSERT' AND actual_qual IS NOT NULL)
+               OR (r.command IN ('INSERT','UPDATE') AND actual_check IS DISTINCT FROM expected_expr)
+               OR (r.command IN ('SELECT','DELETE') AND actual_check IS NOT NULL) THEN
+                RAISE EXCEPTION 'Policy predicate mismatch: % / %',r.table_name,r.policy_name;
+            END IF;
+        END LOOP;
+    END IF;
+    FOR r IN SELECT * FROM (VALUES
+        ('private.audit_events_id_seq','gym_owner_executor'),
+        ('private.payment_events_id_seq','gym_owner_executor'),
+        ('private.pin_enrollment_global_rate_limit_events_id_seq','gym_public_executor')
+    ) v(name,executor) LOOP
+        relation_oid := pg_catalog.to_regclass(r.name);
+        IF relation_oid IS NULL OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class c
+            WHERE c.oid=relation_oid AND c.relkind='S' AND c.relowner=(SELECT oid FROM pg_catalog.pg_roles
+            WHERE rolname=CASE WHEN target THEN 'gym_data_owner' ELSE 'postgres' END)) THEN
+            RAISE EXCEPTION 'Sequence ownership mismatch: %',r.name;
+        END IF;
+        FOREACH caller IN ARRAY ARRAY['anon','authenticated','service_role','gym_registration_login','gym_owner_executor','gym_public_executor'] LOOP
+            IF pg_catalog.has_sequence_privilege(caller,relation_oid,'SELECT,UPDATE')
+               OR pg_catalog.has_sequence_privilege(caller,relation_oid,'USAGE') THEN
+                RAISE EXCEPTION 'Sequence ACL mismatch: % / %',r.name,caller;
+            END IF;
+        END LOOP;
+        IF EXISTS (SELECT 1 FROM pg_catalog.pg_class c,
+            LATERAL pg_catalog.aclexplode(COALESCE(c.relacl,pg_catalog.acldefault('S',c.relowner))) a
+            WHERE c.oid=relation_oid AND a.grantee<>c.relowner) THEN
+            RAISE EXCEPTION 'Unreviewed sequence ACL: %',r.name;
+        END IF;
+    END LOOP;
+    IF (SELECT count(*) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+        WHERE n.nspname IN ('private','api'))<>25 THEN RAISE EXCEPTION 'Routine inventory drift'; END IF;
+    FOR r IN SELECT * FROM (VALUES
+        ('api.append_audit_event(text, uuid, text, text, text, jsonb)','7a05ca54592137c75b9adda7023516a8','gym_owner_executor','true','true','service_role,gym_public_executor'),
+        ('api.is_active_owner_for_user(uuid)','830f29066e37d9f2593c3cd99878ae93','gym_owner_executor','true','true','service_role'),
+        ('api.member_enroll_pin(text, text)','6bf1d4a963b2b853ba9cdc7cb582c342','gym_public_executor','true','true','service_role'),
+        ('api.owner_confirm_membership_payment(uuid, uuid, boolean)','ce58f4473d75469ef2676f232794dce0','gym_owner_executor','true','true','service_role'),
+        ('api.owner_create_membership_purchase(uuid, uuid, uuid)','f8f310bd5576274401706c5213c6746d','gym_owner_executor','true','true','service_role'),
+        ('api.owner_create_pin_enrollment_token(uuid, uuid, text, timestamp with time zone)','7a226978d83e191643a436c829f9dd07','gym_owner_executor','true','true','service_role'),
+        ('api.owner_list_members(uuid, text, text, integer, integer)','342dd9a2131e068c1a849694b053ebdf','gym_owner_executor','true','true','service_role'),
+        ('api.owner_list_membership_payments(uuid, text, text, integer, integer)','6ac0d61dfc24c15123812ec788294197','gym_owner_executor','true','true','service_role'),
+        ('api.owner_list_membership_plans(uuid)','fc3ed2be2834b6458f2835bfc18d9b4e','gym_owner_executor','true','true','service_role'),
+        ('api.owner_list_membership_purchases(uuid, text, text, integer, integer)','d6fd6f1ba099afe317dcf1606d49d64f','gym_owner_executor','true','true','service_role'),
+        ('api.owner_record_membership_payment(uuid, uuid, uuid, numeric, text, text)','c21766acb601a8b92dc26d59f73be2a3','gym_owner_executor','true','true','service_role'),
+        ('api.owner_register_member(uuid, text, bytea, bytea)','e56b20e809c8dfcebd782d4e8aa5fbb5','gym_owner_executor','true','true','service_role'),
+        ('api.owner_reject_membership_payment(uuid, uuid, text)','b55e7879cbae6d9074264826ed75eac0','gym_owner_executor','true','true','service_role'),
+        ('api.owner_save_membership_plan(uuid, uuid, text, numeric, boolean)','c128144cda372362b26ec91dc64fd6fa','gym_owner_executor','true','true','service_role'),
+        ('api.reserve_pin_enrollment_request()','ed1a67d4a3cd30fed31a0ee36222eb5b','gym_public_executor','true','true','service_role'),
+        ('api.verify_audit_stream(text)','f7c5cdb53ec4cf2d845e38f404df5fb9','gym_owner_executor','true','true','service_role'),
+        ('private.audit_events_chain_insert()','6fa6a434395de93250213752513ffb34','gym_data_owner','false','true','gym_owner_executor'),
+        ('private.compute_audit_event_hash(bigint, text, text, uuid, text, text, text, jsonb, timestamp with time zone)','a0635caf0c329b24571bd68df684f69f','gym_data_owner','false','false','gym_owner_executor'),
+        ('private.guard_membership_payment_allocation()','4836529309d8c518d42d24b9d191d6d5','gym_data_owner','false','true','gym_owner_executor'),
+        ('private.guard_membership_payment_record_insert()','edaae9f3a89330d4e55ce37d7d16d074','gym_data_owner','false','true','gym_owner_executor'),
+        ('private.guard_membership_payment_record_update()','9386192bae0b7aec6e34fce2e2aadbda','gym_data_owner','false','true','gym_owner_executor'),
+        ('private.guard_purchase_pending_activation()','c3467a65c399cf75243d4e3e9e31b36c','gym_data_owner','false','true','gym_owner_executor'),
+        ('private.is_active_owner()','76af3203b0fe03c30e1eb6d8264a04e6','gym_data_owner','false','false',''),
+        ('private.prevent_audit_event_mutation()','d835b9b2db211d2439e03ec9d8a6337d','gym_data_owner','false','true','gym_owner_executor'),
+        ('private.prevent_payment_history_mutation()','0ad4feeac81403c334c6665ff018485e','gym_data_owner','false','true','gym_owner_executor')
+    ) v(signature,body_md5,target_owner,target_definer,baseline_definer,callers) LOOP
+        routine_oid := pg_catalog.to_regprocedure(r.signature);
+        IF routine_oid IS NULL OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_proc p
+            WHERE p.oid=routine_oid AND md5(p.prosrc)=r.body_md5
+              AND p.proowner=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=CASE WHEN target THEN r.target_owner ELSE 'postgres' END)
+              AND p.prosecdef=CASE WHEN target THEN r.target_definer::boolean ELSE r.baseline_definer::boolean END
+              AND p.proconfig=ARRAY['search_path=""']::text[]) THEN
+            RAISE EXCEPTION 'Routine body/owner/execution/config mismatch: %',r.signature;
+        END IF;
+        FOREACH caller IN ARRAY ARRAY['anon','authenticated','service_role','gym_registration_login','gym_owner_executor','gym_public_executor'] LOOP
+            expected := CASE WHEN target THEN caller=r.target_owner OR caller=ANY(string_to_array(r.callers,','))
+                             ELSE caller='service_role' AND r.signature LIKE 'api.%' END;
+            IF pg_catalog.has_function_privilege(caller,routine_oid,'EXECUTE') IS DISTINCT FROM expected THEN
+                RAISE EXCEPTION 'Routine execute mismatch: % / %',r.signature,caller;
+            END IF;
+        END LOOP;
+        IF EXISTS (SELECT 1 FROM pg_catalog.pg_proc p,
+            LATERAL pg_catalog.aclexplode(COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))) a
+            WHERE p.oid=routine_oid AND (a.is_grantable AND a.grantee<>p.proowner OR
+              a.grantee<>p.proowner AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles rr
+                WHERE rr.oid=a.grantee AND rr.rolname=ANY(CASE WHEN target THEN string_to_array(r.callers,',')
+                ELSE CASE WHEN r.signature LIKE 'api.%' THEN ARRAY['service_role'] ELSE ARRAY[]::text[] END END)))) THEN
+            RAISE EXCEPTION 'PUBLIC/unreviewed routine grantee: %',r.signature;
+        END IF;
+    END LOOP;
+    FOREACH caller IN ARRAY ARRAY['anon','authenticated','gym_registration_login'] LOOP
+        IF pg_catalog.has_schema_privilege(caller,'private','USAGE,CREATE')
+           OR pg_catalog.has_schema_privilege(caller,'api','USAGE,CREATE') THEN
+            RAISE EXCEPTION 'Browser/dormant schema exposure: %',caller;
+        END IF;
+    END LOOP;
+    IF pg_catalog.has_schema_privilege('service_role','private','USAGE,CREATE')
+       OR NOT pg_catalog.has_schema_privilege('service_role','api','USAGE')
+       OR pg_catalog.has_schema_privilege('service_role','api','CREATE') THEN
+        RAISE EXCEPTION 'Service-role schema boundary mismatch';
+    END IF;
+    FOREACH caller IN ARRAY ARRAY['gym_data_owner','gym_owner_executor','gym_public_executor'] LOOP
+        IF pg_catalog.has_schema_privilege(caller,'private','CREATE')
+           OR pg_catalog.has_schema_privilege(caller,'api','CREATE')
+           OR pg_catalog.has_schema_privilege(caller,'public','CREATE') THEN
+            RAISE EXCEPTION 'Reserved role has schema CREATE: %',caller;
+        END IF;
+        IF pg_catalog.has_schema_privilege(caller,'private','USAGE') IS DISTINCT FROM target THEN
+            RAISE EXCEPTION 'Reserved private schema USAGE mismatch: %',caller;
+        END IF;
+        IF pg_catalog.has_schema_privilege(caller,'api','USAGE') IS DISTINCT FROM
+           (target AND caller IN ('gym_owner_executor','gym_public_executor')) THEN
+            RAISE EXCEPTION 'Reserved API schema USAGE mismatch: %',caller;
+        END IF;
+    END LOOP;
+    IF target AND (NOT pg_catalog.has_schema_privilege('gym_owner_executor','extensions','USAGE')
+       OR NOT pg_catalog.has_function_privilege('gym_owner_executor','extensions.digest(bytea,text)','EXECUTE')) THEN
+        RAISE EXCEPTION 'Audit digest dependency unavailable to Owner executor';
+    END IF;
+    FOR r IN SELECT * FROM (VALUES
+        ('private.audit_events','audit_events_chain_insert_trigger','CREATE TRIGGER audit_events_chain_insert_trigger BEFORE INSERT ON private.audit_events FOR EACH ROW EXECUTE FUNCTION private.audit_events_chain_insert()'),
+        ('private.audit_events','audit_events_no_truncate','CREATE TRIGGER audit_events_no_truncate BEFORE TRUNCATE ON private.audit_events FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_audit_event_mutation()'),
+        ('private.audit_events','audit_events_no_update_delete','CREATE TRIGGER audit_events_no_update_delete BEFORE DELETE OR UPDATE ON private.audit_events FOR EACH ROW EXECUTE FUNCTION private.prevent_audit_event_mutation()'),
+        ('private.membership_purchases','membership_purchase_requires_confirmed_payment','CREATE TRIGGER membership_purchase_requires_confirmed_payment BEFORE INSERT OR UPDATE ON private.membership_purchases FOR EACH ROW EXECUTE FUNCTION private.guard_purchase_pending_activation()'),
+        ('private.payment_allocations','payment_allocations_no_truncate','CREATE TRIGGER payment_allocations_no_truncate BEFORE TRUNCATE ON private.payment_allocations FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_payment_history_mutation()'),
+        ('private.payment_allocations','payment_allocations_no_update_delete','CREATE TRIGGER payment_allocations_no_update_delete BEFORE DELETE OR UPDATE ON private.payment_allocations FOR EACH ROW EXECUTE FUNCTION private.prevent_payment_history_mutation()'),
+        ('private.payment_allocations','payment_allocations_validate_membership','CREATE TRIGGER payment_allocations_validate_membership BEFORE INSERT ON private.payment_allocations FOR EACH ROW EXECUTE FUNCTION private.guard_membership_payment_allocation()'),
+        ('private.payment_events','payment_events_no_truncate','CREATE TRIGGER payment_events_no_truncate BEFORE TRUNCATE ON private.payment_events FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_payment_history_mutation()'),
+        ('private.payment_events','payment_events_no_update_delete','CREATE TRIGGER payment_events_no_update_delete BEFORE DELETE OR UPDATE ON private.payment_events FOR EACH ROW EXECUTE FUNCTION private.prevent_payment_history_mutation()'),
+        ('private.payment_records','payment_records_guard_update','CREATE TRIGGER payment_records_guard_update BEFORE UPDATE ON private.payment_records FOR EACH ROW EXECUTE FUNCTION private.guard_membership_payment_record_update()'),
+        ('private.payment_records','payment_records_no_delete','CREATE TRIGGER payment_records_no_delete BEFORE DELETE ON private.payment_records FOR EACH ROW EXECUTE FUNCTION private.prevent_payment_history_mutation()'),
+        ('private.payment_records','payment_records_no_truncate','CREATE TRIGGER payment_records_no_truncate BEFORE TRUNCATE ON private.payment_records FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_payment_history_mutation()'),
+        ('private.payment_records','payment_records_validate_membership_insert','CREATE TRIGGER payment_records_validate_membership_insert BEFORE INSERT ON private.payment_records FOR EACH ROW EXECUTE FUNCTION private.guard_membership_payment_record_insert()')
+    ) v(table_name,name,definition) LOOP
+        IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t WHERE t.tgrelid=pg_catalog.to_regclass(r.table_name)
+            AND t.tgname=r.name AND t.tgenabled='O' AND pg_catalog.pg_get_triggerdef(t.oid)=r.definition) THEN
+            RAISE EXCEPTION 'Trigger definition/state drift: %.%',r.table_name,r.name;
+        END IF;
+    END LOOP;
+    RAISE NOTICE 'PASS profile %: catalog scope only; lifecycle/Attendance/hosted behavior not certified',profile;
+    IF NOT target THEN
+        RAISE WARNING 'Ownership/executor hardening remains unsatisfied in current_server_only profile';
+    END IF;
+END;
+$phase_assertions$;
+DO $dependency_assertions$
+DECLARE r record; target boolean := current_setting('gymforce.assertion_profile')='proposed_owner_executor'; expected_owner oid;
+BEGIN
+    SELECT oid INTO expected_owner FROM pg_catalog.pg_roles WHERE rolname=CASE WHEN target THEN 'gym_data_owner' ELSE 'postgres' END;
+    IF pg_catalog.to_regclass(pg_catalog.pg_get_serial_sequence('private.audit_events','id')) IS DISTINCT FROM pg_catalog.to_regclass('private.audit_events_id_seq') THEN RAISE EXCEPTION 'Identity sequence binding drift: private.audit_events_id_seq'; END IF;
+    IF pg_catalog.to_regclass(pg_catalog.pg_get_serial_sequence('private.payment_events','id')) IS DISTINCT FROM pg_catalog.to_regclass('private.payment_events_id_seq') THEN RAISE EXCEPTION 'Identity sequence binding drift: private.payment_events_id_seq'; END IF;
+    IF pg_catalog.to_regclass(pg_catalog.pg_get_serial_sequence('private.pin_enrollment_global_rate_limit_events','id')) IS DISTINCT FROM pg_catalog.to_regclass('private.pin_enrollment_global_rate_limit_events_id_seq') THEN RAISE EXCEPTION 'Identity sequence binding drift: private.pin_enrollment_global_rate_limit_events_id_seq'; END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles login_role WHERE login_role.rolname='gym_registration_login'
+      AND login_role.rolcanlogin AND NOT login_role.rolsuper AND NOT login_role.rolcreatedb AND NOT login_role.rolcreaterole
+      AND NOT login_role.rolinherit AND NOT login_role.rolreplication AND NOT login_role.rolbypassrls)
+      OR EXISTS (SELECT 1 FROM pg_catalog.pg_authid WHERE rolname='gym_registration_login' AND rolpassword IS NOT NULL) THEN
+        RAISE EXCEPTION 'Dormant registration login attributes/credential state drift';
+    END IF;
+    FOR r IN SELECT * FROM (VALUES
+        ('index','private.attendance_checkins_pkey','private.attendance_checkins'),
+        ('index','private.attendance_date_idx','private.attendance_checkins'),
+        ('index','private.attendance_member_date_idx','private.attendance_checkins'),
+        ('index','private.attendance_one_checkin_per_walkin','private.attendance_checkins'),
+        ('index','private.attendance_one_member_valid_checkin_per_day','private.attendance_checkins'),
+        ('index','private.attendance_validity_resolutions_pkey','private.attendance_validity_resolutions'),
+        ('index','private.audit_chain_heads_pkey','private.audit_chain_heads'),
+        ('index','private.audit_events_actor_created_idx','private.audit_events'),
+        ('index','private.audit_events_created_at_idx','private.audit_events'),
+        ('index','private.audit_events_pkey','private.audit_events'),
+        ('index','private.audit_events_stream_created_idx','private.audit_events'),
+        ('index','private.cash_adjustments_reconciliation_idx','private.cash_reconciliation_adjustments'),
+        ('index','private.cash_drawer_only_one_open_session','private.cash_drawer_sessions'),
+        ('index','private.cash_drawer_sessions_pkey','private.cash_drawer_sessions'),
+        ('index','private.cash_reconciliation_adjustments_pkey','private.cash_reconciliation_adjustments'),
+        ('index','private.cash_reconciliations_date_idx','private.cash_reconciliations'),
+        ('index','private.cash_reconciliations_drawer_session_id_key','private.cash_reconciliations'),
+        ('index','private.cash_reconciliations_pkey','private.cash_reconciliations'),
+        ('index','private.member_pin_credentials_pkey','private.member_pin_credentials'),
+        ('index','private.member_pin_setup_tokens_active_enrollment_idx','private.member_pin_setup_tokens'),
+        ('index','private.member_pin_setup_tokens_expiry_idx','private.member_pin_setup_tokens'),
+        ('index','private.member_pin_setup_tokens_member_idx','private.member_pin_setup_tokens'),
+        ('index','private.member_pin_setup_tokens_pkey','private.member_pin_setup_tokens'),
+        ('index','private.member_pin_setup_tokens_token_hash_key','private.member_pin_setup_tokens'),
+        ('index','private.members_member_code_key','private.members'),
+        ('index','private.members_mobile_lookup_hash_key','private.members'),
+        ('index','private.members_pkey','private.members'),
+        ('index','private.members_status_idx','private.members'),
+        ('index','private.membership_plans_normalized_name_uidx','private.membership_plans'),
+        ('index','private.membership_plans_pkey','private.membership_plans'),
+        ('index','private.membership_purchases_member_idx','private.membership_purchases'),
+        ('index','private.membership_purchases_no_overlapping_periods','private.membership_purchases'),
+        ('index','private.membership_purchases_pkey','private.membership_purchases'),
+        ('index','private.membership_purchases_plan_idx','private.membership_purchases'),
+        ('index','private.owner_access_pkey','private.owner_access'),
+        ('index','private.payment_allocations_membership_idx','private.payment_allocations'),
+        ('index','private.payment_allocations_membership_purchase_uidx','private.payment_allocations'),
+        ('index','private.payment_allocations_payment_id_key','private.payment_allocations'),
+        ('index','private.payment_allocations_pkey','private.payment_allocations'),
+        ('index','private.payment_allocations_walkin_idx','private.payment_allocations'),
+        ('index','private.payment_corrections_payment_idx','private.payment_corrections'),
+        ('index','private.payment_corrections_pkey','private.payment_corrections'),
+        ('index','private.payment_events_payment_created_idx','private.payment_events'),
+        ('index','private.payment_events_pkey','private.payment_events'),
+        ('index','private.payment_records_membership_external_reference_uidx','private.payment_records'),
+        ('index','private.payment_records_membership_idx','private.payment_records'),
+        ('index','private.payment_records_operation_id_uidx','private.payment_records'),
+        ('index','private.payment_records_pending_membership_uidx','private.payment_records'),
+        ('index','private.payment_records_pkey','private.payment_records'),
+        ('index','private.pin_attempt_buckets_blocked_idx','private.pin_attempt_buckets'),
+        ('index','private.pin_attempt_buckets_pkey','private.pin_attempt_buckets'),
+        ('index','private.pin_bucket_unique_window','private.pin_attempt_buckets'),
+        ('index','private.pin_enrollment_global_rate_limit_events_pkey','private.pin_enrollment_global_rate_limit_events'),
+        ('index','private.pin_enrollment_global_rate_limit_events_requested_at_idx','private.pin_enrollment_global_rate_limit_events'),
+        ('index','private.walkin_fee_versions_pkey','private.walkin_fee_versions'),
+        ('index','private.walkin_requests_pkey','private.walkin_requests'),
+        ('index','public.gym_settings_pkey','public.gym_settings'),
+        ('type','private._attendance_checkins','private.attendance_checkins'),
+        ('type','private._attendance_validity_resolutions','private.attendance_validity_resolutions'),
+        ('type','private._audit_chain_heads','private.audit_chain_heads'),
+        ('type','private._audit_events','private.audit_events'),
+        ('type','private._cash_drawer_sessions','private.cash_drawer_sessions'),
+        ('type','private._cash_reconciliation_adjustments','private.cash_reconciliation_adjustments'),
+        ('type','private._cash_reconciliations','private.cash_reconciliations'),
+        ('type','private._member_pin_credentials','private.member_pin_credentials'),
+        ('type','private._member_pin_setup_tokens','private.member_pin_setup_tokens'),
+        ('type','private._members','private.members'),
+        ('type','private._membership_plans','private.membership_plans'),
+        ('type','private._membership_purchases','private.membership_purchases'),
+        ('type','private._owner_access','private.owner_access'),
+        ('type','private._payment_allocations','private.payment_allocations'),
+        ('type','private._payment_corrections','private.payment_corrections'),
+        ('type','private._payment_events','private.payment_events'),
+        ('type','private._payment_records','private.payment_records'),
+        ('type','private._pin_attempt_buckets','private.pin_attempt_buckets'),
+        ('type','private._pin_enrollment_global_rate_limit_events','private.pin_enrollment_global_rate_limit_events'),
+        ('type','private._walkin_fee_versions','private.walkin_fee_versions'),
+        ('type','private._walkin_requests','private.walkin_requests'),
+        ('type','private.attendance_checkins','private.attendance_checkins'),
+        ('type','private.attendance_validity_resolutions','private.attendance_validity_resolutions'),
+        ('type','private.audit_chain_heads','private.audit_chain_heads'),
+        ('type','private.audit_events','private.audit_events'),
+        ('type','private.cash_drawer_sessions','private.cash_drawer_sessions'),
+        ('type','private.cash_reconciliation_adjustments','private.cash_reconciliation_adjustments'),
+        ('type','private.cash_reconciliations','private.cash_reconciliations'),
+        ('type','private.member_pin_credentials','private.member_pin_credentials'),
+        ('type','private.member_pin_setup_tokens','private.member_pin_setup_tokens'),
+        ('type','private.members','private.members'),
+        ('type','private.membership_plans','private.membership_plans'),
+        ('type','private.membership_purchases','private.membership_purchases'),
+        ('type','private.owner_access','private.owner_access'),
+        ('type','private.payment_allocations','private.payment_allocations'),
+        ('type','private.payment_corrections','private.payment_corrections'),
+        ('type','private.payment_events','private.payment_events'),
+        ('type','private.payment_records','private.payment_records'),
+        ('type','private.pin_attempt_buckets','private.pin_attempt_buckets'),
+        ('type','private.pin_enrollment_global_rate_limit_events','private.pin_enrollment_global_rate_limit_events'),
+        ('type','private.walkin_fee_versions','private.walkin_fee_versions'),
+        ('type','private.walkin_requests','private.walkin_requests'),
+        ('type','public._gym_settings','public.gym_settings'),
+        ('type','public.gym_settings','public.gym_settings')
+    ) v(kind,name,parent) LOOP
+        IF r.kind='index' AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class c
+            JOIN pg_catalog.pg_index i ON i.indexrelid=c.oid WHERE c.oid=pg_catalog.to_regclass(r.name)
+              AND i.indrelid=pg_catalog.to_regclass(r.parent) AND c.relowner=expected_owner
+              AND i.indisvalid AND i.indisready) THEN
+            RAISE EXCEPTION 'Dependent index owner/binding/validity mismatch: %',r.name;
+        ELSIF r.kind='type' AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_type t
+            JOIN pg_catalog.pg_class c ON c.oid=pg_catalog.to_regclass(r.parent)
+            JOIN pg_catalog.pg_type base ON base.oid=c.reltype
+            WHERE t.oid=pg_catalog.to_regtype(r.name) AND (t.oid=base.oid OR t.oid=base.typarray)
+              AND t.typowner=expected_owner) THEN
+            RAISE EXCEPTION 'Dependent type owner/binding mismatch: %',r.name;
+        END IF;
+    END LOOP;
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_constraint c JOIN pg_catalog.pg_namespace n ON n.oid=c.connamespace
+       WHERE n.nspname IN ('private','public') AND NOT c.convalidated) THEN
+        RAISE EXCEPTION 'Unvalidated application constraint';
+    END IF;
+END;
+$dependency_assertions$;
+DO $offline_contract$
+DECLARE
+    contract jsonb := $contract_json${"format":1,"origin":"Pinned migration source; strict lexical definitions, NOT a server catalog export","native_exposed_routines":[],"hosted":{"supported":false,"reason":"Provider metadata/version/ACL inventory not approved","documented_candidate":"graphql_public.graphql(text,text,jsonb,jsonb); pg_graphql-owned SECURITY INVOKER; NOT an allowed exception"},"creators":["postgres","gym_data_owner","gym_owner_executor","gym_public_executor","gym_registration_login"],"default_privileges":{"scopes":["global","private","api","public","graphql_public"],"kinds":["r","S","f","T"],"non_owner_grants":[],"implicit_public_type_usage":"allow_only_unmodified_builtin_without_explicit_global_entry"},"tables":[{"name":"private.attendance_checkins","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"member_id","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"walkin_request_id","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"gym_local_date","type":"date","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"checked_in_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"attendance_status","type":"text","not_null":true,"default":"'valid'","identity":"","generated":"","catalog_default":"'valid' :: text"}],"constraints":[{"name":"attendance_checkins_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"attendance_checkins_member_id_fkey","kind":"f","definition":"foreign key ( member_id ) references private . members ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( member_id ) references private . members ( id ) on delete restrict","no_inherit":null},{"name":"attendance_checkins_walkin_request_id_fkey","kind":"f","definition":"foreign key ( walkin_request_id ) references private . walkin_requests ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( walkin_request_id ) references private . walkin_requests ( id ) on delete restrict","no_inherit":null},{"name":"attendance_exactly_one_subject","kind":"c","definition":"check ( ( member_id is not null ) <> ( walkin_request_id is not null ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( ( member_id is not null ) <> ( walkin_request_id is not null ) ) )","no_inherit":false},{"name":"attendance_status_valid","kind":"c","definition":"check ( attendance_status in ( 'valid' , 'invalidated_payment' , 'invalidated_correction' , 'review' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( attendance_status = any ( array [ 'valid' :: text , 'invalidated_payment' :: text , 'invalidated_correction' :: text , 'review' :: text ] ) ) )","no_inherit":false}]},{"name":"private.attendance_validity_resolutions","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"attendance_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"prior_status","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"new_status","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"reason","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"resolved_by","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"resolved_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"attendance_validity_resolutions_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"attendance_validity_resolutions_attendance_id_fkey","kind":"f","definition":"foreign key ( attendance_id ) references private . attendance_checkins ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( attendance_id ) references private . attendance_checkins ( id ) on delete restrict","no_inherit":null},{"name":"attendance_validity_resolutions_resolved_by_fkey","kind":"f","definition":"foreign key ( resolved_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( resolved_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"attendance_resolution_reason_not_blank","kind":"c","definition":"check ( length ( trim ( reason ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from reason ) ) > 0 ) )","no_inherit":false},{"name":"attendance_resolution_status_valid","kind":"c","definition":"check ( prior_status in ( 'valid' , 'invalidated_payment' , 'invalidated_correction' , 'review' ) and new_status in ( 'valid' , 'invalidated_payment' , 'invalidated_correction' , 'review' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( ( prior_status = any ( array [ 'valid' :: text , 'invalidated_payment' :: text , 'invalidated_correction' :: text , 'review' :: text ] ) ) and ( new_status = any ( array [ 'valid' :: text , 'invalidated_payment' :: text , 'invalidated_correction' :: text , 'review' :: text ] ) ) ) )","no_inherit":false}]},{"name":"private.audit_chain_heads","columns":[{"name":"stream_key","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"last_event_id","type":"bigint","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"last_event_hash","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"updated_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"audit_chain_heads_pkey","kind":"p","definition":"primary key ( stream_key )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( stream_key )","no_inherit":null},{"name":"audit_chain_stream_not_blank","kind":"c","definition":"check ( length ( trim ( stream_key ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from stream_key ) ) > 0 ) )","no_inherit":false},{"name":"audit_chain_head_consistent","kind":"c","definition":"check ( ( last_event_id is null and last_event_hash is null ) or ( last_event_id is not null and last_event_hash is not null ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( ( ( last_event_id is null ) and ( last_event_hash is null ) ) or ( ( last_event_id is not null ) and ( last_event_hash is not null ) ) ) )","no_inherit":false}]},{"name":"private.audit_events","columns":[{"name":"id","type":"bigint","not_null":true,"default":null,"identity":"a","generated":"","catalog_default":null},{"name":"actor_user_id","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"event_type","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"subject_type","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"subject_id","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"details","type":"jsonb","not_null":true,"default":"'{}' :: jsonb","identity":"","generated":"","catalog_default":"'{}' :: jsonb"},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"stream_key","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"previous_event_hash","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"event_hash","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null}],"constraints":[{"name":"audit_events_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"audit_events_actor_user_id_fkey","kind":"f","definition":"foreign key ( actor_user_id ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( actor_user_id ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"audit_event_type_not_blank","kind":"c","definition":"check ( length ( trim ( event_type ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from event_type ) ) > 0 ) )","no_inherit":false},{"name":"audit_subject_type_not_blank","kind":"c","definition":"check ( length ( trim ( subject_type ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from subject_type ) ) > 0 ) )","no_inherit":false}]},{"name":"private.cash_drawer_sessions","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"opened_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"opened_by","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"opening_float_php","type":"numeric ( 12 , 2 )","not_null":true,"default":"0","identity":"","generated":"","catalog_default":"0"},{"name":"session_status","type":"text","not_null":true,"default":"'open'","identity":"","generated":"","catalog_default":"'open' :: text"},{"name":"closed_at","type":"timestamp with time zone","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"closed_by","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null}],"constraints":[{"name":"cash_drawer_sessions_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"cash_drawer_sessions_opened_by_fkey","kind":"f","definition":"foreign key ( opened_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( opened_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"cash_drawer_sessions_closed_by_fkey","kind":"f","definition":"foreign key ( closed_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( closed_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"cash_opening_float_nonnegative","kind":"c","definition":"check ( opening_float_php >= 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( opening_float_php >= ( 0 ) :: numeric ) )","no_inherit":false},{"name":"cash_drawer_status_valid","kind":"c","definition":"check ( session_status in ( 'open' , 'closed' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( session_status = any ( array [ 'open' :: text , 'closed' :: text ] ) ) )","no_inherit":false},{"name":"cash_drawer_close_consistent","kind":"c","definition":"check ( ( session_status = 'open' and closed_at is null and closed_by is null ) or ( session_status = 'closed' and closed_at is not null and closed_by is not null ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( ( ( session_status = 'open' :: text ) and ( closed_at is null ) and ( closed_by is null ) ) or ( ( session_status = 'closed' :: text ) and ( closed_at is not null ) and ( closed_by is not null ) ) ) )","no_inherit":false}]},{"name":"private.cash_reconciliation_adjustments","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"reconciliation_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"amount_delta_php","type":"numeric ( 12 , 2 )","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"reason","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"evidence_reference","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"recorded_by","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"cash_reconciliation_adjustments_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"cash_reconciliation_adjustments_reconciliation_id_fkey","kind":"f","definition":"foreign key ( reconciliation_id ) references private . cash_reconciliations ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( reconciliation_id ) references private . cash_reconciliations ( id ) on delete restrict","no_inherit":null},{"name":"cash_reconciliation_adjustments_recorded_by_fkey","kind":"f","definition":"foreign key ( recorded_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( recorded_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"cash_adjustment_nonzero","kind":"c","definition":"check ( amount_delta_php <> 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( amount_delta_php <> ( 0 ) :: numeric ) )","no_inherit":false},{"name":"cash_adjustment_reason_not_blank","kind":"c","definition":"check ( length ( trim ( reason ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from reason ) ) > 0 ) )","no_inherit":false}]},{"name":"private.cash_reconciliations","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"drawer_session_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"expected_cash_php","type":"numeric ( 12 , 2 )","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"counted_cash_php","type":"numeric ( 12 , 2 )","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"variance_php","type":"numeric ( 12 , 2 )","not_null":false,"default":"( counted_cash_php - expected_cash_php )","identity":"","generated":"s","catalog_default":"( counted_cash_php - expected_cash_php )"},{"name":"reconciled_by","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"reconciled_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"notes","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null}],"constraints":[{"name":"cash_reconciliations_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"cash_reconciliations_drawer_session_id_key","kind":"u","definition":"unique ( drawer_session_id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"unique ( drawer_session_id )","no_inherit":null},{"name":"cash_reconciliations_drawer_session_id_fkey","kind":"f","definition":"foreign key ( drawer_session_id ) references private . cash_drawer_sessions ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( drawer_session_id ) references private . cash_drawer_sessions ( id ) on delete restrict","no_inherit":null},{"name":"cash_reconciliations_reconciled_by_fkey","kind":"f","definition":"foreign key ( reconciled_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( reconciled_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"reconciliation_expected_cash_nonnegative","kind":"c","definition":"check ( expected_cash_php >= 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( expected_cash_php >= ( 0 ) :: numeric ) )","no_inherit":false},{"name":"reconciliation_counted_cash_nonnegative","kind":"c","definition":"check ( counted_cash_php >= 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( counted_cash_php >= ( 0 ) :: numeric ) )","no_inherit":false}]},{"name":"private.member_pin_credentials","columns":[{"name":"member_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"password_hash","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"credential_version","type":"integer","not_null":true,"default":"1","identity":"","generated":"","catalog_default":"1"},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"updated_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"member_pin_credentials_pkey","kind":"p","definition":"primary key ( member_id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( member_id )","no_inherit":null},{"name":"member_pin_credentials_member_id_fkey","kind":"f","definition":"foreign key ( member_id ) references private . members ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( member_id ) references private . members ( id ) on delete restrict","no_inherit":null},{"name":"member_pin_hash_not_blank","kind":"c","definition":"check ( length ( trim ( password_hash ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from password_hash ) ) > 0 ) )","no_inherit":false},{"name":"member_pin_version_positive","kind":"c","definition":"check ( credential_version > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( credential_version > 0 ) )","no_inherit":false}]},{"name":"private.member_pin_setup_tokens","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"member_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"token_hash","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"token_purpose","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"expires_at","type":"timestamp with time zone","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"consumed_at","type":"timestamp with time zone","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"member_pin_setup_tokens_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"member_pin_setup_tokens_member_id_fkey","kind":"f","definition":"foreign key ( member_id ) references private . members ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( member_id ) references private . members ( id ) on delete restrict","no_inherit":null},{"name":"member_pin_setup_tokens_token_hash_key","kind":"u","definition":"unique ( token_hash )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"unique ( token_hash )","no_inherit":null},{"name":"pin_token_hash_not_blank","kind":"c","definition":"check ( length ( trim ( token_hash ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from token_hash ) ) > 0 ) )","no_inherit":false},{"name":"pin_token_purpose_valid","kind":"c","definition":"check ( token_purpose in ( 'enrollment' , 'reset' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( token_purpose = any ( array [ 'enrollment' :: text , 'reset' :: text ] ) ) )","no_inherit":false},{"name":"pin_token_expiry_after_creation","kind":"c","definition":"check ( expires_at > created_at )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( expires_at > created_at ) )","no_inherit":false}]},{"name":"private.members","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"member_code","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"full_name","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"mobile_lookup_hash","type":"bytea","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"mobile_encrypted","type":"bytea","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"status","type":"text","not_null":true,"default":"'pending'","identity":"","generated":"","catalog_default":"'pending' :: text"},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"updated_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"approved_at","type":"timestamp with time zone","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null}],"constraints":[{"name":"members_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"members_member_code_key","kind":"u","definition":"unique ( member_code )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"unique ( member_code )","no_inherit":null},{"name":"members_mobile_lookup_hash_key","kind":"u","definition":"unique ( mobile_lookup_hash )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"unique ( mobile_lookup_hash )","no_inherit":null},{"name":"members_code_not_blank","kind":"c","definition":"check ( length ( trim ( member_code ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from member_code ) ) > 0 ) )","no_inherit":false},{"name":"members_name_not_blank","kind":"c","definition":"check ( length ( trim ( full_name ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from full_name ) ) > 0 ) )","no_inherit":false},{"name":"members_mobile_lookup_hash_not_empty","kind":"c","definition":"check ( octet_length ( mobile_lookup_hash ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( octet_length ( mobile_lookup_hash ) > 0 ) )","no_inherit":false},{"name":"members_mobile_encrypted_not_empty","kind":"c","definition":"check ( octet_length ( mobile_encrypted ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( octet_length ( mobile_encrypted ) > 0 ) )","no_inherit":false},{"name":"members_status_valid","kind":"c","definition":"check ( status in ( 'pending' , 'active' , 'suspended' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( status = any ( array [ 'pending' :: text , 'active' :: text , 'suspended' :: text ] ) ) )","no_inherit":false}]},{"name":"private.membership_plans","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"name","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"price_php","type":"numeric ( 12 , 2 )","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"is_active","type":"boolean","not_null":true,"default":"true","identity":"","generated":"","catalog_default":"true"},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"membership_plans_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"membership_plan_name_not_blank","kind":"c","definition":"check ( length ( trim ( name ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from name ) ) > 0 ) )","no_inherit":false},{"name":"membership_plan_price_positive","kind":"c","definition":"check ( price_php > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( price_php > ( 0 ) :: numeric ) )","no_inherit":false}]},{"name":"private.membership_purchases","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"member_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"plan_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"price_php","type":"numeric ( 12 , 2 )","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"purchase_status","type":"text","not_null":true,"default":"'pending_payment'","identity":"","generated":"","catalog_default":"'pending_payment' :: text"},{"name":"activation_date","type":"date","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"expiry_date","type":"date","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"membership_purchases_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"membership_purchases_member_id_fkey","kind":"f","definition":"foreign key ( member_id ) references private . members ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( member_id ) references private . members ( id ) on delete restrict","no_inherit":null},{"name":"membership_purchases_plan_id_fkey","kind":"f","definition":"foreign key ( plan_id ) references private . membership_plans ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( plan_id ) references private . membership_plans ( id ) on delete restrict","no_inherit":null},{"name":"membership_purchase_price_positive","kind":"c","definition":"check ( price_php > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( price_php > ( 0 ) :: numeric ) )","no_inherit":false},{"name":"membership_purchase_status_valid","kind":"c","definition":"check ( purchase_status in ( 'pending_payment' , 'pending_activation' , 'active' , 'expired' , 'payment_review' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( purchase_status = any ( array [ 'pending_payment' :: text , 'pending_activation' :: text , 'active' :: text , 'expired' :: text , 'payment_review' :: text ] ) ) )","no_inherit":false},{"name":"membership_purchase_dates_consistent","kind":"c","definition":"check ( ( activation_date is null and expiry_date is null ) or ( activation_date is not null and expiry_date is not null and expiry_date >= activation_date ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( ( ( activation_date is null ) and ( expiry_date is null ) ) or ( ( activation_date is not null ) and ( expiry_date is not null ) and ( expiry_date >= activation_date ) ) ) )","no_inherit":false},{"name":"membership_purchases_no_overlapping_periods","kind":"x","definition":"exclude using gist ( member_id extensions . gist_uuid_ops with = , daterange ( activation_date , expiry_date , '[]' ) with && ) where ( activation_date is not null and expiry_date is not null )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"exclude using gist ( member_id with = , daterange ( activation_date , expiry_date , '[]' :: text ) with && ) where ( ( ( activation_date is not null ) and ( expiry_date is not null ) ) )","no_inherit":true,"exclusion":{"method":"gist","opclasses":[{"schema":"extensions","name":"gist_uuid_ops","type":"uuid"},{"schema":"pg_catalog","name":"range_ops","type":"anyrange"}],"operators":["pg_catalog.=(uuid,uuid)","pg_catalog.&&(anyrange,anyrange)"]}}]},{"name":"private.owner_access","columns":[{"name":"user_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"is_active","type":"boolean","not_null":true,"default":"false","identity":"","generated":"","catalog_default":"false"},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"deactivated_at","type":"timestamp with time zone","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null}],"constraints":[{"name":"owner_access_pkey","kind":"p","definition":"primary key ( user_id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( user_id )","no_inherit":null},{"name":"owner_access_user_id_fkey","kind":"f","definition":"foreign key ( user_id ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( user_id ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"owner_access_deactivation_consistent","kind":"c","definition":"check ( ( is_active and deactivated_at is null ) or ( not is_active ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( ( is_active and ( deactivated_at is null ) ) or ( not is_active ) ) )","no_inherit":false}]},{"name":"private.payment_allocations","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"payment_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"membership_purchase_id","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"walkin_request_id","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"allocated_by","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"allocated_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"payment_allocations_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"payment_allocations_payment_id_key","kind":"u","definition":"unique ( payment_id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"unique ( payment_id )","no_inherit":null},{"name":"payment_allocations_payment_id_fkey","kind":"f","definition":"foreign key ( payment_id ) references private . payment_records ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( payment_id ) references private . payment_records ( id ) on delete restrict","no_inherit":null},{"name":"payment_allocations_membership_purchase_id_fkey","kind":"f","definition":"foreign key ( membership_purchase_id ) references private . membership_purchases ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( membership_purchase_id ) references private . membership_purchases ( id ) on delete restrict","no_inherit":null},{"name":"payment_allocations_allocated_by_fkey","kind":"f","definition":"foreign key ( allocated_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( allocated_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"payment_allocation_exactly_one_target","kind":"c","definition":"check ( ( membership_purchase_id is not null ) <> ( walkin_request_id is not null ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( ( membership_purchase_id is not null ) <> ( walkin_request_id is not null ) ) )","no_inherit":false},{"name":"payment_allocations_walkin_request_fk","kind":"f","definition":"foreign key ( walkin_request_id ) references private . walkin_requests ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( walkin_request_id ) references private . walkin_requests ( id ) on delete restrict","no_inherit":null}]},{"name":"private.payment_corrections","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"payment_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"proposed_amount_php","type":"numeric ( 12 , 2 )","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"proposed_payment_method","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"reason","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"evidence_reference","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"correction_status","type":"text","not_null":true,"default":"'proposed'","identity":"","generated":"","catalog_default":"'proposed' :: text"},{"name":"proposed_by","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"proposed_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"decided_by","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"decided_at","type":"timestamp with time zone","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"decision_reason","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null}],"constraints":[{"name":"payment_corrections_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"payment_corrections_payment_id_fkey","kind":"f","definition":"foreign key ( payment_id ) references private . payment_records ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( payment_id ) references private . payment_records ( id ) on delete restrict","no_inherit":null},{"name":"payment_corrections_proposed_by_fkey","kind":"f","definition":"foreign key ( proposed_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( proposed_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"payment_corrections_decided_by_fkey","kind":"f","definition":"foreign key ( decided_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( decided_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"payment_correction_reason_not_blank","kind":"c","definition":"check ( length ( trim ( reason ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from reason ) ) > 0 ) )","no_inherit":false},{"name":"payment_correction_amount_valid","kind":"c","definition":"check ( proposed_amount_php is null or proposed_amount_php > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( ( proposed_amount_php is null ) or ( proposed_amount_php > ( 0 ) :: numeric ) ) )","no_inherit":false},{"name":"payment_correction_method_valid","kind":"c","definition":"check ( proposed_payment_method is null or proposed_payment_method in ( 'cash' , 'gcash' , 'bank_transfer' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( ( proposed_payment_method is null ) or ( proposed_payment_method = any ( array [ 'cash' :: text , 'gcash' :: text , 'bank_transfer' :: text ] ) ) ) )","no_inherit":false},{"name":"payment_correction_status_valid","kind":"c","definition":"check ( correction_status in ( 'proposed' , 'approved' , 'rejected' , 'withdrawn' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( correction_status = any ( array [ 'proposed' :: text , 'approved' :: text , 'rejected' :: text , 'withdrawn' :: text ] ) ) )","no_inherit":false}]},{"name":"private.payment_events","columns":[{"name":"id","type":"bigint","not_null":true,"default":null,"identity":"a","generated":"","catalog_default":null},{"name":"payment_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"event_type","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"reason","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"actor_user_id","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"payment_events_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"payment_events_payment_id_fkey","kind":"f","definition":"foreign key ( payment_id ) references private . payment_records ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( payment_id ) references private . payment_records ( id ) on delete restrict","no_inherit":null},{"name":"payment_events_actor_user_id_fkey","kind":"f","definition":"foreign key ( actor_user_id ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( actor_user_id ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"payment_event_type_not_blank","kind":"c","definition":"check ( length ( trim ( event_type ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from event_type ) ) > 0 ) )","no_inherit":false}]},{"name":"private.payment_records","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"amount_php","type":"numeric ( 12 , 2 )","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"payment_method","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"received_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"verification_status","type":"text","not_null":true,"default":"'recorded'","identity":"","generated":"","catalog_default":"'recorded' :: text"},{"name":"external_reference","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"evidence_reference","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"recorded_by","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"operation_id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"target_membership_purchase_id","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null}],"constraints":[{"name":"payment_records_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"payment_records_recorded_by_fkey","kind":"f","definition":"foreign key ( recorded_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( recorded_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"payment_amount_positive","kind":"c","definition":"check ( amount_php > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( amount_php > ( 0 ) :: numeric ) )","no_inherit":false},{"name":"payment_method_valid","kind":"c","definition":"check ( payment_method in ( 'cash' , 'gcash' , 'bank_transfer' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( payment_method = any ( array [ 'cash' :: text , 'gcash' :: text , 'bank_transfer' :: text ] ) ) )","no_inherit":false},{"name":"payment_verification_status_valid","kind":"c","definition":"check ( verification_status in ( 'recorded' , 'confirmed' , 'rejected' , 'confirmation_voided_in_error' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( verification_status = any ( array [ 'recorded' :: text , 'confirmed' :: text , 'rejected' :: text , 'confirmation_voided_in_error' :: text ] ) ) )","no_inherit":false},{"name":"payment_records_target_membership_purchase_id_fkey","kind":"f","definition":"foreign key ( target_membership_purchase_id ) references private . membership_purchases ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( target_membership_purchase_id ) references private . membership_purchases ( id ) on delete restrict","no_inherit":null}]},{"name":"private.pin_attempt_buckets","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"bucket_type","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"identifier_digest","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"window_started_at","type":"timestamp with time zone","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"failed_attempts","type":"integer","not_null":true,"default":"0","identity":"","generated":"","catalog_default":"0"},{"name":"blocked_until","type":"timestamp with time zone","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"updated_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"pin_attempt_buckets_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"pin_bucket_type_valid","kind":"c","definition":"check ( bucket_type in ( 'member_identifier' , 'trusted_network' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( bucket_type = any ( array [ 'member_identifier' :: text , 'trusted_network' :: text ] ) ) )","no_inherit":false},{"name":"pin_identifier_digest_not_blank","kind":"c","definition":"check ( length ( trim ( identifier_digest ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from identifier_digest ) ) > 0 ) )","no_inherit":false},{"name":"pin_failed_attempts_nonnegative","kind":"c","definition":"check ( failed_attempts >= 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( failed_attempts >= 0 ) )","no_inherit":false},{"name":"pin_bucket_unique_window","kind":"u","definition":"unique ( bucket_type , identifier_digest , window_started_at )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"unique ( bucket_type , identifier_digest , window_started_at )","no_inherit":null}]},{"name":"private.pin_enrollment_global_rate_limit_events","columns":[{"name":"id","type":"bigint","not_null":true,"default":null,"identity":"a","generated":"","catalog_default":null},{"name":"requested_at","type":"timestamp with time zone","not_null":true,"default":"clock_timestamp ( )","identity":"","generated":"","catalog_default":"clock_timestamp ( )"}],"constraints":[{"name":"pin_enrollment_global_rate_limit_events_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null}]},{"name":"private.walkin_fee_versions","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"fee_php","type":"numeric ( 12 , 2 )","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"currency","type":"text","not_null":true,"default":"'PHP'","identity":"","generated":"","catalog_default":"'PHP' :: text"},{"name":"effective_from","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"created_by","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"walkin_fee_versions_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"walkin_fee_versions_created_by_fkey","kind":"f","definition":"foreign key ( created_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( created_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"walkin_fee_positive","kind":"c","definition":"check ( fee_php > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( fee_php > ( 0 ) :: numeric ) )","no_inherit":false},{"name":"walkin_fee_currency_php","kind":"c","definition":"check ( currency = 'PHP' )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( currency = 'PHP' :: text ) )","no_inherit":false}]},{"name":"private.walkin_requests","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"fee_version_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"fee_php","type":"numeric ( 12 , 2 )","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"currency","type":"text","not_null":true,"default":"'PHP'","identity":"","generated":"","catalog_default":"'PHP' :: text"},{"name":"request_status","type":"text","not_null":true,"default":"'pending'","identity":"","generated":"","catalog_default":"'pending' :: text"},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"expires_at","type":"timestamp with time zone","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"confirmed_by","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"confirmed_at","type":"timestamp with time zone","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null}],"constraints":[{"name":"walkin_requests_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"walkin_requests_fee_version_id_fkey","kind":"f","definition":"foreign key ( fee_version_id ) references private . walkin_fee_versions ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( fee_version_id ) references private . walkin_fee_versions ( id ) on delete restrict","no_inherit":null},{"name":"walkin_requests_confirmed_by_fkey","kind":"f","definition":"foreign key ( confirmed_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( confirmed_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"walkin_request_fee_positive","kind":"c","definition":"check ( fee_php > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( fee_php > ( 0 ) :: numeric ) )","no_inherit":false},{"name":"walkin_request_currency_php","kind":"c","definition":"check ( currency = 'PHP' )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( currency = 'PHP' :: text ) )","no_inherit":false},{"name":"walkin_request_expiry_after_creation","kind":"c","definition":"check ( expires_at > created_at )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( expires_at > created_at ) )","no_inherit":false},{"name":"walkin_request_status_valid","kind":"c","definition":"check ( request_status in ( 'pending' , 'confirmed' , 'expired' , 'payment_review' , 'rejected' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( request_status = any ( array [ 'pending' :: text , 'confirmed' :: text , 'expired' :: text , 'payment_review' :: text , 'rejected' :: text ] ) ) )","no_inherit":false},{"name":"walkin_confirmation_consistent","kind":"c","definition":"check ( ( request_status = 'confirmed' and confirmed_by is not null and confirmed_at is not null ) or ( request_status <> 'confirmed' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( ( ( request_status = 'confirmed' :: text ) and ( confirmed_by is not null ) and ( confirmed_at is not null ) ) or ( request_status <> 'confirmed' :: text ) ) )","no_inherit":false}]},{"name":"public.gym_settings","columns":[{"name":"setting_key","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"setting_value","type":"jsonb","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"updated_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"gym_settings_pkey","kind":"p","definition":"primary key ( setting_key )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( setting_key )","no_inherit":null},{"name":"gym_settings_key_not_blank","kind":"c","definition":"check ( length ( trim ( setting_key ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from setting_key ) ) > 0 ) )","no_inherit":false}]}],"indexes":[{"name":"private.members_status_idx","parent":"private.members","unique":false,"definition":"create index members_status_idx on private . members using btree ( status )","valid":true,"ready":true,"catalog_definition":"create index members_status_idx on private . members using btree ( status )","keys":[{"position":1,"column":"status","type":"text","opclass":"text_ops","options":0,"collation":"pg_catalog.\"default\""}]},{"name":"private.audit_events_created_at_idx","parent":"private.audit_events","unique":false,"definition":"create index audit_events_created_at_idx on private . audit_events using btree ( created_at desc )","valid":true,"ready":true,"catalog_definition":"create index audit_events_created_at_idx on private . audit_events using btree ( created_at desc )","keys":[{"position":1,"column":"created_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":3,"collation":null}]},{"name":"private.audit_events_actor_created_idx","parent":"private.audit_events","unique":false,"definition":"create index audit_events_actor_created_idx on private . audit_events using btree ( actor_user_id , created_at desc )","valid":true,"ready":true,"catalog_definition":"create index audit_events_actor_created_idx on private . audit_events using btree ( actor_user_id , created_at desc )","keys":[{"position":1,"column":"actor_user_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null},{"position":2,"column":"created_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":3,"collation":null}]},{"name":"private.membership_purchases_member_idx","parent":"private.membership_purchases","unique":false,"definition":"create index membership_purchases_member_idx on private . membership_purchases using btree ( member_id , created_at desc )","valid":true,"ready":true,"catalog_definition":"create index membership_purchases_member_idx on private . membership_purchases using btree ( member_id , created_at desc )","keys":[{"position":1,"column":"member_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null},{"position":2,"column":"created_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":3,"collation":null}]},{"name":"private.membership_purchases_plan_idx","parent":"private.membership_purchases","unique":false,"definition":"create index membership_purchases_plan_idx on private . membership_purchases using btree ( plan_id )","valid":true,"ready":true,"catalog_definition":"create index membership_purchases_plan_idx on private . membership_purchases using btree ( plan_id )","keys":[{"position":1,"column":"plan_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null}]},{"name":"private.payment_allocations_membership_idx","parent":"private.payment_allocations","unique":false,"definition":"create index payment_allocations_membership_idx on private . payment_allocations using btree ( membership_purchase_id ) where membership_purchase_id is not null","valid":true,"ready":true,"catalog_definition":"create index payment_allocations_membership_idx on private . payment_allocations using btree ( membership_purchase_id ) where ( membership_purchase_id is not null )","keys":[{"position":1,"column":"membership_purchase_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null}]},{"name":"private.payment_allocations_walkin_idx","parent":"private.payment_allocations","unique":false,"definition":"create index payment_allocations_walkin_idx on private . payment_allocations using btree ( walkin_request_id ) where walkin_request_id is not null","valid":true,"ready":true,"catalog_definition":"create index payment_allocations_walkin_idx on private . payment_allocations using btree ( walkin_request_id ) where ( walkin_request_id is not null )","keys":[{"position":1,"column":"walkin_request_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null}]},{"name":"private.payment_events_payment_created_idx","parent":"private.payment_events","unique":false,"definition":"create index payment_events_payment_created_idx on private . payment_events using btree ( payment_id , created_at )","valid":true,"ready":true,"catalog_definition":"create index payment_events_payment_created_idx on private . payment_events using btree ( payment_id , created_at )","keys":[{"position":1,"column":"payment_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null},{"position":2,"column":"created_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":0,"collation":null}]},{"name":"private.payment_corrections_payment_idx","parent":"private.payment_corrections","unique":false,"definition":"create index payment_corrections_payment_idx on private . payment_corrections using btree ( payment_id , proposed_at desc )","valid":true,"ready":true,"catalog_definition":"create index payment_corrections_payment_idx on private . payment_corrections using btree ( payment_id , proposed_at desc )","keys":[{"position":1,"column":"payment_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null},{"position":2,"column":"proposed_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":3,"collation":null}]},{"name":"private.attendance_one_member_valid_checkin_per_day","parent":"private.attendance_checkins","unique":true,"definition":"create unique index attendance_one_member_valid_checkin_per_day on private . attendance_checkins using btree ( member_id , gym_local_date ) where member_id is not null and attendance_status = 'valid'","valid":true,"ready":true,"catalog_definition":"create unique index attendance_one_member_valid_checkin_per_day on private . attendance_checkins using btree ( member_id , gym_local_date ) where ( ( member_id is not null ) and ( attendance_status = 'valid' :: text ) )","keys":[{"position":1,"column":"member_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null},{"position":2,"column":"gym_local_date","type":"date","opclass":"date_ops","options":0,"collation":null}]},{"name":"private.attendance_one_checkin_per_walkin","parent":"private.attendance_checkins","unique":true,"definition":"create unique index attendance_one_checkin_per_walkin on private . attendance_checkins using btree ( walkin_request_id ) where walkin_request_id is not null","valid":true,"ready":true,"catalog_definition":"create unique index attendance_one_checkin_per_walkin on private . attendance_checkins using btree ( walkin_request_id ) where ( walkin_request_id is not null )","keys":[{"position":1,"column":"walkin_request_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null}]},{"name":"private.attendance_date_idx","parent":"private.attendance_checkins","unique":false,"definition":"create index attendance_date_idx on private . attendance_checkins using btree ( gym_local_date desc )","valid":true,"ready":true,"catalog_definition":"create index attendance_date_idx on private . attendance_checkins using btree ( gym_local_date desc )","keys":[{"position":1,"column":"gym_local_date","type":"date","opclass":"date_ops","options":3,"collation":null}]},{"name":"private.attendance_member_date_idx","parent":"private.attendance_checkins","unique":false,"definition":"create index attendance_member_date_idx on private . attendance_checkins using btree ( member_id , gym_local_date desc ) where member_id is not null","valid":true,"ready":true,"catalog_definition":"create index attendance_member_date_idx on private . attendance_checkins using btree ( member_id , gym_local_date desc ) where ( member_id is not null )","keys":[{"position":1,"column":"member_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null},{"position":2,"column":"gym_local_date","type":"date","opclass":"date_ops","options":3,"collation":null}]},{"name":"private.member_pin_setup_tokens_member_idx","parent":"private.member_pin_setup_tokens","unique":false,"definition":"create index member_pin_setup_tokens_member_idx on private . member_pin_setup_tokens using btree ( member_id , created_at desc )","valid":true,"ready":true,"catalog_definition":"create index member_pin_setup_tokens_member_idx on private . member_pin_setup_tokens using btree ( member_id , created_at desc )","keys":[{"position":1,"column":"member_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null},{"position":2,"column":"created_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":3,"collation":null}]},{"name":"private.member_pin_setup_tokens_expiry_idx","parent":"private.member_pin_setup_tokens","unique":false,"definition":"create index member_pin_setup_tokens_expiry_idx on private . member_pin_setup_tokens using btree ( expires_at ) where consumed_at is null","valid":true,"ready":true,"catalog_definition":"create index member_pin_setup_tokens_expiry_idx on private . member_pin_setup_tokens using btree ( expires_at ) where ( consumed_at is null )","keys":[{"position":1,"column":"expires_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":0,"collation":null}]},{"name":"private.pin_attempt_buckets_blocked_idx","parent":"private.pin_attempt_buckets","unique":false,"definition":"create index pin_attempt_buckets_blocked_idx on private . pin_attempt_buckets using btree ( blocked_until ) where blocked_until is not null","valid":true,"ready":true,"catalog_definition":"create index pin_attempt_buckets_blocked_idx on private . pin_attempt_buckets using btree ( blocked_until ) where ( blocked_until is not null )","keys":[{"position":1,"column":"blocked_until","type":"timestamp with time zone","opclass":"timestamptz_ops","options":0,"collation":null}]},{"name":"private.cash_drawer_only_one_open_session","parent":"private.cash_drawer_sessions","unique":true,"definition":"create unique index cash_drawer_only_one_open_session on private . cash_drawer_sessions using btree ( ( session_status ) ) where session_status = 'open'","valid":true,"ready":true,"catalog_definition":"create unique index cash_drawer_only_one_open_session on private . cash_drawer_sessions using btree ( session_status ) where ( session_status = 'open' :: text )","keys":[{"position":1,"column":"session_status","type":"text","opclass":"text_ops","options":0,"collation":"pg_catalog.\"default\""}]},{"name":"private.cash_reconciliations_date_idx","parent":"private.cash_reconciliations","unique":false,"definition":"create index cash_reconciliations_date_idx on private . cash_reconciliations using btree ( reconciled_at desc )","valid":true,"ready":true,"catalog_definition":"create index cash_reconciliations_date_idx on private . cash_reconciliations using btree ( reconciled_at desc )","keys":[{"position":1,"column":"reconciled_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":3,"collation":null}]},{"name":"private.cash_adjustments_reconciliation_idx","parent":"private.cash_reconciliation_adjustments","unique":false,"definition":"create index cash_adjustments_reconciliation_idx on private . cash_reconciliation_adjustments using btree ( reconciliation_id , created_at )","valid":true,"ready":true,"catalog_definition":"create index cash_adjustments_reconciliation_idx on private . cash_reconciliation_adjustments using btree ( reconciliation_id , created_at )","keys":[{"position":1,"column":"reconciliation_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null},{"position":2,"column":"created_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":0,"collation":null}]},{"name":"private.audit_events_stream_created_idx","parent":"private.audit_events","unique":false,"definition":"create index audit_events_stream_created_idx on private . audit_events using btree ( stream_key , created_at , id )","valid":true,"ready":true,"catalog_definition":"create index audit_events_stream_created_idx on private . audit_events using btree ( stream_key , created_at , id )","keys":[{"position":1,"column":"stream_key","type":"text","opclass":"text_ops","options":0,"collation":"pg_catalog.\"default\""},{"position":2,"column":"created_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":0,"collation":null},{"position":3,"column":"id","type":"bigint","opclass":"int8_ops","options":0,"collation":null}]},{"name":"private.member_pin_setup_tokens_active_enrollment_idx","parent":"private.member_pin_setup_tokens","unique":false,"definition":"create index member_pin_setup_tokens_active_enrollment_idx on private . member_pin_setup_tokens using btree ( member_id ) where token_purpose = 'enrollment' and consumed_at is null","valid":true,"ready":true,"catalog_definition":"create index member_pin_setup_tokens_active_enrollment_idx on private . member_pin_setup_tokens using btree ( member_id ) where ( ( token_purpose = 'enrollment' :: text ) and ( consumed_at is null ) )","keys":[{"position":1,"column":"member_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null}]},{"name":"private.pin_enrollment_global_rate_limit_events_requested_at_idx","parent":"private.pin_enrollment_global_rate_limit_events","unique":false,"definition":"create index pin_enrollment_global_rate_limit_events_requested_at_idx on private . pin_enrollment_global_rate_limit_events using btree ( requested_at )","valid":true,"ready":true,"catalog_definition":"create index pin_enrollment_global_rate_limit_events_requested_at_idx on private . pin_enrollment_global_rate_limit_events using btree ( requested_at )","keys":[{"position":1,"column":"requested_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":0,"collation":null}]},{"name":"private.membership_plans_normalized_name_uidx","parent":"private.membership_plans","unique":true,"definition":"create unique index membership_plans_normalized_name_uidx on private . membership_plans using btree ( pg_catalog . lower ( pg_catalog . btrim ( pg_catalog . regexp_replace ( name , '\\s+' , ' ' , 'g' ) ) ) )","valid":true,"ready":true,"catalog_definition":"create unique index membership_plans_normalized_name_uidx on private . membership_plans using btree ( lower ( btrim ( regexp_replace ( name , '\\s+' :: text , ' ' :: text , 'g' :: text ) ) ) )","keys":[{"position":1,"column":"","type":"text","opclass":"text_ops","options":0,"collation":"pg_catalog.\"default\""}]},{"name":"private.payment_records_operation_id_uidx","parent":"private.payment_records","unique":true,"definition":"create unique index payment_records_operation_id_uidx on private . payment_records using btree ( operation_id )","valid":true,"ready":true,"catalog_definition":"create unique index payment_records_operation_id_uidx on private . payment_records using btree ( operation_id )","keys":[{"position":1,"column":"operation_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null}]},{"name":"private.payment_records_membership_idx","parent":"private.payment_records","unique":false,"definition":"create index payment_records_membership_idx on private . payment_records using btree ( target_membership_purchase_id , created_at desc ) where target_membership_purchase_id is not null","valid":true,"ready":true,"catalog_definition":"create index payment_records_membership_idx on private . payment_records using btree ( target_membership_purchase_id , created_at desc ) where ( target_membership_purchase_id is not null )","keys":[{"position":1,"column":"target_membership_purchase_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null},{"position":2,"column":"created_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":3,"collation":null}]},{"name":"private.payment_records_membership_external_reference_uidx","parent":"private.payment_records","unique":true,"definition":"create unique index payment_records_membership_external_reference_uidx on private . payment_records using btree ( payment_method , pg_catalog . lower ( pg_catalog . btrim ( external_reference ) ) ) where target_membership_purchase_id is not null and nullif ( pg_catalog . btrim ( external_reference ) , '' ) is not null","valid":true,"ready":true,"catalog_definition":"create unique index payment_records_membership_external_reference_uidx on private . payment_records using btree ( payment_method , lower ( btrim ( external_reference ) ) ) where ( ( target_membership_purchase_id is not null ) and ( nullif ( btrim ( external_reference ) , '' :: text ) is not null ) )","keys":[{"position":1,"column":"payment_method","type":"text","opclass":"text_ops","options":0,"collation":"pg_catalog.\"default\""},{"position":2,"column":"","type":"text","opclass":"text_ops","options":0,"collation":"pg_catalog.\"default\""}]},{"name":"private.payment_records_pending_membership_uidx","parent":"private.payment_records","unique":true,"definition":"create unique index payment_records_pending_membership_uidx on private . payment_records using btree ( target_membership_purchase_id ) where target_membership_purchase_id is not null and verification_status = 'recorded'","valid":true,"ready":true,"catalog_definition":"create unique index payment_records_pending_membership_uidx on private . payment_records using btree ( target_membership_purchase_id ) where ( ( target_membership_purchase_id is not null ) and ( verification_status = 'recorded' :: text ) )","keys":[{"position":1,"column":"target_membership_purchase_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null}]},{"name":"private.payment_allocations_membership_purchase_uidx","parent":"private.payment_allocations","unique":true,"definition":"create unique index payment_allocations_membership_purchase_uidx on private . payment_allocations using btree ( membership_purchase_id ) where membership_purchase_id is not null","valid":true,"ready":true,"catalog_definition":"create unique index payment_allocations_membership_purchase_uidx on private . payment_allocations using btree ( membership_purchase_id ) where ( membership_purchase_id is not null )","keys":[{"position":1,"column":"membership_purchase_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null}]}],"routines":[{"name":"api.append_audit_event","kind":"f","language":"plpgsql","argument_names":["p_stream_key","p_actor_user_id","p_event_type","p_subject_type","p_subject_id","p_details"],"input_types":["text","uuid","text","text","text","jsonb"],"output_types":[],"argument_defaults":"null , '{}' :: jsonb","default_count":2,"result":"bigint","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"7a05ca54592137c75b9adda7023516a8","extension":null,"signature":"api.append_audit_event(text, uuid, text, text, text, jsonb)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role","gym_public_executor"],"search_path":"","catalog_argument_defaults":"null :: text , '{}' :: jsonb"},{"name":"api.is_active_owner_for_user","kind":"f","language":"sql","argument_names":["p_user_id"],"input_types":["uuid"],"output_types":[],"argument_defaults":"","default_count":0,"result":"boolean","returns_set":false,"strict":false,"volatility":"s","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"830f29066e37d9f2593c3cd99878ae93","extension":null,"signature":"api.is_active_owner_for_user(uuid)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"api.member_enroll_pin","kind":"f","language":"plpgsql","argument_names":["p_token_hash","p_password_hash"],"input_types":["text","text"],"output_types":[],"argument_defaults":"","default_count":0,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"6bf1d4a963b2b853ba9cdc7cb582c342","extension":null,"signature":"api.member_enroll_pin(text, text)","proposed_owner":"gym_public_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"api.owner_confirm_membership_payment","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id","p_payment_id","p_evidence_reviewed"],"input_types":["uuid","uuid","boolean"],"output_types":[],"argument_defaults":"","default_count":0,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"ce58f4473d75469ef2676f232794dce0","extension":null,"signature":"api.owner_confirm_membership_payment(uuid, uuid, boolean)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"api.owner_create_membership_purchase","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id","p_member_id","p_plan_id"],"input_types":["uuid","uuid","uuid"],"output_types":[],"argument_defaults":"","default_count":0,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"f8f310bd5576274401706c5213c6746d","extension":null,"signature":"api.owner_create_membership_purchase(uuid, uuid, uuid)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"api.owner_create_pin_enrollment_token","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id","p_member_id","p_token_hash","p_expires_at"],"input_types":["uuid","uuid","text","timestamp with time zone"],"output_types":[],"argument_defaults":"","default_count":0,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"7a226978d83e191643a436c829f9dd07","extension":null,"signature":"api.owner_create_pin_enrollment_token(uuid, uuid, text, timestamp with time zone)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"api.owner_list_members","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id","p_search","p_status","p_limit","p_offset"],"input_types":["uuid","text","text","integer","integer"],"output_types":[],"argument_defaults":"null , 'all' , 50 , 0","default_count":4,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"342dd9a2131e068c1a849694b053ebdf","extension":null,"signature":"api.owner_list_members(uuid, text, text, integer, integer)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":"null :: text , 'all' :: text , 50 , 0"},{"name":"api.owner_list_membership_payments","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id","p_search","p_status","p_limit","p_offset"],"input_types":["uuid","text","text","integer","integer"],"output_types":[],"argument_defaults":"null , 'all' , 50 , 0","default_count":4,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"6ac0d61dfc24c15123812ec788294197","extension":null,"signature":"api.owner_list_membership_payments(uuid, text, text, integer, integer)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":"null :: text , 'all' :: text , 50 , 0"},{"name":"api.owner_list_membership_plans","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id"],"input_types":["uuid"],"output_types":[],"argument_defaults":"","default_count":0,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"fc3ed2be2834b6458f2835bfc18d9b4e","extension":null,"signature":"api.owner_list_membership_plans(uuid)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"api.owner_list_membership_purchases","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id","p_search","p_status","p_limit","p_offset"],"input_types":["uuid","text","text","integer","integer"],"output_types":[],"argument_defaults":"null , 'all' , 50 , 0","default_count":4,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"d6fd6f1ba099afe317dcf1606d49d64f","extension":null,"signature":"api.owner_list_membership_purchases(uuid, text, text, integer, integer)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":"null :: text , 'all' :: text , 50 , 0"},{"name":"api.owner_record_membership_payment","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id","p_operation_id","p_membership_purchase_id","p_amount_php","p_payment_method","p_external_reference"],"input_types":["uuid","uuid","uuid","numeric","text","text"],"output_types":[],"argument_defaults":"null","default_count":1,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"c21766acb601a8b92dc26d59f73be2a3","extension":null,"signature":"api.owner_record_membership_payment(uuid, uuid, uuid, numeric, text, text)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":"null :: text"},{"name":"api.owner_register_member","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id","p_full_name","p_mobile_lookup_hash","p_mobile_encrypted"],"input_types":["uuid","text","bytea","bytea"],"output_types":[],"argument_defaults":"","default_count":0,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"e56b20e809c8dfcebd782d4e8aa5fbb5","extension":null,"signature":"api.owner_register_member(uuid, text, bytea, bytea)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"api.owner_reject_membership_payment","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id","p_payment_id","p_reason"],"input_types":["uuid","uuid","text"],"output_types":[],"argument_defaults":"","default_count":0,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"b55e7879cbae6d9074264826ed75eac0","extension":null,"signature":"api.owner_reject_membership_payment(uuid, uuid, text)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"api.owner_save_membership_plan","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id","p_plan_id","p_name","p_price_php","p_is_active"],"input_types":["uuid","uuid","text","numeric","boolean"],"output_types":[],"argument_defaults":"","default_count":0,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"c128144cda372362b26ec91dc64fd6fa","extension":null,"signature":"api.owner_save_membership_plan(uuid, uuid, text, numeric, boolean)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"api.reserve_pin_enrollment_request","kind":"f","language":"plpgsql","argument_names":[],"input_types":[],"output_types":[],"argument_defaults":"","default_count":0,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"ed1a67d4a3cd30fed31a0ee36222eb5b","extension":null,"signature":"api.reserve_pin_enrollment_request()","proposed_owner":"gym_public_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"api.verify_audit_stream","kind":"f","language":"plpgsql","argument_names":["p_stream_key","is_valid","checked_events","failure_event_id","reason"],"input_types":["text"],"output_types":["boolean","bigint","bigint","text"],"argument_defaults":"","default_count":0,"result":"table ( is_valid boolean , checked_events bigint , failure_event_id bigint , reason text )","returns_set":true,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":1000,"body_md5":"f7c5cdb53ec4cf2d845e38f404df5fb9","extension":null,"signature":"api.verify_audit_stream(text)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"private.audit_events_chain_insert","kind":"f","language":"plpgsql","argument_names":[],"input_types":[],"output_types":[],"argument_defaults":"","default_count":0,"result":"trigger","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"6fa6a434395de93250213752513ffb34","extension":null,"signature":"private.audit_events_chain_insert()","proposed_owner":"gym_data_owner","proposed_definer":false,"callers":["gym_owner_executor"],"search_path":"","catalog_argument_defaults":""},{"name":"private.compute_audit_event_hash","kind":"f","language":"sql","argument_names":["p_id","p_stream_key","p_previous_event_hash","p_actor_user_id","p_event_type","p_subject_type","p_subject_id","p_details","p_created_at"],"input_types":["bigint","text","text","uuid","text","text","text","jsonb","timestamp with time zone"],"output_types":[],"argument_defaults":"","default_count":0,"result":"text","returns_set":false,"strict":false,"volatility":"i","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"a0635caf0c329b24571bd68df684f69f","extension":null,"signature":"private.compute_audit_event_hash(bigint, text, text, uuid, text, text, text, jsonb, timestamp with time zone)","proposed_owner":"gym_data_owner","proposed_definer":false,"callers":["gym_owner_executor"],"search_path":"","catalog_argument_defaults":""},{"name":"private.guard_membership_payment_allocation","kind":"f","language":"plpgsql","argument_names":[],"input_types":[],"output_types":[],"argument_defaults":"","default_count":0,"result":"trigger","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"4836529309d8c518d42d24b9d191d6d5","extension":null,"signature":"private.guard_membership_payment_allocation()","proposed_owner":"gym_data_owner","proposed_definer":false,"callers":["gym_owner_executor"],"search_path":"","catalog_argument_defaults":""},{"name":"private.guard_membership_payment_record_insert","kind":"f","language":"plpgsql","argument_names":[],"input_types":[],"output_types":[],"argument_defaults":"","default_count":0,"result":"trigger","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"edaae9f3a89330d4e55ce37d7d16d074","extension":null,"signature":"private.guard_membership_payment_record_insert()","proposed_owner":"gym_data_owner","proposed_definer":false,"callers":["gym_owner_executor"],"search_path":"","catalog_argument_defaults":""},{"name":"private.guard_membership_payment_record_update","kind":"f","language":"plpgsql","argument_names":[],"input_types":[],"output_types":[],"argument_defaults":"","default_count":0,"result":"trigger","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"9386192bae0b7aec6e34fce2e2aadbda","extension":null,"signature":"private.guard_membership_payment_record_update()","proposed_owner":"gym_data_owner","proposed_definer":false,"callers":["gym_owner_executor"],"search_path":"","catalog_argument_defaults":""},{"name":"private.guard_purchase_pending_activation","kind":"f","language":"plpgsql","argument_names":[],"input_types":[],"output_types":[],"argument_defaults":"","default_count":0,"result":"trigger","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"c3467a65c399cf75243d4e3e9e31b36c","extension":null,"signature":"private.guard_purchase_pending_activation()","proposed_owner":"gym_data_owner","proposed_definer":false,"callers":["gym_owner_executor"],"search_path":"","catalog_argument_defaults":""},{"name":"private.is_active_owner","kind":"f","language":"sql","argument_names":[],"input_types":[],"output_types":[],"argument_defaults":"","default_count":0,"result":"boolean","returns_set":false,"strict":false,"volatility":"s","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"76af3203b0fe03c30e1eb6d8264a04e6","extension":null,"signature":"private.is_active_owner()","proposed_owner":"gym_data_owner","proposed_definer":false,"callers":[],"search_path":"","catalog_argument_defaults":""},{"name":"private.prevent_audit_event_mutation","kind":"f","language":"plpgsql","argument_names":[],"input_types":[],"output_types":[],"argument_defaults":"","default_count":0,"result":"trigger","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"d835b9b2db211d2439e03ec9d8a6337d","extension":null,"signature":"private.prevent_audit_event_mutation()","proposed_owner":"gym_data_owner","proposed_definer":false,"callers":["gym_owner_executor"],"search_path":"","catalog_argument_defaults":""},{"name":"private.prevent_payment_history_mutation","kind":"f","language":"plpgsql","argument_names":[],"input_types":[],"output_types":[],"argument_defaults":"","default_count":0,"result":"trigger","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"0ad4feeac81403c334c6665ff018485e","extension":null,"signature":"private.prevent_payment_history_mutation()","proposed_owner":"gym_data_owner","proposed_definer":false,"callers":["gym_owner_executor"],"search_path":"","catalog_argument_defaults":""}],"triggers":[{"table_name":"private.audit_events","name":"audit_events_chain_insert_trigger","definition":"CREATE TRIGGER audit_events_chain_insert_trigger BEFORE INSERT ON private.audit_events FOR EACH ROW EXECUTE FUNCTION private.audit_events_chain_insert()"},{"table_name":"private.audit_events","name":"audit_events_no_truncate","definition":"CREATE TRIGGER audit_events_no_truncate BEFORE TRUNCATE ON private.audit_events FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_audit_event_mutation()"},{"table_name":"private.audit_events","name":"audit_events_no_update_delete","definition":"CREATE TRIGGER audit_events_no_update_delete BEFORE DELETE OR UPDATE ON private.audit_events FOR EACH ROW EXECUTE FUNCTION private.prevent_audit_event_mutation()"},{"table_name":"private.membership_purchases","name":"membership_purchase_requires_confirmed_payment","definition":"CREATE TRIGGER membership_purchase_requires_confirmed_payment BEFORE INSERT OR UPDATE ON private.membership_purchases FOR EACH ROW EXECUTE FUNCTION private.guard_purchase_pending_activation()"},{"table_name":"private.payment_allocations","name":"payment_allocations_no_truncate","definition":"CREATE TRIGGER payment_allocations_no_truncate BEFORE TRUNCATE ON private.payment_allocations FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_payment_history_mutation()"},{"table_name":"private.payment_allocations","name":"payment_allocations_no_update_delete","definition":"CREATE TRIGGER payment_allocations_no_update_delete BEFORE DELETE OR UPDATE ON private.payment_allocations FOR EACH ROW EXECUTE FUNCTION private.prevent_payment_history_mutation()"},{"table_name":"private.payment_allocations","name":"payment_allocations_validate_membership","definition":"CREATE TRIGGER payment_allocations_validate_membership BEFORE INSERT ON private.payment_allocations FOR EACH ROW EXECUTE FUNCTION private.guard_membership_payment_allocation()"},{"table_name":"private.payment_events","name":"payment_events_no_truncate","definition":"CREATE TRIGGER payment_events_no_truncate BEFORE TRUNCATE ON private.payment_events FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_payment_history_mutation()"},{"table_name":"private.payment_events","name":"payment_events_no_update_delete","definition":"CREATE TRIGGER payment_events_no_update_delete BEFORE DELETE OR UPDATE ON private.payment_events FOR EACH ROW EXECUTE FUNCTION private.prevent_payment_history_mutation()"},{"table_name":"private.payment_records","name":"payment_records_guard_update","definition":"CREATE TRIGGER payment_records_guard_update BEFORE UPDATE ON private.payment_records FOR EACH ROW EXECUTE FUNCTION private.guard_membership_payment_record_update()"},{"table_name":"private.payment_records","name":"payment_records_no_delete","definition":"CREATE TRIGGER payment_records_no_delete BEFORE DELETE ON private.payment_records FOR EACH ROW EXECUTE FUNCTION private.prevent_payment_history_mutation()"},{"table_name":"private.payment_records","name":"payment_records_no_truncate","definition":"CREATE TRIGGER payment_records_no_truncate BEFORE TRUNCATE ON private.payment_records FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_payment_history_mutation()"},{"table_name":"private.payment_records","name":"payment_records_validate_membership_insert","definition":"CREATE TRIGGER payment_records_validate_membership_insert BEFORE INSERT ON private.payment_records FOR EACH ROW EXECUTE FUNCTION private.guard_membership_payment_record_insert()"}],"permissions":[{"table":"private.owner_access","role":"gym_owner_executor","command":"SELECT","columns":["user_id","is_active","created_at","deactivated_at"],"policy":"gf_owner_select"},{"table":"private.members","role":"gym_owner_executor","command":"SELECT","columns":["id","member_code","full_name","mobile_lookup_hash","mobile_encrypted","status","created_at","updated_at","approved_at"],"policy":"gf_owner_select"},{"table":"private.members","role":"gym_owner_executor","command":"INSERT","columns":["member_code","full_name","mobile_lookup_hash","mobile_encrypted","status"],"policy":"gf_owner_insert"},{"table":"private.members","role":"gym_owner_executor","command":"UPDATE","columns":["updated_at"],"policy":"gf_owner_update"},{"table":"private.membership_plans","role":"gym_owner_executor","command":"SELECT","columns":["id","name","price_php","is_active","created_at"],"policy":"gf_owner_select"},{"table":"private.membership_plans","role":"gym_owner_executor","command":"INSERT","columns":["name","price_php","is_active"],"policy":"gf_owner_insert"},{"table":"private.membership_plans","role":"gym_owner_executor","command":"UPDATE","columns":["name","price_php","is_active"],"policy":"gf_owner_update"},{"table":"private.membership_purchases","role":"gym_owner_executor","command":"SELECT","columns":["id","member_id","plan_id","price_php","purchase_status","activation_date","expiry_date","created_at"],"policy":"gf_owner_select"},{"table":"private.membership_purchases","role":"gym_owner_executor","command":"INSERT","columns":["member_id","plan_id","price_php","purchase_status"],"policy":"gf_owner_insert"},{"table":"private.membership_purchases","role":"gym_owner_executor","command":"UPDATE","columns":["purchase_status"],"policy":"gf_owner_update"},{"table":"private.payment_records","role":"gym_owner_executor","command":"SELECT","columns":["id","amount_php","payment_method","received_at","verification_status","external_reference","evidence_reference","recorded_by","created_at","operation_id","target_membership_purchase_id"],"policy":"gf_owner_select"},{"table":"private.payment_records","role":"gym_owner_executor","command":"INSERT","columns":["amount_php","payment_method","verification_status","external_reference","recorded_by","operation_id","target_membership_purchase_id"],"policy":"gf_owner_insert"},{"table":"private.payment_records","role":"gym_owner_executor","command":"UPDATE","columns":["verification_status"],"policy":"gf_owner_update"},{"table":"private.payment_allocations","role":"gym_owner_executor","command":"SELECT","columns":["id","payment_id","membership_purchase_id","walkin_request_id","allocated_by","allocated_at"],"policy":"gf_owner_select"},{"table":"private.payment_allocations","role":"gym_owner_executor","command":"INSERT","columns":["payment_id","membership_purchase_id","allocated_by"],"policy":"gf_owner_insert"},{"table":"private.payment_events","role":"gym_owner_executor","command":"SELECT","columns":["id","payment_id","event_type","reason","actor_user_id","created_at"],"policy":"gf_owner_select"},{"table":"private.payment_events","role":"gym_owner_executor","command":"INSERT","columns":["payment_id","event_type","reason","actor_user_id"],"policy":"gf_owner_insert"},{"table":"private.audit_events","role":"gym_owner_executor","command":"SELECT","columns":["id","actor_user_id","event_type","subject_type","subject_id","details","created_at","stream_key","previous_event_hash","event_hash"],"policy":"gf_owner_select"},{"table":"private.audit_events","role":"gym_owner_executor","command":"INSERT","columns":["stream_key","actor_user_id","event_type","subject_type","subject_id","details"],"policy":"gf_owner_insert"},{"table":"private.audit_chain_heads","role":"gym_owner_executor","command":"SELECT","columns":["stream_key","last_event_id","last_event_hash","updated_at"],"policy":"gf_owner_select"},{"table":"private.audit_chain_heads","role":"gym_owner_executor","command":"INSERT","columns":["stream_key","last_event_id","last_event_hash"],"policy":"gf_owner_insert"},{"table":"private.audit_chain_heads","role":"gym_owner_executor","command":"UPDATE","columns":["last_event_id","last_event_hash","updated_at"],"policy":"gf_owner_update"},{"table":"private.member_pin_setup_tokens","role":"gym_owner_executor","command":"SELECT","columns":["id","member_id","token_hash","token_purpose","expires_at","consumed_at","created_at"],"policy":"gf_owner_select"},{"table":"private.member_pin_setup_tokens","role":"gym_owner_executor","command":"INSERT","columns":["member_id","token_hash","token_purpose","expires_at"],"policy":"gf_owner_insert"},{"table":"private.member_pin_setup_tokens","role":"gym_owner_executor","command":"UPDATE","columns":["consumed_at"],"policy":"gf_owner_update"},{"table":"private.members","role":"gym_public_executor","command":"SELECT","columns":["id","status"],"policy":"gf_public_select"},{"table":"private.members","role":"gym_public_executor","command":"UPDATE","columns":["updated_at"],"policy":"gf_public_update"},{"table":"private.member_pin_setup_tokens","role":"gym_public_executor","command":"SELECT","columns":["id","member_id","token_hash","token_purpose","expires_at","consumed_at"],"policy":"gf_public_select"},{"table":"private.member_pin_setup_tokens","role":"gym_public_executor","command":"UPDATE","columns":["consumed_at"],"policy":"gf_public_update"},{"table":"private.member_pin_credentials","role":"gym_public_executor","command":"SELECT","columns":["member_id"],"policy":"gf_public_select"},{"table":"private.member_pin_credentials","role":"gym_public_executor","command":"INSERT","columns":["member_id","password_hash","credential_version","created_at","updated_at"],"policy":"gf_public_insert"},{"table":"private.pin_enrollment_global_rate_limit_events","role":"gym_public_executor","command":"SELECT","columns":["requested_at"],"policy":"gf_public_select"},{"table":"private.pin_enrollment_global_rate_limit_events","role":"gym_public_executor","command":"INSERT","columns":["requested_at"],"policy":"gf_public_insert"},{"table":"private.pin_enrollment_global_rate_limit_events","role":"gym_public_executor","command":"DELETE","columns":[],"policy":"gf_public_delete"}],"sequence_runtime_grants":[],"provider_profile":"native_only","executor_memberships":[],"catalog_alignment":{"source":"Original contract preserved with separately verified catalog expectations","constraints":110,"explicit_indexes":28,"index_keys":40,"columns":149,"provider":"native_pg18_only"}}$contract_json$::jsonb;
+    item jsonb; col jsonb; key_entry jsonb; obj oid; actual text; normalized text; wanted text;
+    creator text; namespace_name text; object_kind text; creator_oid oid;
+    lex_pattern text := $lex$'(?:''|[^'])*'|"(?:""|[^"])*"|[a-zA-Z_][a-zA-Z_0-9]*|[0-9]+(?:\.[0-9]+)?|::|<>|<=|>=|&&|!=|\|\||[^[:space:]]$lex$;
+BEGIN
+    IF current_setting('server_version_num')::integer / 10000 <> 18 THEN
+      RAISE EXCEPTION 'Aligned catalog assertions require the reviewed native PostgreSQL 18 target';
+    END IF;
+    -- Native profile has NO public/graphql_public functions or procedures.
+    -- No provider exemption is inferred from a name or presumed extension.
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+       WHERE n.nspname IN ('public','graphql_public')) THEN
+        RAISE EXCEPTION 'Unexpected exposed function/procedure: native profile allows none';
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_namespace n,
+       LATERAL pg_catalog.aclexplode(COALESCE(n.nspacl,pg_catalog.acldefault('n',n.nspowner))) acl
+       WHERE n.nspname IN ('public','private','api','graphql_public','extensions')
+         AND acl.privilege_type='CREATE' AND acl.grantee<>n.nspowner
+         AND acl.grantee<>(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='postgres')) THEN
+      RAISE EXCEPTION 'Unapproved schema-creating principal';
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_namespace n
+       WHERE n.nspname IN ('private','api') AND n.nspowner<>(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='postgres')) THEN
+        RAISE EXCEPTION 'Application schema owner drift';
+    END IF;
+    FOREACH creator IN ARRAY ARRAY['anon','authenticated','service_role','gym_registration_login','gym_data_owner','gym_owner_executor','gym_public_executor'] LOOP
+      FOREACH namespace_name IN ARRAY ARRAY['public','private','api','graphql_public','extensions'] LOOP
+        IF pg_catalog.to_regnamespace(namespace_name) IS NOT NULL
+           AND pg_catalog.has_schema_privilege(creator,namespace_name,'CREATE') THEN
+          RAISE EXCEPTION 'Unapproved schema CREATE: % / %',creator,namespace_name;
+        END IF;
+      END LOOP;
+    END LOOP;
+    -- Every creator independently: implicit global defaults plus additive schema defaults.
+    -- No default ACL changes here. Function EXECUTE remains owner-only.
+    -- Only unmodified implicit PUBLIC type USAGE is accepted: not table/RPC access.
+    FOR creator IN SELECT jsonb_array_elements_text(contract->'creators') LOOP
+      SELECT oid INTO creator_oid FROM pg_catalog.pg_roles WHERE rolname=creator;
+      IF creator_oid IS NULL THEN RAISE EXCEPTION 'Missing reviewed creator %',creator; END IF;
+      FOREACH object_kind IN ARRAY ARRAY['r','S','f','T'] LOOP
+        IF EXISTS (SELECT 1 FROM pg_catalog.aclexplode(COALESCE(
+          (SELECT d.defaclacl FROM pg_catalog.pg_default_acl d WHERE d.defaclrole=creator_oid
+           AND d.defaclnamespace=0 AND d.defaclobjtype=object_kind::pg_catalog."char"),
+          pg_catalog.acldefault(object_kind::pg_catalog."char",creator_oid))) acl
+          WHERE acl.grantee<>creator_oid
+            AND NOT (object_kind='T' AND acl.grantee=0 AND acl.privilege_type='USAGE' AND NOT acl.is_grantable
+              AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_default_acl implicit_type
+                WHERE implicit_type.defaclrole=creator_oid AND implicit_type.defaclnamespace=0
+                  AND implicit_type.defaclobjtype='T'))) THEN
+          RAISE EXCEPTION 'Unsafe effective global default ACL: creator % kind %',creator,object_kind;
+        END IF;
+        IF EXISTS (SELECT 1 FROM pg_catalog.pg_default_acl d JOIN pg_catalog.pg_namespace n ON n.oid=d.defaclnamespace,
+          LATERAL pg_catalog.aclexplode(d.defaclacl) acl
+          WHERE d.defaclrole=creator_oid AND d.defaclobjtype=object_kind::pg_catalog."char"
+            AND n.nspname IN ('private','api','public','graphql_public') AND acl.grantee<>creator_oid) THEN
+          RAISE EXCEPTION 'Unsafe additive schema default ACL: creator % kind %',creator,object_kind;
+        END IF;
+      END LOOP;
+    END LOOP;
+    FOR item IN SELECT value FROM jsonb_array_elements(contract->'tables') LOOP
+      obj := pg_catalog.to_regclass(item->>'name');
+      IF obj IS NULL THEN RAISE EXCEPTION 'Missing contract table'; END IF;
+      IF (SELECT count(*) FROM pg_catalog.pg_attribute WHERE attrelid=obj AND attnum>0 AND NOT attisdropped)
+         <>jsonb_array_length(item->'columns') THEN RAISE EXCEPTION 'Column inventory mismatch: %',item->>'name'; END IF;
+      FOR col IN SELECT value FROM jsonb_array_elements(item->'columns') LOOP
+        IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a WHERE a.attrelid=obj AND a.attname=col->>'name'
+          AND a.attnum>0 AND NOT a.attisdropped AND a.attnotnull=(col->>'not_null')::boolean
+          AND a.attidentity::text=col->>'identity' AND a.attgenerated::text=col->>'generated') THEN
+          RAISE EXCEPTION 'Column nullability/identity/generated mismatch: %.%',item->>'name',col->>'name';
+        END IF;
+        SELECT pg_catalog.format_type(a.atttypid,a.atttypmod) INTO actual FROM pg_catalog.pg_attribute a
+          WHERE a.attrelid=obj AND a.attname=col->>'name';
+        SELECT string_agg(CASE WHEN left(m[1],1) IN ('''','"') THEN m[1] ELSE lower(m[1]) END,' ' ORDER BY ordinal) INTO normalized
+          FROM pg_catalog.regexp_matches(actual,lex_pattern,'g') WITH ORDINALITY token(m,ordinal);
+        IF normalized IS DISTINCT FROM col->>'type' THEN RAISE EXCEPTION 'Column type drift'; END IF;
+        SELECT pg_catalog.pg_get_expr(d.adbin,d.adrelid,false) INTO actual FROM pg_catalog.pg_attrdef d
+          JOIN pg_catalog.pg_attribute a ON a.attrelid=d.adrelid AND a.attnum=d.adnum
+          WHERE a.attrelid=obj AND a.attname=col->>'name';
+        SELECT string_agg(CASE WHEN left(m[1],1) IN ('''','"') THEN m[1] ELSE lower(m[1]) END,' ' ORDER BY ordinal) INTO normalized
+          FROM pg_catalog.regexp_matches(actual,lex_pattern,'g') WITH ORDINALITY token(m,ordinal);
+        IF normalized IS DISTINCT FROM col->>'catalog_default' THEN
+          RAISE EXCEPTION 'Column default/generated expression drift (verified catalog contract): %.%',item->>'name',col->>'name';
+        END IF;
+      END LOOP;
+      -- PostgreSQL 18 NOT NULL catalog constraints are represented by attnotnull above.
+      IF (SELECT count(*) FROM pg_catalog.pg_constraint WHERE conrelid=obj AND contype<>'n')
+         <>jsonb_array_length(item->'constraints') THEN RAISE EXCEPTION 'Constraint inventory drift'; END IF;
+      FOR col IN SELECT value FROM jsonb_array_elements(item->'constraints') LOOP
+        SELECT pg_catalog.pg_get_constraintdef(c.oid,false) INTO actual FROM pg_catalog.pg_constraint c
+          WHERE c.conrelid=obj AND c.conname=col->>'name' AND c.contype::text=col->>'kind'
+            AND c.convalidated AND c.conislocal AND c.coninhcount=0 AND c.conenforced
+            AND (col->>'no_inherit' IS NULL OR c.connoinherit=(col->>'no_inherit')::boolean)
+            AND c.condeferrable=(col->>'deferrable')::boolean AND c.condeferred=(col->>'deferred')::boolean;
+        SELECT string_agg(CASE WHEN left(m[1],1) IN ('''','"') THEN m[1] ELSE lower(m[1]) END,' ' ORDER BY ordinal) INTO normalized
+          FROM pg_catalog.regexp_matches(actual,lex_pattern,'g') WITH ORDINALITY token(m,ordinal);
+        IF normalized IS DISTINCT FROM col->>'catalog_definition' THEN
+          RAISE EXCEPTION 'Constraint definition drift (verified catalog contract): %',col->>'name';
+        END IF;
+        IF col->>'kind'='x' AND NOT EXISTS (
+          SELECT 1 FROM pg_catalog.pg_constraint ck JOIN pg_catalog.pg_index ix ON ix.indexrelid=ck.conindid
+          JOIN pg_catalog.pg_class ic ON ic.oid=ix.indexrelid JOIN pg_catalog.pg_am am ON am.oid=ic.relam
+          WHERE ck.conrelid=obj AND ck.conname=col->>'name' AND am.amname=col->'exclusion'->>'method'
+            AND ix.indnkeyatts=2 AND ix.indnatts=2 AND ix.indisexclusion
+            AND ix.indkey[0]=(SELECT attnum FROM pg_catalog.pg_attribute WHERE attrelid=obj AND attname='member_id')
+            AND ix.indkey[1]=0
+            AND ck.conexclop=(SELECT array_agg(pg_catalog.to_regoperator(value)::oid ORDER BY ord)
+              FROM jsonb_array_elements_text(col->'exclusion'->'operators') WITH ORDINALITY e(value,ord))
+            AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(col->'exclusion'->'opclasses') WITH ORDINALITY e(v,ord)
+              WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_opclass oc JOIN pg_catalog.pg_namespace ns ON ns.oid=oc.opcnamespace
+                WHERE oc.oid=ix.indclass[e.ord::integer-1] AND ns.nspname=e.v->>'schema' AND oc.opcname=e.v->>'name'
+                  AND oc.opcintype=pg_catalog.to_regtype(e.v->>'type') AND oc.opcdefault AND oc.opcmethod=am.oid))
+        ) THEN RAISE EXCEPTION 'Exclusion opclass/operator/key drift'; END IF;
+      END LOOP;
+      IF EXISTS (SELECT 1 FROM pg_catalog.pg_constraint c JOIN pg_catalog.pg_index i ON i.indexrelid=c.conindid
+        WHERE c.conrelid=obj AND c.contype IN ('p','u','x') AND
+          (NOT i.indisvalid OR NOT i.indisready OR NOT i.indislive OR
+           i.indisprimary IS DISTINCT FROM (c.contype='p') OR
+           i.indisunique IS DISTINCT FROM (c.contype IN ('p','u')) OR
+           i.indisexclusion IS DISTINCT FROM (c.contype='x') OR
+           i.indimmediate IS DISTINCT FROM (NOT c.condeferrable))) THEN
+        RAISE EXCEPTION 'Constraint-backed index metadata drift';
+      END IF;
+      IF EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite WHERE ev_class=obj) THEN RAISE EXCEPTION 'Unexpected table rewrite rule'; END IF;
+    END LOOP;
+    FOR item IN SELECT value FROM jsonb_array_elements(contract->'indexes') LOOP
+      SELECT pg_catalog.pg_get_indexdef(c.oid,0,false) INTO actual FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_index i ON i.indexrelid=c.oid WHERE c.oid=pg_catalog.to_regclass(item->>'name')
+          AND i.indrelid=pg_catalog.to_regclass(item->>'parent') AND i.indisvalid AND i.indisready AND i.indislive
+          AND i.indisunique=(item->>'unique')::boolean
+          AND NOT i.indisprimary AND NOT i.indisexclusion AND i.indimmediate AND NOT i.indnullsnotdistinct
+          AND i.indnkeyatts=jsonb_array_length(item->'keys') AND i.indnatts=jsonb_array_length(item->'keys');
+      SELECT string_agg(CASE WHEN left(m[1],1) IN ('''','"') THEN m[1] ELSE lower(m[1]) END,' ' ORDER BY ordinal) INTO normalized
+        FROM pg_catalog.regexp_matches(actual,lex_pattern,'g') WITH ORDINALITY token(m,ordinal);
+      IF normalized IS DISTINCT FROM item->>'catalog_definition' THEN RAISE EXCEPTION 'Explicit index definition drift: %',item->>'name'; END IF;
+      FOR key_entry IN SELECT value FROM jsonb_array_elements(item->'keys') LOOP
+        IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_index ix
+          JOIN pg_catalog.pg_attribute ka ON ka.attrelid=ix.indexrelid AND ka.attnum=(key_entry->>'position')::integer AND NOT ka.attisdropped
+          JOIN pg_catalog.pg_opclass oc ON oc.oid=ix.indclass[(key_entry->>'position')::integer-1]
+          JOIN pg_catalog.pg_namespace ns ON ns.oid=oc.opcnamespace JOIN pg_catalog.pg_am am ON am.oid=oc.opcmethod
+          WHERE ix.indexrelid=pg_catalog.to_regclass(item->>'name') AND am.amname='btree' AND ns.nspname='pg_catalog'
+            AND oc.opcname=key_entry->>'opclass' AND oc.opcdefault AND oc.opcintype=pg_catalog.to_regtype(key_entry->>'type')
+            AND ka.atttypid=pg_catalog.to_regtype(key_entry->>'type')
+            AND ix.indkey[(key_entry->>'position')::integer-1]=CASE WHEN key_entry->>'column'='' THEN 0
+              ELSE (SELECT attnum FROM pg_catalog.pg_attribute WHERE attrelid=ix.indrelid AND attname=key_entry->>'column' AND NOT attisdropped) END
+            AND ix.indoption[(key_entry->>'position')::integer-1]=(key_entry->>'options')::integer
+            AND ix.indcollation[(key_entry->>'position')::integer-1]=CASE WHEN key_entry->>'collation' IS NULL THEN 0::oid
+              ELSE pg_catalog.to_regcollation(key_entry->>'collation')::oid END
+        ) THEN RAISE EXCEPTION 'Explicit index key/opclass/order/collation drift'; END IF;
+      END LOOP;
+    END LOOP;
+    -- Exact full index inventory (constraint-backed definitions checked via constraints).
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_index i JOIN pg_catalog.pg_class t ON t.oid=i.indrelid
+      JOIN pg_catalog.pg_namespace n ON n.oid=t.relnamespace
+      WHERE n.nspname IN ('private','public') AND NOT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_constraint c WHERE c.conindid=i.indexrelid AND c.conrelid=i.indrelid
+        AND c.contype IN ('p','u','x')) AND NOT EXISTS (
+        SELECT 1 FROM jsonb_array_elements(contract->'indexes') e
+        WHERE pg_catalog.to_regclass(e->>'name')=i.indexrelid)) THEN RAISE EXCEPTION 'Unexpected index'; END IF;
+    IF (SELECT count(*) FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_class c ON c.oid=t.tgrelid
+      JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('private','public') AND NOT t.tgisinternal)
+      <>jsonb_array_length(contract->'triggers') THEN RAISE EXCEPTION 'Unexpected/missing user trigger'; END IF;
+    FOR item IN SELECT value FROM jsonb_array_elements(contract->'routines') LOOP
+      obj := pg_catalog.to_regprocedure(item->>'signature');
+      IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_language l ON l.oid=p.prolang
+        WHERE p.oid=obj AND p.prokind::text=item->>'kind' AND l.lanname=item->>'language'
+          AND p.proisstrict=(item->>'strict')::boolean AND p.proretset=(item->>'returns_set')::boolean
+          AND p.provolatile::text=item->>'volatility' AND p.proparallel::text=item->>'parallel'
+          AND p.proleakproof=(item->>'leakproof')::boolean AND p.prosupport=0 AND p.provariadic=0
+          AND p.probin IS NULL AND p.prosqlbody IS NULL AND p.pronargs=jsonb_array_length(item->'input_types')
+          AND p.pronargdefaults=(item->>'default_count')::integer
+          AND p.protrftypes IS NULL AND p.procost=(item->>'cost')::real AND p.prorows=(item->>'rows')::real
+          AND COALESCE(to_jsonb(p.proargnames),'[]'::jsonb)=item->'argument_names') THEN
+        RAISE EXCEPTION 'Routine execution metadata drift: %',item->>'name';
+      END IF;
+      IF (SELECT COALESCE(to_jsonb(p.proargmodes),'null'::jsonb) FROM pg_catalog.pg_proc p WHERE p.oid=obj)
+         IS DISTINCT FROM (CASE WHEN jsonb_array_length(item->'output_types')=0 THEN 'null'::jsonb
+         ELSE (SELECT jsonb_agg(mode ORDER BY ordinal) FROM (
+           SELECT 'i'::text mode, ordinality ordinal FROM jsonb_array_elements(item->'input_types') WITH ORDINALITY
+           UNION ALL SELECT 't',ordinality+jsonb_array_length(item->'input_types')
+             FROM jsonb_array_elements(item->'output_types') WITH ORDINALITY) modes) END) THEN
+        RAISE EXCEPTION 'Routine argument modes drift';
+      END IF;
+      IF (SELECT COALESCE(jsonb_agg(pg_catalog.format_type(a.type_oid,NULL) ORDER BY a.ordinality),'[]'::jsonb)
+          FROM pg_catalog.pg_proc p,
+          LATERAL unnest(COALESCE(p.proallargtypes,p.proargtypes::oid[])) WITH ORDINALITY a(type_oid,ordinality)
+          WHERE p.oid=obj) IS DISTINCT FROM ((item->'input_types')||(item->'output_types')) THEN
+        RAISE EXCEPTION 'Routine input/output argument types drift';
+      END IF;
+      SELECT pg_catalog.pg_get_function_result(obj) INTO actual;
+      SELECT string_agg(CASE WHEN left(m[1],1) IN ('''','"') THEN m[1] ELSE lower(m[1]) END,' ' ORDER BY ordinal) INTO normalized
+        FROM pg_catalog.regexp_matches(actual,lex_pattern,'g') WITH ORDINALITY token(m,ordinal);
+      IF normalized IS DISTINCT FROM item->>'result' THEN RAISE EXCEPTION 'Routine result drift'; END IF;
+      SELECT COALESCE(pg_catalog.pg_get_expr(p.proargdefaults,0,false),'') INTO actual FROM pg_catalog.pg_proc p WHERE p.oid=obj;
+      SELECT COALESCE(string_agg(CASE WHEN left(m[1],1) IN ('''','"') THEN m[1] ELSE lower(m[1]) END,' ' ORDER BY ordinal),'') INTO normalized
+        FROM pg_catalog.regexp_matches(actual,lex_pattern,'g') WITH ORDINALITY token(m,ordinal);
+      IF normalized IS DISTINCT FROM item->>'catalog_argument_defaults' THEN RAISE EXCEPTION 'Routine default argument drift'; END IF;
+      IF EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass
+        AND d.objid=obj AND d.deptype='e') THEN RAISE EXCEPTION 'Unexpected routine extension membership'; END IF;
+    END LOOP;
+END;
+$offline_contract$;
+ALTER TABLE private.attendance_checkins OWNER TO gym_data_owner;
+ALTER TABLE private.attendance_checkins ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.attendance_checkins FORCE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE private.attendance_checkins FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+ALTER TABLE private.attendance_validity_resolutions OWNER TO gym_data_owner;
+ALTER TABLE private.attendance_validity_resolutions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.attendance_validity_resolutions FORCE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE private.attendance_validity_resolutions FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+ALTER TABLE private.audit_chain_heads OWNER TO gym_data_owner;
+ALTER TABLE private.audit_chain_heads ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.audit_chain_heads FORCE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE private.audit_chain_heads FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+ALTER TABLE private.audit_events OWNER TO gym_data_owner;
+ALTER TABLE private.audit_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.audit_events FORCE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE private.audit_events FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+ALTER TABLE private.cash_drawer_sessions OWNER TO gym_data_owner;
+ALTER TABLE private.cash_drawer_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.cash_drawer_sessions FORCE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE private.cash_drawer_sessions FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+ALTER TABLE private.cash_reconciliation_adjustments OWNER TO gym_data_owner;
+ALTER TABLE private.cash_reconciliation_adjustments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.cash_reconciliation_adjustments FORCE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE private.cash_reconciliation_adjustments FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+ALTER TABLE private.cash_reconciliations OWNER TO gym_data_owner;
+ALTER TABLE private.cash_reconciliations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.cash_reconciliations FORCE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE private.cash_reconciliations FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+ALTER TABLE private.member_pin_credentials OWNER TO gym_data_owner;
+ALTER TABLE private.member_pin_credentials ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.member_pin_credentials FORCE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE private.member_pin_credentials FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+ALTER TABLE private.member_pin_setup_tokens OWNER TO gym_data_owner;
+ALTER TABLE private.member_pin_setup_tokens ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.member_pin_setup_tokens FORCE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE private.member_pin_setup_tokens FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+ALTER TABLE private.members OWNER TO gym_data_owner;
+ALTER TABLE private.members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.members FORCE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE private.members FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+ALTER TABLE private.membership_plans OWNER TO gym_data_owner;
+ALTER TABLE private.membership_plans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.membership_plans FORCE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE private.membership_plans FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+ALTER TABLE private.membership_purchases OWNER TO gym_data_owner;
+ALTER TABLE private.membership_purchases ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.membership_purchases FORCE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE private.membership_purchases FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+ALTER TABLE private.owner_access OWNER TO gym_data_owner;
+ALTER TABLE private.owner_access ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.owner_access FORCE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE private.owner_access FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+ALTER TABLE private.payment_allocations OWNER TO gym_data_owner;
+ALTER TABLE private.payment_allocations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.payment_allocations FORCE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE private.payment_allocations FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+ALTER TABLE private.payment_corrections OWNER TO gym_data_owner;
+ALTER TABLE private.payment_corrections ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.payment_corrections FORCE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE private.payment_corrections FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+ALTER TABLE private.payment_events OWNER TO gym_data_owner;
+ALTER TABLE private.payment_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.payment_events FORCE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE private.payment_events FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+ALTER TABLE private.payment_records OWNER TO gym_data_owner;
+ALTER TABLE private.payment_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.payment_records FORCE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE private.payment_records FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+ALTER TABLE private.pin_attempt_buckets OWNER TO gym_data_owner;
+ALTER TABLE private.pin_attempt_buckets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.pin_attempt_buckets FORCE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE private.pin_attempt_buckets FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+ALTER TABLE private.pin_enrollment_global_rate_limit_events OWNER TO gym_data_owner;
+ALTER TABLE private.pin_enrollment_global_rate_limit_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.pin_enrollment_global_rate_limit_events FORCE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE private.pin_enrollment_global_rate_limit_events FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+ALTER TABLE private.walkin_fee_versions OWNER TO gym_data_owner;
+ALTER TABLE private.walkin_fee_versions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.walkin_fee_versions FORCE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE private.walkin_fee_versions FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+ALTER TABLE private.walkin_requests OWNER TO gym_data_owner;
+ALTER TABLE private.walkin_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.walkin_requests FORCE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE private.walkin_requests FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+ALTER TABLE public.gym_settings OWNER TO gym_data_owner;
+ALTER TABLE public.gym_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.gym_settings FORCE ROW LEVEL SECURITY;
+REVOKE ALL PRIVILEGES ON TABLE public.gym_settings FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+REVOKE ALL PRIVILEGES ON SEQUENCE private.audit_events_id_seq FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+REVOKE ALL PRIVILEGES ON SEQUENCE private.payment_events_id_seq FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+REVOKE ALL PRIVILEGES ON SEQUENCE private.pin_enrollment_global_rate_limit_events_id_seq FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+REVOKE ALL ON SCHEMA private FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+REVOKE ALL ON SCHEMA api FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+GRANT USAGE ON SCHEMA private TO gym_data_owner, gym_owner_executor, gym_public_executor;
+GRANT USAGE ON SCHEMA public TO gym_data_owner;
+GRANT USAGE ON SCHEMA api TO service_role, gym_owner_executor, gym_public_executor;
+GRANT USAGE ON SCHEMA extensions TO gym_owner_executor;
+GRANT EXECUTE ON FUNCTION extensions.digest(bytea,text) TO gym_owner_executor;
+GRANT SELECT (user_id, is_active, created_at, deactivated_at) ON TABLE private.owner_access TO gym_owner_executor;
+CREATE POLICY gf_owner_select ON private.owner_access FOR SELECT TO gym_owner_executor USING (CURRENT_USER = 'gym_owner_executor'::name);
+GRANT SELECT (id, member_code, full_name, mobile_lookup_hash, mobile_encrypted, status, created_at, updated_at, approved_at) ON TABLE private.members TO gym_owner_executor;
+CREATE POLICY gf_owner_select ON private.members FOR SELECT TO gym_owner_executor USING (CURRENT_USER = 'gym_owner_executor'::name);
+GRANT INSERT (member_code, full_name, mobile_lookup_hash, mobile_encrypted, status) ON TABLE private.members TO gym_owner_executor;
+CREATE POLICY gf_owner_insert ON private.members FOR INSERT TO gym_owner_executor WITH CHECK (CURRENT_USER = 'gym_owner_executor'::name);
+GRANT UPDATE (updated_at) ON TABLE private.members TO gym_owner_executor;
+CREATE POLICY gf_owner_update ON private.members FOR UPDATE TO gym_owner_executor USING (CURRENT_USER = 'gym_owner_executor'::name) WITH CHECK (CURRENT_USER = 'gym_owner_executor'::name);
+GRANT SELECT (id, name, price_php, is_active, created_at) ON TABLE private.membership_plans TO gym_owner_executor;
+CREATE POLICY gf_owner_select ON private.membership_plans FOR SELECT TO gym_owner_executor USING (CURRENT_USER = 'gym_owner_executor'::name);
+GRANT INSERT (name, price_php, is_active) ON TABLE private.membership_plans TO gym_owner_executor;
+CREATE POLICY gf_owner_insert ON private.membership_plans FOR INSERT TO gym_owner_executor WITH CHECK (CURRENT_USER = 'gym_owner_executor'::name);
+GRANT UPDATE (name, price_php, is_active) ON TABLE private.membership_plans TO gym_owner_executor;
+CREATE POLICY gf_owner_update ON private.membership_plans FOR UPDATE TO gym_owner_executor USING (CURRENT_USER = 'gym_owner_executor'::name) WITH CHECK (CURRENT_USER = 'gym_owner_executor'::name);
+GRANT SELECT (id, member_id, plan_id, price_php, purchase_status, activation_date, expiry_date, created_at) ON TABLE private.membership_purchases TO gym_owner_executor;
+CREATE POLICY gf_owner_select ON private.membership_purchases FOR SELECT TO gym_owner_executor USING (CURRENT_USER = 'gym_owner_executor'::name);
+GRANT INSERT (member_id, plan_id, price_php, purchase_status) ON TABLE private.membership_purchases TO gym_owner_executor;
+CREATE POLICY gf_owner_insert ON private.membership_purchases FOR INSERT TO gym_owner_executor WITH CHECK (CURRENT_USER = 'gym_owner_executor'::name);
+GRANT UPDATE (purchase_status) ON TABLE private.membership_purchases TO gym_owner_executor;
+CREATE POLICY gf_owner_update ON private.membership_purchases FOR UPDATE TO gym_owner_executor USING (CURRENT_USER = 'gym_owner_executor'::name) WITH CHECK (CURRENT_USER = 'gym_owner_executor'::name);
+GRANT SELECT (id, amount_php, payment_method, received_at, verification_status, external_reference, evidence_reference, recorded_by, created_at, operation_id, target_membership_purchase_id) ON TABLE private.payment_records TO gym_owner_executor;
+CREATE POLICY gf_owner_select ON private.payment_records FOR SELECT TO gym_owner_executor USING (CURRENT_USER = 'gym_owner_executor'::name);
+GRANT INSERT (amount_php, payment_method, verification_status, external_reference, recorded_by, operation_id, target_membership_purchase_id) ON TABLE private.payment_records TO gym_owner_executor;
+CREATE POLICY gf_owner_insert ON private.payment_records FOR INSERT TO gym_owner_executor WITH CHECK (CURRENT_USER = 'gym_owner_executor'::name);
+GRANT UPDATE (verification_status) ON TABLE private.payment_records TO gym_owner_executor;
+CREATE POLICY gf_owner_update ON private.payment_records FOR UPDATE TO gym_owner_executor USING (CURRENT_USER = 'gym_owner_executor'::name) WITH CHECK (CURRENT_USER = 'gym_owner_executor'::name);
+GRANT SELECT (id, payment_id, membership_purchase_id, walkin_request_id, allocated_by, allocated_at) ON TABLE private.payment_allocations TO gym_owner_executor;
+CREATE POLICY gf_owner_select ON private.payment_allocations FOR SELECT TO gym_owner_executor USING (CURRENT_USER = 'gym_owner_executor'::name);
+GRANT INSERT (payment_id, membership_purchase_id, allocated_by) ON TABLE private.payment_allocations TO gym_owner_executor;
+CREATE POLICY gf_owner_insert ON private.payment_allocations FOR INSERT TO gym_owner_executor WITH CHECK (CURRENT_USER = 'gym_owner_executor'::name);
+GRANT SELECT (id, payment_id, event_type, reason, actor_user_id, created_at) ON TABLE private.payment_events TO gym_owner_executor;
+CREATE POLICY gf_owner_select ON private.payment_events FOR SELECT TO gym_owner_executor USING (CURRENT_USER = 'gym_owner_executor'::name);
+GRANT INSERT (payment_id, event_type, reason, actor_user_id) ON TABLE private.payment_events TO gym_owner_executor;
+CREATE POLICY gf_owner_insert ON private.payment_events FOR INSERT TO gym_owner_executor WITH CHECK (CURRENT_USER = 'gym_owner_executor'::name);
+GRANT SELECT (id, actor_user_id, event_type, subject_type, subject_id, details, created_at, stream_key, previous_event_hash, event_hash) ON TABLE private.audit_events TO gym_owner_executor;
+CREATE POLICY gf_owner_select ON private.audit_events FOR SELECT TO gym_owner_executor USING (CURRENT_USER = 'gym_owner_executor'::name);
+GRANT INSERT (stream_key, actor_user_id, event_type, subject_type, subject_id, details) ON TABLE private.audit_events TO gym_owner_executor;
+CREATE POLICY gf_owner_insert ON private.audit_events FOR INSERT TO gym_owner_executor WITH CHECK (CURRENT_USER = 'gym_owner_executor'::name);
+GRANT SELECT (stream_key, last_event_id, last_event_hash, updated_at) ON TABLE private.audit_chain_heads TO gym_owner_executor;
+CREATE POLICY gf_owner_select ON private.audit_chain_heads FOR SELECT TO gym_owner_executor USING (CURRENT_USER = 'gym_owner_executor'::name);
+GRANT INSERT (stream_key, last_event_id, last_event_hash) ON TABLE private.audit_chain_heads TO gym_owner_executor;
+CREATE POLICY gf_owner_insert ON private.audit_chain_heads FOR INSERT TO gym_owner_executor WITH CHECK (CURRENT_USER = 'gym_owner_executor'::name);
+GRANT UPDATE (last_event_id, last_event_hash, updated_at) ON TABLE private.audit_chain_heads TO gym_owner_executor;
+CREATE POLICY gf_owner_update ON private.audit_chain_heads FOR UPDATE TO gym_owner_executor USING (CURRENT_USER = 'gym_owner_executor'::name) WITH CHECK (CURRENT_USER = 'gym_owner_executor'::name);
+GRANT SELECT (id, member_id, token_hash, token_purpose, expires_at, consumed_at, created_at) ON TABLE private.member_pin_setup_tokens TO gym_owner_executor;
+CREATE POLICY gf_owner_select ON private.member_pin_setup_tokens FOR SELECT TO gym_owner_executor USING (CURRENT_USER = 'gym_owner_executor'::name);
+GRANT INSERT (member_id, token_hash, token_purpose, expires_at) ON TABLE private.member_pin_setup_tokens TO gym_owner_executor;
+CREATE POLICY gf_owner_insert ON private.member_pin_setup_tokens FOR INSERT TO gym_owner_executor WITH CHECK (CURRENT_USER = 'gym_owner_executor'::name);
+GRANT UPDATE (consumed_at) ON TABLE private.member_pin_setup_tokens TO gym_owner_executor;
+CREATE POLICY gf_owner_update ON private.member_pin_setup_tokens FOR UPDATE TO gym_owner_executor USING (CURRENT_USER = 'gym_owner_executor'::name) WITH CHECK (CURRENT_USER = 'gym_owner_executor'::name);
+GRANT SELECT (id, status) ON TABLE private.members TO gym_public_executor;
+CREATE POLICY gf_public_select ON private.members FOR SELECT TO gym_public_executor USING (CURRENT_USER = 'gym_public_executor'::name);
+GRANT UPDATE (updated_at) ON TABLE private.members TO gym_public_executor;
+CREATE POLICY gf_public_update ON private.members FOR UPDATE TO gym_public_executor USING (CURRENT_USER = 'gym_public_executor'::name) WITH CHECK (CURRENT_USER = 'gym_public_executor'::name);
+GRANT SELECT (id, member_id, token_hash, token_purpose, expires_at, consumed_at) ON TABLE private.member_pin_setup_tokens TO gym_public_executor;
+CREATE POLICY gf_public_select ON private.member_pin_setup_tokens FOR SELECT TO gym_public_executor USING (CURRENT_USER = 'gym_public_executor'::name);
+GRANT UPDATE (consumed_at) ON TABLE private.member_pin_setup_tokens TO gym_public_executor;
+CREATE POLICY gf_public_update ON private.member_pin_setup_tokens FOR UPDATE TO gym_public_executor USING (CURRENT_USER = 'gym_public_executor'::name) WITH CHECK (CURRENT_USER = 'gym_public_executor'::name);
+GRANT SELECT (member_id) ON TABLE private.member_pin_credentials TO gym_public_executor;
+CREATE POLICY gf_public_select ON private.member_pin_credentials FOR SELECT TO gym_public_executor USING (CURRENT_USER = 'gym_public_executor'::name);
+GRANT INSERT (member_id, password_hash, credential_version, created_at, updated_at) ON TABLE private.member_pin_credentials TO gym_public_executor;
+CREATE POLICY gf_public_insert ON private.member_pin_credentials FOR INSERT TO gym_public_executor WITH CHECK (CURRENT_USER = 'gym_public_executor'::name);
+GRANT SELECT (requested_at) ON TABLE private.pin_enrollment_global_rate_limit_events TO gym_public_executor;
+CREATE POLICY gf_public_select ON private.pin_enrollment_global_rate_limit_events FOR SELECT TO gym_public_executor USING (CURRENT_USER = 'gym_public_executor'::name);
+GRANT INSERT (requested_at) ON TABLE private.pin_enrollment_global_rate_limit_events TO gym_public_executor;
+CREATE POLICY gf_public_insert ON private.pin_enrollment_global_rate_limit_events FOR INSERT TO gym_public_executor WITH CHECK (CURRENT_USER = 'gym_public_executor'::name);
+GRANT DELETE ON TABLE private.pin_enrollment_global_rate_limit_events TO gym_public_executor;
+CREATE POLICY gf_public_delete ON private.pin_enrollment_global_rate_limit_events FOR DELETE TO gym_public_executor USING (CURRENT_USER = 'gym_public_executor'::name);
+ALTER FUNCTION api.append_audit_event(text, uuid, text, text, text, jsonb) OWNER TO gym_owner_executor;
+ALTER FUNCTION api.append_audit_event(text, uuid, text, text, text, jsonb) SECURITY DEFINER;
+ALTER FUNCTION api.append_audit_event(text, uuid, text, text, text, jsonb) SET search_path='';
+REVOKE ALL PRIVILEGES ON FUNCTION api.append_audit_event(text, uuid, text, text, text, jsonb) FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+GRANT EXECUTE ON FUNCTION api.append_audit_event(text, uuid, text, text, text, jsonb) TO gym_owner_executor, service_role, gym_public_executor;
+ALTER FUNCTION api.is_active_owner_for_user(uuid) OWNER TO gym_owner_executor;
+ALTER FUNCTION api.is_active_owner_for_user(uuid) SECURITY DEFINER;
+ALTER FUNCTION api.is_active_owner_for_user(uuid) SET search_path='';
+REVOKE ALL PRIVILEGES ON FUNCTION api.is_active_owner_for_user(uuid) FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+GRANT EXECUTE ON FUNCTION api.is_active_owner_for_user(uuid) TO gym_owner_executor, service_role;
+ALTER FUNCTION api.member_enroll_pin(text, text) OWNER TO gym_public_executor;
+ALTER FUNCTION api.member_enroll_pin(text, text) SECURITY DEFINER;
+ALTER FUNCTION api.member_enroll_pin(text, text) SET search_path='';
+REVOKE ALL PRIVILEGES ON FUNCTION api.member_enroll_pin(text, text) FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+GRANT EXECUTE ON FUNCTION api.member_enroll_pin(text, text) TO gym_public_executor, service_role;
+ALTER FUNCTION api.owner_confirm_membership_payment(uuid, uuid, boolean) OWNER TO gym_owner_executor;
+ALTER FUNCTION api.owner_confirm_membership_payment(uuid, uuid, boolean) SECURITY DEFINER;
+ALTER FUNCTION api.owner_confirm_membership_payment(uuid, uuid, boolean) SET search_path='';
+REVOKE ALL PRIVILEGES ON FUNCTION api.owner_confirm_membership_payment(uuid, uuid, boolean) FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+GRANT EXECUTE ON FUNCTION api.owner_confirm_membership_payment(uuid, uuid, boolean) TO gym_owner_executor, service_role;
+ALTER FUNCTION api.owner_create_membership_purchase(uuid, uuid, uuid) OWNER TO gym_owner_executor;
+ALTER FUNCTION api.owner_create_membership_purchase(uuid, uuid, uuid) SECURITY DEFINER;
+ALTER FUNCTION api.owner_create_membership_purchase(uuid, uuid, uuid) SET search_path='';
+REVOKE ALL PRIVILEGES ON FUNCTION api.owner_create_membership_purchase(uuid, uuid, uuid) FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+GRANT EXECUTE ON FUNCTION api.owner_create_membership_purchase(uuid, uuid, uuid) TO gym_owner_executor, service_role;
+ALTER FUNCTION api.owner_create_pin_enrollment_token(uuid, uuid, text, timestamp with time zone) OWNER TO gym_owner_executor;
+ALTER FUNCTION api.owner_create_pin_enrollment_token(uuid, uuid, text, timestamp with time zone) SECURITY DEFINER;
+ALTER FUNCTION api.owner_create_pin_enrollment_token(uuid, uuid, text, timestamp with time zone) SET search_path='';
+REVOKE ALL PRIVILEGES ON FUNCTION api.owner_create_pin_enrollment_token(uuid, uuid, text, timestamp with time zone) FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+GRANT EXECUTE ON FUNCTION api.owner_create_pin_enrollment_token(uuid, uuid, text, timestamp with time zone) TO gym_owner_executor, service_role;
+ALTER FUNCTION api.owner_list_members(uuid, text, text, integer, integer) OWNER TO gym_owner_executor;
+ALTER FUNCTION api.owner_list_members(uuid, text, text, integer, integer) SECURITY DEFINER;
+ALTER FUNCTION api.owner_list_members(uuid, text, text, integer, integer) SET search_path='';
+REVOKE ALL PRIVILEGES ON FUNCTION api.owner_list_members(uuid, text, text, integer, integer) FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+GRANT EXECUTE ON FUNCTION api.owner_list_members(uuid, text, text, integer, integer) TO gym_owner_executor, service_role;
+ALTER FUNCTION api.owner_list_membership_payments(uuid, text, text, integer, integer) OWNER TO gym_owner_executor;
+ALTER FUNCTION api.owner_list_membership_payments(uuid, text, text, integer, integer) SECURITY DEFINER;
+ALTER FUNCTION api.owner_list_membership_payments(uuid, text, text, integer, integer) SET search_path='';
+REVOKE ALL PRIVILEGES ON FUNCTION api.owner_list_membership_payments(uuid, text, text, integer, integer) FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+GRANT EXECUTE ON FUNCTION api.owner_list_membership_payments(uuid, text, text, integer, integer) TO gym_owner_executor, service_role;
+ALTER FUNCTION api.owner_list_membership_plans(uuid) OWNER TO gym_owner_executor;
+ALTER FUNCTION api.owner_list_membership_plans(uuid) SECURITY DEFINER;
+ALTER FUNCTION api.owner_list_membership_plans(uuid) SET search_path='';
+REVOKE ALL PRIVILEGES ON FUNCTION api.owner_list_membership_plans(uuid) FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+GRANT EXECUTE ON FUNCTION api.owner_list_membership_plans(uuid) TO gym_owner_executor, service_role;
+ALTER FUNCTION api.owner_list_membership_purchases(uuid, text, text, integer, integer) OWNER TO gym_owner_executor;
+ALTER FUNCTION api.owner_list_membership_purchases(uuid, text, text, integer, integer) SECURITY DEFINER;
+ALTER FUNCTION api.owner_list_membership_purchases(uuid, text, text, integer, integer) SET search_path='';
+REVOKE ALL PRIVILEGES ON FUNCTION api.owner_list_membership_purchases(uuid, text, text, integer, integer) FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+GRANT EXECUTE ON FUNCTION api.owner_list_membership_purchases(uuid, text, text, integer, integer) TO gym_owner_executor, service_role;
+ALTER FUNCTION api.owner_record_membership_payment(uuid, uuid, uuid, numeric, text, text) OWNER TO gym_owner_executor;
+ALTER FUNCTION api.owner_record_membership_payment(uuid, uuid, uuid, numeric, text, text) SECURITY DEFINER;
+ALTER FUNCTION api.owner_record_membership_payment(uuid, uuid, uuid, numeric, text, text) SET search_path='';
+REVOKE ALL PRIVILEGES ON FUNCTION api.owner_record_membership_payment(uuid, uuid, uuid, numeric, text, text) FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+GRANT EXECUTE ON FUNCTION api.owner_record_membership_payment(uuid, uuid, uuid, numeric, text, text) TO gym_owner_executor, service_role;
+ALTER FUNCTION api.owner_register_member(uuid, text, bytea, bytea) OWNER TO gym_owner_executor;
+ALTER FUNCTION api.owner_register_member(uuid, text, bytea, bytea) SECURITY DEFINER;
+ALTER FUNCTION api.owner_register_member(uuid, text, bytea, bytea) SET search_path='';
+REVOKE ALL PRIVILEGES ON FUNCTION api.owner_register_member(uuid, text, bytea, bytea) FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+GRANT EXECUTE ON FUNCTION api.owner_register_member(uuid, text, bytea, bytea) TO gym_owner_executor, service_role;
+ALTER FUNCTION api.owner_reject_membership_payment(uuid, uuid, text) OWNER TO gym_owner_executor;
+ALTER FUNCTION api.owner_reject_membership_payment(uuid, uuid, text) SECURITY DEFINER;
+ALTER FUNCTION api.owner_reject_membership_payment(uuid, uuid, text) SET search_path='';
+REVOKE ALL PRIVILEGES ON FUNCTION api.owner_reject_membership_payment(uuid, uuid, text) FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+GRANT EXECUTE ON FUNCTION api.owner_reject_membership_payment(uuid, uuid, text) TO gym_owner_executor, service_role;
+ALTER FUNCTION api.owner_save_membership_plan(uuid, uuid, text, numeric, boolean) OWNER TO gym_owner_executor;
+ALTER FUNCTION api.owner_save_membership_plan(uuid, uuid, text, numeric, boolean) SECURITY DEFINER;
+ALTER FUNCTION api.owner_save_membership_plan(uuid, uuid, text, numeric, boolean) SET search_path='';
+REVOKE ALL PRIVILEGES ON FUNCTION api.owner_save_membership_plan(uuid, uuid, text, numeric, boolean) FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+GRANT EXECUTE ON FUNCTION api.owner_save_membership_plan(uuid, uuid, text, numeric, boolean) TO gym_owner_executor, service_role;
+ALTER FUNCTION api.reserve_pin_enrollment_request() OWNER TO gym_public_executor;
+ALTER FUNCTION api.reserve_pin_enrollment_request() SECURITY DEFINER;
+ALTER FUNCTION api.reserve_pin_enrollment_request() SET search_path='';
+REVOKE ALL PRIVILEGES ON FUNCTION api.reserve_pin_enrollment_request() FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+GRANT EXECUTE ON FUNCTION api.reserve_pin_enrollment_request() TO gym_public_executor, service_role;
+ALTER FUNCTION api.verify_audit_stream(text) OWNER TO gym_owner_executor;
+ALTER FUNCTION api.verify_audit_stream(text) SECURITY DEFINER;
+ALTER FUNCTION api.verify_audit_stream(text) SET search_path='';
+REVOKE ALL PRIVILEGES ON FUNCTION api.verify_audit_stream(text) FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+GRANT EXECUTE ON FUNCTION api.verify_audit_stream(text) TO gym_owner_executor, service_role;
+ALTER FUNCTION private.audit_events_chain_insert() OWNER TO gym_data_owner;
+ALTER FUNCTION private.audit_events_chain_insert() SECURITY INVOKER;
+ALTER FUNCTION private.audit_events_chain_insert() SET search_path='';
+REVOKE ALL PRIVILEGES ON FUNCTION private.audit_events_chain_insert() FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+GRANT EXECUTE ON FUNCTION private.audit_events_chain_insert() TO gym_data_owner, gym_owner_executor;
+ALTER FUNCTION private.compute_audit_event_hash(bigint, text, text, uuid, text, text, text, jsonb, timestamp with time zone) OWNER TO gym_data_owner;
+ALTER FUNCTION private.compute_audit_event_hash(bigint, text, text, uuid, text, text, text, jsonb, timestamp with time zone) SECURITY INVOKER;
+ALTER FUNCTION private.compute_audit_event_hash(bigint, text, text, uuid, text, text, text, jsonb, timestamp with time zone) SET search_path='';
+REVOKE ALL PRIVILEGES ON FUNCTION private.compute_audit_event_hash(bigint, text, text, uuid, text, text, text, jsonb, timestamp with time zone) FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+GRANT EXECUTE ON FUNCTION private.compute_audit_event_hash(bigint, text, text, uuid, text, text, text, jsonb, timestamp with time zone) TO gym_data_owner, gym_owner_executor;
+ALTER FUNCTION private.guard_membership_payment_allocation() OWNER TO gym_data_owner;
+ALTER FUNCTION private.guard_membership_payment_allocation() SECURITY INVOKER;
+ALTER FUNCTION private.guard_membership_payment_allocation() SET search_path='';
+REVOKE ALL PRIVILEGES ON FUNCTION private.guard_membership_payment_allocation() FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+GRANT EXECUTE ON FUNCTION private.guard_membership_payment_allocation() TO gym_data_owner, gym_owner_executor;
+ALTER FUNCTION private.guard_membership_payment_record_insert() OWNER TO gym_data_owner;
+ALTER FUNCTION private.guard_membership_payment_record_insert() SECURITY INVOKER;
+ALTER FUNCTION private.guard_membership_payment_record_insert() SET search_path='';
+REVOKE ALL PRIVILEGES ON FUNCTION private.guard_membership_payment_record_insert() FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+GRANT EXECUTE ON FUNCTION private.guard_membership_payment_record_insert() TO gym_data_owner, gym_owner_executor;
+ALTER FUNCTION private.guard_membership_payment_record_update() OWNER TO gym_data_owner;
+ALTER FUNCTION private.guard_membership_payment_record_update() SECURITY INVOKER;
+ALTER FUNCTION private.guard_membership_payment_record_update() SET search_path='';
+REVOKE ALL PRIVILEGES ON FUNCTION private.guard_membership_payment_record_update() FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+GRANT EXECUTE ON FUNCTION private.guard_membership_payment_record_update() TO gym_data_owner, gym_owner_executor;
+ALTER FUNCTION private.guard_purchase_pending_activation() OWNER TO gym_data_owner;
+ALTER FUNCTION private.guard_purchase_pending_activation() SECURITY INVOKER;
+ALTER FUNCTION private.guard_purchase_pending_activation() SET search_path='';
+REVOKE ALL PRIVILEGES ON FUNCTION private.guard_purchase_pending_activation() FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+GRANT EXECUTE ON FUNCTION private.guard_purchase_pending_activation() TO gym_data_owner, gym_owner_executor;
+ALTER FUNCTION private.is_active_owner() OWNER TO gym_data_owner;
+ALTER FUNCTION private.is_active_owner() SECURITY INVOKER;
+ALTER FUNCTION private.is_active_owner() SET search_path='';
+REVOKE ALL PRIVILEGES ON FUNCTION private.is_active_owner() FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+GRANT EXECUTE ON FUNCTION private.is_active_owner() TO gym_data_owner;
+ALTER FUNCTION private.prevent_audit_event_mutation() OWNER TO gym_data_owner;
+ALTER FUNCTION private.prevent_audit_event_mutation() SECURITY INVOKER;
+ALTER FUNCTION private.prevent_audit_event_mutation() SET search_path='';
+REVOKE ALL PRIVILEGES ON FUNCTION private.prevent_audit_event_mutation() FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+GRANT EXECUTE ON FUNCTION private.prevent_audit_event_mutation() TO gym_data_owner, gym_owner_executor;
+ALTER FUNCTION private.prevent_payment_history_mutation() OWNER TO gym_data_owner;
+ALTER FUNCTION private.prevent_payment_history_mutation() SECURITY INVOKER;
+ALTER FUNCTION private.prevent_payment_history_mutation() SET search_path='';
+REVOKE ALL PRIVILEGES ON FUNCTION private.prevent_payment_history_mutation() FROM PUBLIC, anon, authenticated, service_role, gym_registration_login, gym_owner_executor, gym_public_executor;
+GRANT EXECUTE ON FUNCTION private.prevent_payment_history_mutation() TO gym_data_owner, gym_owner_executor;
+SET LOCAL gymforce.assertion_profile='proposed_owner_executor';
+DO $phase_assertions$
+DECLARE
+    profile text := pg_catalog.current_setting('gymforce.assertion_profile',true);
+    target boolean;
+    r record; caller text; privilege_name text; v_column text; expected boolean;
+    routine_oid oid; relation_oid oid; actual_owner text; actual_columns text;
+    expected_expr text; actual_qual text; actual_check text; actual_policy record;
+BEGIN
+    IF profile IN ('historical_phase1','future_attendance') THEN
+        RAISE EXCEPTION 'Profile % is not an executable acceptance profile: historical assumptions are archival; future Attendance is unimplemented', profile;
+    END IF;
+    IF profile IS NULL OR profile NOT IN ('current_server_only','proposed_owner_executor') THEN
+        RAISE EXCEPTION 'Select an explicit current_server_only or proposed_owner_executor assertion profile';
+    END IF;
+    target := profile='proposed_owner_executor';
+    IF current_database()<>'gymforce_pg18_test'
+       OR inet_server_addr() IS DISTINCT FROM '127.0.0.1'::inet
+       OR current_setting('port')<>'55432'
+       OR current_user<>'postgres' OR session_user<>'postgres'
+       OR NOT (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname=current_user)
+       OR current_setting('gymforce.test_cluster_marker',true) IS DISTINCT FROM 'f497fabb-a12f-4068-b745-8b0729279276'
+       OR (pg_catalog.pg_control_system()).system_identifier::text IS DISTINCT FROM '7704603813616068820'
+       OR lower(rtrim(replace(current_setting('data_directory'),E'\\','/'),'/')) IS DISTINCT FROM 'c:/users/banco-sual/appdata/local/gymforce-pg18-test/data' THEN
+        RAISE EXCEPTION 'Approved native test target/actor mismatch; hosted execution is not authorized by this draft';
+    END IF;
+    -- Reserved roles remain non-login and cannot bypass RLS or assume others.
+    FOREACH caller IN ARRAY ARRAY['gym_data_owner','gym_owner_executor','gym_public_executor'] LOOP
+        IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=caller
+            AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb
+            AND NOT rolcreaterole AND NOT rolinherit AND NOT rolreplication AND NOT rolbypassrls) THEN
+            RAISE EXCEPTION 'Unsafe/missing reserved role %',caller;
+        END IF;
+    END LOOP;
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members e
+        JOIN pg_catalog.pg_roles reserved ON reserved.oid=e.member OR reserved.oid=e.roleid
+        WHERE reserved.rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor','gym_registration_login')) THEN
+        RAISE EXCEPTION 'Reserved-role membership edge exists';
+    END IF;
+    IF (SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname IN ('private','public') AND c.relkind IN ('r','p'))<>22 THEN
+        RAISE EXCEPTION 'Application table inventory drift';
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname='api' AND c.relkind IN ('r','p','v','m','S','f')) THEN
+        RAISE EXCEPTION 'API schema unexpectedly contains data relations';
+    END IF;
+    FOR r IN SELECT * FROM (VALUES
+        ('private.attendance_checkins','id:uuid|member_id:uuid|walkin_request_id:uuid|gym_local_date:date|checked_in_at:timestamp with time zone|attendance_status:text'),
+        ('private.attendance_validity_resolutions','id:uuid|attendance_id:uuid|prior_status:text|new_status:text|reason:text|resolved_by:uuid|resolved_at:timestamp with time zone'),
+        ('private.audit_chain_heads','stream_key:text|last_event_id:bigint|last_event_hash:text|updated_at:timestamp with time zone'),
+        ('private.audit_events','id:bigint|actor_user_id:uuid|event_type:text|subject_type:text|subject_id:text|details:jsonb|created_at:timestamp with time zone|stream_key:text|previous_event_hash:text|event_hash:text'),
+        ('private.cash_drawer_sessions','id:uuid|opened_at:timestamp with time zone|opened_by:uuid|opening_float_php:numeric(12,2)|session_status:text|closed_at:timestamp with time zone|closed_by:uuid'),
+        ('private.cash_reconciliation_adjustments','id:uuid|reconciliation_id:uuid|amount_delta_php:numeric(12,2)|reason:text|evidence_reference:text|recorded_by:uuid|created_at:timestamp with time zone'),
+        ('private.cash_reconciliations','id:uuid|drawer_session_id:uuid|expected_cash_php:numeric(12,2)|counted_cash_php:numeric(12,2)|variance_php:numeric(12,2)|reconciled_by:uuid|reconciled_at:timestamp with time zone|notes:text'),
+        ('private.member_pin_credentials','member_id:uuid|password_hash:text|credential_version:integer|created_at:timestamp with time zone|updated_at:timestamp with time zone'),
+        ('private.member_pin_setup_tokens','id:uuid|member_id:uuid|token_hash:text|token_purpose:text|expires_at:timestamp with time zone|consumed_at:timestamp with time zone|created_at:timestamp with time zone'),
+        ('private.members','id:uuid|member_code:text|full_name:text|mobile_lookup_hash:bytea|mobile_encrypted:bytea|status:text|created_at:timestamp with time zone|updated_at:timestamp with time zone|approved_at:timestamp with time zone'),
+        ('private.membership_plans','id:uuid|name:text|price_php:numeric(12,2)|is_active:boolean|created_at:timestamp with time zone'),
+        ('private.membership_purchases','id:uuid|member_id:uuid|plan_id:uuid|price_php:numeric(12,2)|purchase_status:text|activation_date:date|expiry_date:date|created_at:timestamp with time zone'),
+        ('private.owner_access','user_id:uuid|is_active:boolean|created_at:timestamp with time zone|deactivated_at:timestamp with time zone'),
+        ('private.payment_allocations','id:uuid|payment_id:uuid|membership_purchase_id:uuid|walkin_request_id:uuid|allocated_by:uuid|allocated_at:timestamp with time zone'),
+        ('private.payment_corrections','id:uuid|payment_id:uuid|proposed_amount_php:numeric(12,2)|proposed_payment_method:text|reason:text|evidence_reference:text|correction_status:text|proposed_by:uuid|proposed_at:timestamp with time zone|decided_by:uuid|decided_at:timestamp with time zone|decision_reason:text'),
+        ('private.payment_events','id:bigint|payment_id:uuid|event_type:text|reason:text|actor_user_id:uuid|created_at:timestamp with time zone'),
+        ('private.payment_records','id:uuid|amount_php:numeric(12,2)|payment_method:text|received_at:timestamp with time zone|verification_status:text|external_reference:text|evidence_reference:text|recorded_by:uuid|created_at:timestamp with time zone|operation_id:uuid|target_membership_purchase_id:uuid'),
+        ('private.pin_attempt_buckets','id:uuid|bucket_type:text|identifier_digest:text|window_started_at:timestamp with time zone|failed_attempts:integer|blocked_until:timestamp with time zone|updated_at:timestamp with time zone'),
+        ('private.pin_enrollment_global_rate_limit_events','id:bigint|requested_at:timestamp with time zone'),
+        ('private.walkin_fee_versions','id:uuid|fee_php:numeric(12,2)|currency:text|effective_from:timestamp with time zone|created_by:uuid|created_at:timestamp with time zone'),
+        ('private.walkin_requests','id:uuid|fee_version_id:uuid|fee_php:numeric(12,2)|currency:text|request_status:text|created_at:timestamp with time zone|expires_at:timestamp with time zone|confirmed_by:uuid|confirmed_at:timestamp with time zone'),
+        ('public.gym_settings','setting_key:text|setting_value:jsonb|updated_at:timestamp with time zone')
+    ) v(name,columns) LOOP
+        relation_oid := pg_catalog.to_regclass(r.name);
+        IF relation_oid IS NULL THEN RAISE EXCEPTION 'Missing %',r.name; END IF;
+        SELECT pg_catalog.string_agg(a.attname||':'||pg_catalog.format_type(a.atttypid,a.atttypmod),'|' ORDER BY a.attnum)
+          INTO actual_columns FROM pg_catalog.pg_attribute a
+          WHERE a.attrelid=relation_oid AND a.attnum>0 AND NOT a.attisdropped;
+        IF actual_columns IS DISTINCT FROM r.columns THEN RAISE EXCEPTION 'Column/type inventory drift: %',r.name; END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class c WHERE c.oid=relation_oid AND c.relrowsecurity
+             AND c.relowner=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=CASE WHEN target THEN 'gym_data_owner' ELSE 'postgres' END)
+             AND (NOT target OR c.relforcerowsecurity)) THEN
+            RAISE EXCEPTION 'Ownership/RLS mismatch: %',r.name;
+        END IF;
+        -- No direct browser/service/dormant-login access, including column grants.
+        FOREACH caller IN ARRAY ARRAY['anon','authenticated','service_role','gym_registration_login'] LOOP
+            IF pg_catalog.has_table_privilege(caller,relation_oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+              OR pg_catalog.has_any_column_privilege(caller,relation_oid,'SELECT,INSERT,UPDATE,REFERENCES') THEN
+                RAISE EXCEPTION 'Direct protected relation access: % / %',caller,r.name;
+            END IF;
+        END LOOP;
+        FOREACH caller IN ARRAY ARRAY['gym_owner_executor','gym_public_executor'] LOOP
+            FOREACH privilege_name IN ARRAY ARRAY['SELECT','INSERT','UPDATE','REFERENCES'] LOOP
+                FOR v_column IN SELECT attname FROM pg_catalog.pg_attribute
+                    WHERE attrelid=relation_oid AND attnum>0 AND NOT attisdropped LOOP
+                    SELECT target AND EXISTS (SELECT 1 FROM (VALUES
+                        ('private.owner_access','gym_owner_executor','SELECT','user_id'),
+        ('private.owner_access','gym_owner_executor','SELECT','is_active'),
+        ('private.owner_access','gym_owner_executor','SELECT','created_at'),
+        ('private.owner_access','gym_owner_executor','SELECT','deactivated_at'),
+        ('private.members','gym_owner_executor','SELECT','id'),
+        ('private.members','gym_owner_executor','SELECT','member_code'),
+        ('private.members','gym_owner_executor','SELECT','full_name'),
+        ('private.members','gym_owner_executor','SELECT','mobile_lookup_hash'),
+        ('private.members','gym_owner_executor','SELECT','mobile_encrypted'),
+        ('private.members','gym_owner_executor','SELECT','status'),
+        ('private.members','gym_owner_executor','SELECT','created_at'),
+        ('private.members','gym_owner_executor','SELECT','updated_at'),
+        ('private.members','gym_owner_executor','SELECT','approved_at'),
+        ('private.members','gym_owner_executor','INSERT','member_code'),
+        ('private.members','gym_owner_executor','INSERT','full_name'),
+        ('private.members','gym_owner_executor','INSERT','mobile_lookup_hash'),
+        ('private.members','gym_owner_executor','INSERT','mobile_encrypted'),
+        ('private.members','gym_owner_executor','INSERT','status'),
+        ('private.members','gym_owner_executor','UPDATE','updated_at'),
+        ('private.membership_plans','gym_owner_executor','SELECT','id'),
+        ('private.membership_plans','gym_owner_executor','SELECT','name'),
+        ('private.membership_plans','gym_owner_executor','SELECT','price_php'),
+        ('private.membership_plans','gym_owner_executor','SELECT','is_active'),
+        ('private.membership_plans','gym_owner_executor','SELECT','created_at'),
+        ('private.membership_plans','gym_owner_executor','INSERT','name'),
+        ('private.membership_plans','gym_owner_executor','INSERT','price_php'),
+        ('private.membership_plans','gym_owner_executor','INSERT','is_active'),
+        ('private.membership_plans','gym_owner_executor','UPDATE','name'),
+        ('private.membership_plans','gym_owner_executor','UPDATE','price_php'),
+        ('private.membership_plans','gym_owner_executor','UPDATE','is_active'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','id'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','member_id'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','plan_id'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','price_php'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','purchase_status'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','activation_date'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','expiry_date'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','created_at'),
+        ('private.membership_purchases','gym_owner_executor','INSERT','member_id'),
+        ('private.membership_purchases','gym_owner_executor','INSERT','plan_id'),
+        ('private.membership_purchases','gym_owner_executor','INSERT','price_php'),
+        ('private.membership_purchases','gym_owner_executor','INSERT','purchase_status'),
+        ('private.membership_purchases','gym_owner_executor','UPDATE','purchase_status'),
+        ('private.payment_records','gym_owner_executor','SELECT','id'),
+        ('private.payment_records','gym_owner_executor','SELECT','amount_php'),
+        ('private.payment_records','gym_owner_executor','SELECT','payment_method'),
+        ('private.payment_records','gym_owner_executor','SELECT','received_at'),
+        ('private.payment_records','gym_owner_executor','SELECT','verification_status'),
+        ('private.payment_records','gym_owner_executor','SELECT','external_reference'),
+        ('private.payment_records','gym_owner_executor','SELECT','evidence_reference'),
+        ('private.payment_records','gym_owner_executor','SELECT','recorded_by'),
+        ('private.payment_records','gym_owner_executor','SELECT','created_at'),
+        ('private.payment_records','gym_owner_executor','SELECT','operation_id'),
+        ('private.payment_records','gym_owner_executor','SELECT','target_membership_purchase_id'),
+        ('private.payment_records','gym_owner_executor','INSERT','amount_php'),
+        ('private.payment_records','gym_owner_executor','INSERT','payment_method'),
+        ('private.payment_records','gym_owner_executor','INSERT','verification_status'),
+        ('private.payment_records','gym_owner_executor','INSERT','external_reference'),
+        ('private.payment_records','gym_owner_executor','INSERT','recorded_by'),
+        ('private.payment_records','gym_owner_executor','INSERT','operation_id'),
+        ('private.payment_records','gym_owner_executor','INSERT','target_membership_purchase_id'),
+        ('private.payment_records','gym_owner_executor','UPDATE','verification_status'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','id'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','payment_id'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','membership_purchase_id'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','walkin_request_id'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','allocated_by'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','allocated_at'),
+        ('private.payment_allocations','gym_owner_executor','INSERT','payment_id'),
+        ('private.payment_allocations','gym_owner_executor','INSERT','membership_purchase_id'),
+        ('private.payment_allocations','gym_owner_executor','INSERT','allocated_by'),
+        ('private.payment_events','gym_owner_executor','SELECT','id'),
+        ('private.payment_events','gym_owner_executor','SELECT','payment_id'),
+        ('private.payment_events','gym_owner_executor','SELECT','event_type'),
+        ('private.payment_events','gym_owner_executor','SELECT','reason'),
+        ('private.payment_events','gym_owner_executor','SELECT','actor_user_id'),
+        ('private.payment_events','gym_owner_executor','SELECT','created_at'),
+        ('private.payment_events','gym_owner_executor','INSERT','payment_id'),
+        ('private.payment_events','gym_owner_executor','INSERT','event_type'),
+        ('private.payment_events','gym_owner_executor','INSERT','reason'),
+        ('private.payment_events','gym_owner_executor','INSERT','actor_user_id'),
+        ('private.audit_events','gym_owner_executor','SELECT','id'),
+        ('private.audit_events','gym_owner_executor','SELECT','actor_user_id'),
+        ('private.audit_events','gym_owner_executor','SELECT','event_type'),
+        ('private.audit_events','gym_owner_executor','SELECT','subject_type'),
+        ('private.audit_events','gym_owner_executor','SELECT','subject_id'),
+        ('private.audit_events','gym_owner_executor','SELECT','details'),
+        ('private.audit_events','gym_owner_executor','SELECT','created_at'),
+        ('private.audit_events','gym_owner_executor','SELECT','stream_key'),
+        ('private.audit_events','gym_owner_executor','SELECT','previous_event_hash'),
+        ('private.audit_events','gym_owner_executor','SELECT','event_hash'),
+        ('private.audit_events','gym_owner_executor','INSERT','stream_key'),
+        ('private.audit_events','gym_owner_executor','INSERT','actor_user_id'),
+        ('private.audit_events','gym_owner_executor','INSERT','event_type'),
+        ('private.audit_events','gym_owner_executor','INSERT','subject_type'),
+        ('private.audit_events','gym_owner_executor','INSERT','subject_id'),
+        ('private.audit_events','gym_owner_executor','INSERT','details'),
+        ('private.audit_chain_heads','gym_owner_executor','SELECT','stream_key'),
+        ('private.audit_chain_heads','gym_owner_executor','SELECT','last_event_id'),
+        ('private.audit_chain_heads','gym_owner_executor','SELECT','last_event_hash'),
+        ('private.audit_chain_heads','gym_owner_executor','SELECT','updated_at'),
+        ('private.audit_chain_heads','gym_owner_executor','INSERT','stream_key'),
+        ('private.audit_chain_heads','gym_owner_executor','INSERT','last_event_id'),
+        ('private.audit_chain_heads','gym_owner_executor','INSERT','last_event_hash'),
+        ('private.audit_chain_heads','gym_owner_executor','UPDATE','last_event_id'),
+        ('private.audit_chain_heads','gym_owner_executor','UPDATE','last_event_hash'),
+        ('private.audit_chain_heads','gym_owner_executor','UPDATE','updated_at'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','id'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','member_id'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','token_hash'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','token_purpose'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','expires_at'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','consumed_at'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','created_at'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','INSERT','member_id'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','INSERT','token_hash'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','INSERT','token_purpose'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','INSERT','expires_at'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','UPDATE','consumed_at'),
+        ('private.members','gym_public_executor','SELECT','id'),
+        ('private.members','gym_public_executor','SELECT','status'),
+        ('private.members','gym_public_executor','UPDATE','updated_at'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','id'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','member_id'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','token_hash'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','token_purpose'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','expires_at'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','consumed_at'),
+        ('private.member_pin_setup_tokens','gym_public_executor','UPDATE','consumed_at'),
+        ('private.member_pin_credentials','gym_public_executor','SELECT','member_id'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','member_id'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','password_hash'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','credential_version'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','created_at'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','updated_at'),
+        ('private.pin_enrollment_global_rate_limit_events','gym_public_executor','SELECT','requested_at'),
+        ('private.pin_enrollment_global_rate_limit_events','gym_public_executor','INSERT','requested_at')
+                    ) g(table_name,role_name,command,column_name)
+                    WHERE g.table_name=r.name AND g.role_name=caller
+                      AND g.command=privilege_name AND g.column_name=v_column)
+                    INTO expected;
+                    IF pg_catalog.has_column_privilege(caller,relation_oid,v_column,privilege_name) IS DISTINCT FROM expected THEN
+                        RAISE EXCEPTION 'Column ACL mismatch: %.% / % / %',r.name,v_column,caller,privilege_name;
+                    END IF;
+                END LOOP;
+            END LOOP;
+            IF pg_catalog.has_table_privilege(caller,relation_oid,'TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+               OR pg_catalog.has_table_privilege(caller,relation_oid,'DELETE') IS DISTINCT FROM
+                 (target AND caller='gym_public_executor' AND r.name='private.pin_enrollment_global_rate_limit_events') THEN
+                RAISE EXCEPTION 'Unexpected table-wide destructive privilege: % / %',caller,r.name;
+            END IF;
+        END LOOP;
+        IF EXISTS (SELECT 1 FROM pg_catalog.pg_class c,
+            LATERAL pg_catalog.aclexplode(COALESCE(c.relacl,pg_catalog.acldefault('r',c.relowner))) a
+            WHERE c.oid=relation_oid AND a.grantee<>c.relowner
+            AND NOT (target AND r.name='private.pin_enrollment_global_rate_limit_events'
+                     AND a.grantee=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='gym_public_executor')
+                     AND a.privilege_type='DELETE' AND NOT a.is_grantable)) THEN
+            RAISE EXCEPTION 'Unreviewed relation ACL principal/grant: %',r.name;
+        END IF;
+        IF EXISTS (SELECT 1 FROM pg_catalog.pg_attribute col,
+            LATERAL pg_catalog.aclexplode(col.attacl) a
+            WHERE col.attrelid=relation_oid AND col.attnum>0
+              AND a.grantee<>(SELECT relowner FROM pg_catalog.pg_class WHERE oid=relation_oid)
+              AND (a.is_grantable OR NOT (target AND EXISTS (SELECT 1 FROM (VALUES
+                  ('private.owner_access','gym_owner_executor','SELECT','user_id'),
+        ('private.owner_access','gym_owner_executor','SELECT','is_active'),
+        ('private.owner_access','gym_owner_executor','SELECT','created_at'),
+        ('private.owner_access','gym_owner_executor','SELECT','deactivated_at'),
+        ('private.members','gym_owner_executor','SELECT','id'),
+        ('private.members','gym_owner_executor','SELECT','member_code'),
+        ('private.members','gym_owner_executor','SELECT','full_name'),
+        ('private.members','gym_owner_executor','SELECT','mobile_lookup_hash'),
+        ('private.members','gym_owner_executor','SELECT','mobile_encrypted'),
+        ('private.members','gym_owner_executor','SELECT','status'),
+        ('private.members','gym_owner_executor','SELECT','created_at'),
+        ('private.members','gym_owner_executor','SELECT','updated_at'),
+        ('private.members','gym_owner_executor','SELECT','approved_at'),
+        ('private.members','gym_owner_executor','INSERT','member_code'),
+        ('private.members','gym_owner_executor','INSERT','full_name'),
+        ('private.members','gym_owner_executor','INSERT','mobile_lookup_hash'),
+        ('private.members','gym_owner_executor','INSERT','mobile_encrypted'),
+        ('private.members','gym_owner_executor','INSERT','status'),
+        ('private.members','gym_owner_executor','UPDATE','updated_at'),
+        ('private.membership_plans','gym_owner_executor','SELECT','id'),
+        ('private.membership_plans','gym_owner_executor','SELECT','name'),
+        ('private.membership_plans','gym_owner_executor','SELECT','price_php'),
+        ('private.membership_plans','gym_owner_executor','SELECT','is_active'),
+        ('private.membership_plans','gym_owner_executor','SELECT','created_at'),
+        ('private.membership_plans','gym_owner_executor','INSERT','name'),
+        ('private.membership_plans','gym_owner_executor','INSERT','price_php'),
+        ('private.membership_plans','gym_owner_executor','INSERT','is_active'),
+        ('private.membership_plans','gym_owner_executor','UPDATE','name'),
+        ('private.membership_plans','gym_owner_executor','UPDATE','price_php'),
+        ('private.membership_plans','gym_owner_executor','UPDATE','is_active'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','id'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','member_id'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','plan_id'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','price_php'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','purchase_status'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','activation_date'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','expiry_date'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','created_at'),
+        ('private.membership_purchases','gym_owner_executor','INSERT','member_id'),
+        ('private.membership_purchases','gym_owner_executor','INSERT','plan_id'),
+        ('private.membership_purchases','gym_owner_executor','INSERT','price_php'),
+        ('private.membership_purchases','gym_owner_executor','INSERT','purchase_status'),
+        ('private.membership_purchases','gym_owner_executor','UPDATE','purchase_status'),
+        ('private.payment_records','gym_owner_executor','SELECT','id'),
+        ('private.payment_records','gym_owner_executor','SELECT','amount_php'),
+        ('private.payment_records','gym_owner_executor','SELECT','payment_method'),
+        ('private.payment_records','gym_owner_executor','SELECT','received_at'),
+        ('private.payment_records','gym_owner_executor','SELECT','verification_status'),
+        ('private.payment_records','gym_owner_executor','SELECT','external_reference'),
+        ('private.payment_records','gym_owner_executor','SELECT','evidence_reference'),
+        ('private.payment_records','gym_owner_executor','SELECT','recorded_by'),
+        ('private.payment_records','gym_owner_executor','SELECT','created_at'),
+        ('private.payment_records','gym_owner_executor','SELECT','operation_id'),
+        ('private.payment_records','gym_owner_executor','SELECT','target_membership_purchase_id'),
+        ('private.payment_records','gym_owner_executor','INSERT','amount_php'),
+        ('private.payment_records','gym_owner_executor','INSERT','payment_method'),
+        ('private.payment_records','gym_owner_executor','INSERT','verification_status'),
+        ('private.payment_records','gym_owner_executor','INSERT','external_reference'),
+        ('private.payment_records','gym_owner_executor','INSERT','recorded_by'),
+        ('private.payment_records','gym_owner_executor','INSERT','operation_id'),
+        ('private.payment_records','gym_owner_executor','INSERT','target_membership_purchase_id'),
+        ('private.payment_records','gym_owner_executor','UPDATE','verification_status'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','id'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','payment_id'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','membership_purchase_id'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','walkin_request_id'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','allocated_by'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','allocated_at'),
+        ('private.payment_allocations','gym_owner_executor','INSERT','payment_id'),
+        ('private.payment_allocations','gym_owner_executor','INSERT','membership_purchase_id'),
+        ('private.payment_allocations','gym_owner_executor','INSERT','allocated_by'),
+        ('private.payment_events','gym_owner_executor','SELECT','id'),
+        ('private.payment_events','gym_owner_executor','SELECT','payment_id'),
+        ('private.payment_events','gym_owner_executor','SELECT','event_type'),
+        ('private.payment_events','gym_owner_executor','SELECT','reason'),
+        ('private.payment_events','gym_owner_executor','SELECT','actor_user_id'),
+        ('private.payment_events','gym_owner_executor','SELECT','created_at'),
+        ('private.payment_events','gym_owner_executor','INSERT','payment_id'),
+        ('private.payment_events','gym_owner_executor','INSERT','event_type'),
+        ('private.payment_events','gym_owner_executor','INSERT','reason'),
+        ('private.payment_events','gym_owner_executor','INSERT','actor_user_id'),
+        ('private.audit_events','gym_owner_executor','SELECT','id'),
+        ('private.audit_events','gym_owner_executor','SELECT','actor_user_id'),
+        ('private.audit_events','gym_owner_executor','SELECT','event_type'),
+        ('private.audit_events','gym_owner_executor','SELECT','subject_type'),
+        ('private.audit_events','gym_owner_executor','SELECT','subject_id'),
+        ('private.audit_events','gym_owner_executor','SELECT','details'),
+        ('private.audit_events','gym_owner_executor','SELECT','created_at'),
+        ('private.audit_events','gym_owner_executor','SELECT','stream_key'),
+        ('private.audit_events','gym_owner_executor','SELECT','previous_event_hash'),
+        ('private.audit_events','gym_owner_executor','SELECT','event_hash'),
+        ('private.audit_events','gym_owner_executor','INSERT','stream_key'),
+        ('private.audit_events','gym_owner_executor','INSERT','actor_user_id'),
+        ('private.audit_events','gym_owner_executor','INSERT','event_type'),
+        ('private.audit_events','gym_owner_executor','INSERT','subject_type'),
+        ('private.audit_events','gym_owner_executor','INSERT','subject_id'),
+        ('private.audit_events','gym_owner_executor','INSERT','details'),
+        ('private.audit_chain_heads','gym_owner_executor','SELECT','stream_key'),
+        ('private.audit_chain_heads','gym_owner_executor','SELECT','last_event_id'),
+        ('private.audit_chain_heads','gym_owner_executor','SELECT','last_event_hash'),
+        ('private.audit_chain_heads','gym_owner_executor','SELECT','updated_at'),
+        ('private.audit_chain_heads','gym_owner_executor','INSERT','stream_key'),
+        ('private.audit_chain_heads','gym_owner_executor','INSERT','last_event_id'),
+        ('private.audit_chain_heads','gym_owner_executor','INSERT','last_event_hash'),
+        ('private.audit_chain_heads','gym_owner_executor','UPDATE','last_event_id'),
+        ('private.audit_chain_heads','gym_owner_executor','UPDATE','last_event_hash'),
+        ('private.audit_chain_heads','gym_owner_executor','UPDATE','updated_at'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','id'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','member_id'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','token_hash'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','token_purpose'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','expires_at'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','consumed_at'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','created_at'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','INSERT','member_id'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','INSERT','token_hash'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','INSERT','token_purpose'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','INSERT','expires_at'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','UPDATE','consumed_at'),
+        ('private.members','gym_public_executor','SELECT','id'),
+        ('private.members','gym_public_executor','SELECT','status'),
+        ('private.members','gym_public_executor','UPDATE','updated_at'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','id'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','member_id'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','token_hash'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','token_purpose'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','expires_at'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','consumed_at'),
+        ('private.member_pin_setup_tokens','gym_public_executor','UPDATE','consumed_at'),
+        ('private.member_pin_credentials','gym_public_executor','SELECT','member_id'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','member_id'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','password_hash'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','credential_version'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','created_at'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','updated_at'),
+        ('private.pin_enrollment_global_rate_limit_events','gym_public_executor','SELECT','requested_at'),
+        ('private.pin_enrollment_global_rate_limit_events','gym_public_executor','INSERT','requested_at')
+              ) g(table_name,role_name,command,column_name)
+              JOIN pg_catalog.pg_roles rr ON rr.rolname=g.role_name
+              WHERE g.table_name=r.name AND g.column_name=col.attname
+                AND rr.oid=a.grantee AND g.command=a.privilege_type)))) THEN
+            RAISE EXCEPTION 'Unreviewed column ACL principal/grant: %',r.name;
+        END IF;
+    END LOOP;
+    IF NOT target AND EXISTS (SELECT 1 FROM pg_catalog.pg_policy p JOIN pg_catalog.pg_class c ON c.oid=p.polrelid
+        JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('private','public')) THEN
+        RAISE EXCEPTION 'Current profile policy inventory changed';
+    END IF;
+    IF target THEN
+        IF (SELECT count(*) FROM pg_catalog.pg_policy p JOIN pg_catalog.pg_class c ON c.oid=p.polrelid
+            JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('private','public'))<>34 THEN
+            RAISE EXCEPTION 'Policy count drift';
+        END IF;
+        FOR r IN SELECT * FROM (VALUES
+            ('private.owner_access','gym_owner_executor','SELECT','gf_owner_select'),
+        ('private.members','gym_owner_executor','SELECT','gf_owner_select'),
+        ('private.members','gym_owner_executor','INSERT','gf_owner_insert'),
+        ('private.members','gym_owner_executor','UPDATE','gf_owner_update'),
+        ('private.membership_plans','gym_owner_executor','SELECT','gf_owner_select'),
+        ('private.membership_plans','gym_owner_executor','INSERT','gf_owner_insert'),
+        ('private.membership_plans','gym_owner_executor','UPDATE','gf_owner_update'),
+        ('private.membership_purchases','gym_owner_executor','SELECT','gf_owner_select'),
+        ('private.membership_purchases','gym_owner_executor','INSERT','gf_owner_insert'),
+        ('private.membership_purchases','gym_owner_executor','UPDATE','gf_owner_update'),
+        ('private.payment_records','gym_owner_executor','SELECT','gf_owner_select'),
+        ('private.payment_records','gym_owner_executor','INSERT','gf_owner_insert'),
+        ('private.payment_records','gym_owner_executor','UPDATE','gf_owner_update'),
+        ('private.payment_allocations','gym_owner_executor','SELECT','gf_owner_select'),
+        ('private.payment_allocations','gym_owner_executor','INSERT','gf_owner_insert'),
+        ('private.payment_events','gym_owner_executor','SELECT','gf_owner_select'),
+        ('private.payment_events','gym_owner_executor','INSERT','gf_owner_insert'),
+        ('private.audit_events','gym_owner_executor','SELECT','gf_owner_select'),
+        ('private.audit_events','gym_owner_executor','INSERT','gf_owner_insert'),
+        ('private.audit_chain_heads','gym_owner_executor','SELECT','gf_owner_select'),
+        ('private.audit_chain_heads','gym_owner_executor','INSERT','gf_owner_insert'),
+        ('private.audit_chain_heads','gym_owner_executor','UPDATE','gf_owner_update'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','SELECT','gf_owner_select'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','INSERT','gf_owner_insert'),
+        ('private.member_pin_setup_tokens','gym_owner_executor','UPDATE','gf_owner_update'),
+        ('private.members','gym_public_executor','SELECT','gf_public_select'),
+        ('private.members','gym_public_executor','UPDATE','gf_public_update'),
+        ('private.member_pin_setup_tokens','gym_public_executor','SELECT','gf_public_select'),
+        ('private.member_pin_setup_tokens','gym_public_executor','UPDATE','gf_public_update'),
+        ('private.member_pin_credentials','gym_public_executor','SELECT','gf_public_select'),
+        ('private.member_pin_credentials','gym_public_executor','INSERT','gf_public_insert'),
+        ('private.pin_enrollment_global_rate_limit_events','gym_public_executor','SELECT','gf_public_select'),
+        ('private.pin_enrollment_global_rate_limit_events','gym_public_executor','INSERT','gf_public_insert'),
+        ('private.pin_enrollment_global_rate_limit_events','gym_public_executor','DELETE','gf_public_delete')
+        ) v(table_name,role_name,command,policy_name) LOOP
+            SELECT * INTO actual_policy FROM pg_catalog.pg_policy
+              WHERE polrelid=pg_catalog.to_regclass(r.table_name) AND polname=r.policy_name;
+            IF NOT FOUND OR NOT actual_policy.polpermissive
+               OR actual_policy.polroles IS DISTINCT FROM ARRAY[(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=r.role_name)]
+               OR actual_policy.polcmd::text IS DISTINCT FROM (CASE r.command WHEN 'SELECT' THEN 'r' WHEN 'INSERT' THEN 'a' WHEN 'UPDATE' THEN 'w' WHEN 'DELETE' THEN 'd' END) THEN
+                RAISE EXCEPTION 'Role/command policy mismatch: % / %',r.table_name,r.policy_name;
+            END IF;
+            expected_expr := 'current_user='||quote_literal(r.role_name)||'::name';
+            actual_qual := lower(regexp_replace(pg_catalog.pg_get_expr(actual_policy.polqual,actual_policy.polrelid),'[[:space:]()]','','g'));
+            actual_check := lower(regexp_replace(pg_catalog.pg_get_expr(actual_policy.polwithcheck,actual_policy.polrelid),'[[:space:]()]','','g'));
+            IF (r.command IN ('SELECT','UPDATE','DELETE') AND actual_qual IS DISTINCT FROM expected_expr)
+               OR (r.command='INSERT' AND actual_qual IS NOT NULL)
+               OR (r.command IN ('INSERT','UPDATE') AND actual_check IS DISTINCT FROM expected_expr)
+               OR (r.command IN ('SELECT','DELETE') AND actual_check IS NOT NULL) THEN
+                RAISE EXCEPTION 'Policy predicate mismatch: % / %',r.table_name,r.policy_name;
+            END IF;
+        END LOOP;
+    END IF;
+    FOR r IN SELECT * FROM (VALUES
+        ('private.audit_events_id_seq','gym_owner_executor'),
+        ('private.payment_events_id_seq','gym_owner_executor'),
+        ('private.pin_enrollment_global_rate_limit_events_id_seq','gym_public_executor')
+    ) v(name,executor) LOOP
+        relation_oid := pg_catalog.to_regclass(r.name);
+        IF relation_oid IS NULL OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class c
+            WHERE c.oid=relation_oid AND c.relkind='S' AND c.relowner=(SELECT oid FROM pg_catalog.pg_roles
+            WHERE rolname=CASE WHEN target THEN 'gym_data_owner' ELSE 'postgres' END)) THEN
+            RAISE EXCEPTION 'Sequence ownership mismatch: %',r.name;
+        END IF;
+        FOREACH caller IN ARRAY ARRAY['anon','authenticated','service_role','gym_registration_login','gym_owner_executor','gym_public_executor'] LOOP
+            IF pg_catalog.has_sequence_privilege(caller,relation_oid,'SELECT,UPDATE')
+               OR pg_catalog.has_sequence_privilege(caller,relation_oid,'USAGE') THEN
+                RAISE EXCEPTION 'Sequence ACL mismatch: % / %',r.name,caller;
+            END IF;
+        END LOOP;
+        IF EXISTS (SELECT 1 FROM pg_catalog.pg_class c,
+            LATERAL pg_catalog.aclexplode(COALESCE(c.relacl,pg_catalog.acldefault('S',c.relowner))) a
+            WHERE c.oid=relation_oid AND a.grantee<>c.relowner) THEN
+            RAISE EXCEPTION 'Unreviewed sequence ACL: %',r.name;
+        END IF;
+    END LOOP;
+    IF (SELECT count(*) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+        WHERE n.nspname IN ('private','api'))<>25 THEN RAISE EXCEPTION 'Routine inventory drift'; END IF;
+    FOR r IN SELECT * FROM (VALUES
+        ('api.append_audit_event(text, uuid, text, text, text, jsonb)','7a05ca54592137c75b9adda7023516a8','gym_owner_executor','true','true','service_role,gym_public_executor'),
+        ('api.is_active_owner_for_user(uuid)','830f29066e37d9f2593c3cd99878ae93','gym_owner_executor','true','true','service_role'),
+        ('api.member_enroll_pin(text, text)','6bf1d4a963b2b853ba9cdc7cb582c342','gym_public_executor','true','true','service_role'),
+        ('api.owner_confirm_membership_payment(uuid, uuid, boolean)','ce58f4473d75469ef2676f232794dce0','gym_owner_executor','true','true','service_role'),
+        ('api.owner_create_membership_purchase(uuid, uuid, uuid)','f8f310bd5576274401706c5213c6746d','gym_owner_executor','true','true','service_role'),
+        ('api.owner_create_pin_enrollment_token(uuid, uuid, text, timestamp with time zone)','7a226978d83e191643a436c829f9dd07','gym_owner_executor','true','true','service_role'),
+        ('api.owner_list_members(uuid, text, text, integer, integer)','342dd9a2131e068c1a849694b053ebdf','gym_owner_executor','true','true','service_role'),
+        ('api.owner_list_membership_payments(uuid, text, text, integer, integer)','6ac0d61dfc24c15123812ec788294197','gym_owner_executor','true','true','service_role'),
+        ('api.owner_list_membership_plans(uuid)','fc3ed2be2834b6458f2835bfc18d9b4e','gym_owner_executor','true','true','service_role'),
+        ('api.owner_list_membership_purchases(uuid, text, text, integer, integer)','d6fd6f1ba099afe317dcf1606d49d64f','gym_owner_executor','true','true','service_role'),
+        ('api.owner_record_membership_payment(uuid, uuid, uuid, numeric, text, text)','c21766acb601a8b92dc26d59f73be2a3','gym_owner_executor','true','true','service_role'),
+        ('api.owner_register_member(uuid, text, bytea, bytea)','e56b20e809c8dfcebd782d4e8aa5fbb5','gym_owner_executor','true','true','service_role'),
+        ('api.owner_reject_membership_payment(uuid, uuid, text)','b55e7879cbae6d9074264826ed75eac0','gym_owner_executor','true','true','service_role'),
+        ('api.owner_save_membership_plan(uuid, uuid, text, numeric, boolean)','c128144cda372362b26ec91dc64fd6fa','gym_owner_executor','true','true','service_role'),
+        ('api.reserve_pin_enrollment_request()','ed1a67d4a3cd30fed31a0ee36222eb5b','gym_public_executor','true','true','service_role'),
+        ('api.verify_audit_stream(text)','f7c5cdb53ec4cf2d845e38f404df5fb9','gym_owner_executor','true','true','service_role'),
+        ('private.audit_events_chain_insert()','6fa6a434395de93250213752513ffb34','gym_data_owner','false','true','gym_owner_executor'),
+        ('private.compute_audit_event_hash(bigint, text, text, uuid, text, text, text, jsonb, timestamp with time zone)','a0635caf0c329b24571bd68df684f69f','gym_data_owner','false','false','gym_owner_executor'),
+        ('private.guard_membership_payment_allocation()','4836529309d8c518d42d24b9d191d6d5','gym_data_owner','false','true','gym_owner_executor'),
+        ('private.guard_membership_payment_record_insert()','edaae9f3a89330d4e55ce37d7d16d074','gym_data_owner','false','true','gym_owner_executor'),
+        ('private.guard_membership_payment_record_update()','9386192bae0b7aec6e34fce2e2aadbda','gym_data_owner','false','true','gym_owner_executor'),
+        ('private.guard_purchase_pending_activation()','c3467a65c399cf75243d4e3e9e31b36c','gym_data_owner','false','true','gym_owner_executor'),
+        ('private.is_active_owner()','76af3203b0fe03c30e1eb6d8264a04e6','gym_data_owner','false','false',''),
+        ('private.prevent_audit_event_mutation()','d835b9b2db211d2439e03ec9d8a6337d','gym_data_owner','false','true','gym_owner_executor'),
+        ('private.prevent_payment_history_mutation()','0ad4feeac81403c334c6665ff018485e','gym_data_owner','false','true','gym_owner_executor')
+    ) v(signature,body_md5,target_owner,target_definer,baseline_definer,callers) LOOP
+        routine_oid := pg_catalog.to_regprocedure(r.signature);
+        IF routine_oid IS NULL OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_proc p
+            WHERE p.oid=routine_oid AND md5(p.prosrc)=r.body_md5
+              AND p.proowner=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=CASE WHEN target THEN r.target_owner ELSE 'postgres' END)
+              AND p.prosecdef=CASE WHEN target THEN r.target_definer::boolean ELSE r.baseline_definer::boolean END
+              AND p.proconfig=ARRAY['search_path=""']::text[]) THEN
+            RAISE EXCEPTION 'Routine body/owner/execution/config mismatch: %',r.signature;
+        END IF;
+        FOREACH caller IN ARRAY ARRAY['anon','authenticated','service_role','gym_registration_login','gym_owner_executor','gym_public_executor'] LOOP
+            expected := CASE WHEN target THEN caller=r.target_owner OR caller=ANY(string_to_array(r.callers,','))
+                             ELSE caller='service_role' AND r.signature LIKE 'api.%' END;
+            IF pg_catalog.has_function_privilege(caller,routine_oid,'EXECUTE') IS DISTINCT FROM expected THEN
+                RAISE EXCEPTION 'Routine execute mismatch: % / %',r.signature,caller;
+            END IF;
+        END LOOP;
+        IF EXISTS (SELECT 1 FROM pg_catalog.pg_proc p,
+            LATERAL pg_catalog.aclexplode(COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))) a
+            WHERE p.oid=routine_oid AND (a.is_grantable AND a.grantee<>p.proowner OR
+              a.grantee<>p.proowner AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles rr
+                WHERE rr.oid=a.grantee AND rr.rolname=ANY(CASE WHEN target THEN string_to_array(r.callers,',')
+                ELSE CASE WHEN r.signature LIKE 'api.%' THEN ARRAY['service_role'] ELSE ARRAY[]::text[] END END)))) THEN
+            RAISE EXCEPTION 'PUBLIC/unreviewed routine grantee: %',r.signature;
+        END IF;
+    END LOOP;
+    FOREACH caller IN ARRAY ARRAY['anon','authenticated','gym_registration_login'] LOOP
+        IF pg_catalog.has_schema_privilege(caller,'private','USAGE,CREATE')
+           OR pg_catalog.has_schema_privilege(caller,'api','USAGE,CREATE') THEN
+            RAISE EXCEPTION 'Browser/dormant schema exposure: %',caller;
+        END IF;
+    END LOOP;
+    IF pg_catalog.has_schema_privilege('service_role','private','USAGE,CREATE')
+       OR NOT pg_catalog.has_schema_privilege('service_role','api','USAGE')
+       OR pg_catalog.has_schema_privilege('service_role','api','CREATE') THEN
+        RAISE EXCEPTION 'Service-role schema boundary mismatch';
+    END IF;
+    FOREACH caller IN ARRAY ARRAY['gym_data_owner','gym_owner_executor','gym_public_executor'] LOOP
+        IF pg_catalog.has_schema_privilege(caller,'private','CREATE')
+           OR pg_catalog.has_schema_privilege(caller,'api','CREATE')
+           OR pg_catalog.has_schema_privilege(caller,'public','CREATE') THEN
+            RAISE EXCEPTION 'Reserved role has schema CREATE: %',caller;
+        END IF;
+        IF pg_catalog.has_schema_privilege(caller,'private','USAGE') IS DISTINCT FROM target THEN
+            RAISE EXCEPTION 'Reserved private schema USAGE mismatch: %',caller;
+        END IF;
+        IF pg_catalog.has_schema_privilege(caller,'api','USAGE') IS DISTINCT FROM
+           (target AND caller IN ('gym_owner_executor','gym_public_executor')) THEN
+            RAISE EXCEPTION 'Reserved API schema USAGE mismatch: %',caller;
+        END IF;
+    END LOOP;
+    IF target AND (NOT pg_catalog.has_schema_privilege('gym_owner_executor','extensions','USAGE')
+       OR NOT pg_catalog.has_function_privilege('gym_owner_executor','extensions.digest(bytea,text)','EXECUTE')) THEN
+        RAISE EXCEPTION 'Audit digest dependency unavailable to Owner executor';
+    END IF;
+    FOR r IN SELECT * FROM (VALUES
+        ('private.audit_events','audit_events_chain_insert_trigger','CREATE TRIGGER audit_events_chain_insert_trigger BEFORE INSERT ON private.audit_events FOR EACH ROW EXECUTE FUNCTION private.audit_events_chain_insert()'),
+        ('private.audit_events','audit_events_no_truncate','CREATE TRIGGER audit_events_no_truncate BEFORE TRUNCATE ON private.audit_events FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_audit_event_mutation()'),
+        ('private.audit_events','audit_events_no_update_delete','CREATE TRIGGER audit_events_no_update_delete BEFORE DELETE OR UPDATE ON private.audit_events FOR EACH ROW EXECUTE FUNCTION private.prevent_audit_event_mutation()'),
+        ('private.membership_purchases','membership_purchase_requires_confirmed_payment','CREATE TRIGGER membership_purchase_requires_confirmed_payment BEFORE INSERT OR UPDATE ON private.membership_purchases FOR EACH ROW EXECUTE FUNCTION private.guard_purchase_pending_activation()'),
+        ('private.payment_allocations','payment_allocations_no_truncate','CREATE TRIGGER payment_allocations_no_truncate BEFORE TRUNCATE ON private.payment_allocations FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_payment_history_mutation()'),
+        ('private.payment_allocations','payment_allocations_no_update_delete','CREATE TRIGGER payment_allocations_no_update_delete BEFORE DELETE OR UPDATE ON private.payment_allocations FOR EACH ROW EXECUTE FUNCTION private.prevent_payment_history_mutation()'),
+        ('private.payment_allocations','payment_allocations_validate_membership','CREATE TRIGGER payment_allocations_validate_membership BEFORE INSERT ON private.payment_allocations FOR EACH ROW EXECUTE FUNCTION private.guard_membership_payment_allocation()'),
+        ('private.payment_events','payment_events_no_truncate','CREATE TRIGGER payment_events_no_truncate BEFORE TRUNCATE ON private.payment_events FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_payment_history_mutation()'),
+        ('private.payment_events','payment_events_no_update_delete','CREATE TRIGGER payment_events_no_update_delete BEFORE DELETE OR UPDATE ON private.payment_events FOR EACH ROW EXECUTE FUNCTION private.prevent_payment_history_mutation()'),
+        ('private.payment_records','payment_records_guard_update','CREATE TRIGGER payment_records_guard_update BEFORE UPDATE ON private.payment_records FOR EACH ROW EXECUTE FUNCTION private.guard_membership_payment_record_update()'),
+        ('private.payment_records','payment_records_no_delete','CREATE TRIGGER payment_records_no_delete BEFORE DELETE ON private.payment_records FOR EACH ROW EXECUTE FUNCTION private.prevent_payment_history_mutation()'),
+        ('private.payment_records','payment_records_no_truncate','CREATE TRIGGER payment_records_no_truncate BEFORE TRUNCATE ON private.payment_records FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_payment_history_mutation()'),
+        ('private.payment_records','payment_records_validate_membership_insert','CREATE TRIGGER payment_records_validate_membership_insert BEFORE INSERT ON private.payment_records FOR EACH ROW EXECUTE FUNCTION private.guard_membership_payment_record_insert()')
+    ) v(table_name,name,definition) LOOP
+        IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t WHERE t.tgrelid=pg_catalog.to_regclass(r.table_name)
+            AND t.tgname=r.name AND t.tgenabled='O' AND pg_catalog.pg_get_triggerdef(t.oid)=r.definition) THEN
+            RAISE EXCEPTION 'Trigger definition/state drift: %.%',r.table_name,r.name;
+        END IF;
+    END LOOP;
+    RAISE NOTICE 'PASS profile %: catalog scope only; lifecycle/Attendance/hosted behavior not certified',profile;
+    IF NOT target THEN
+        RAISE WARNING 'Ownership/executor hardening remains unsatisfied in current_server_only profile';
+    END IF;
+END;
+$phase_assertions$;
+DO $dependency_assertions$
+DECLARE r record; target boolean := current_setting('gymforce.assertion_profile')='proposed_owner_executor'; expected_owner oid;
+BEGIN
+    SELECT oid INTO expected_owner FROM pg_catalog.pg_roles WHERE rolname=CASE WHEN target THEN 'gym_data_owner' ELSE 'postgres' END;
+    IF pg_catalog.to_regclass(pg_catalog.pg_get_serial_sequence('private.audit_events','id')) IS DISTINCT FROM pg_catalog.to_regclass('private.audit_events_id_seq') THEN RAISE EXCEPTION 'Identity sequence binding drift: private.audit_events_id_seq'; END IF;
+    IF pg_catalog.to_regclass(pg_catalog.pg_get_serial_sequence('private.payment_events','id')) IS DISTINCT FROM pg_catalog.to_regclass('private.payment_events_id_seq') THEN RAISE EXCEPTION 'Identity sequence binding drift: private.payment_events_id_seq'; END IF;
+    IF pg_catalog.to_regclass(pg_catalog.pg_get_serial_sequence('private.pin_enrollment_global_rate_limit_events','id')) IS DISTINCT FROM pg_catalog.to_regclass('private.pin_enrollment_global_rate_limit_events_id_seq') THEN RAISE EXCEPTION 'Identity sequence binding drift: private.pin_enrollment_global_rate_limit_events_id_seq'; END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles login_role WHERE login_role.rolname='gym_registration_login'
+      AND login_role.rolcanlogin AND NOT login_role.rolsuper AND NOT login_role.rolcreatedb AND NOT login_role.rolcreaterole
+      AND NOT login_role.rolinherit AND NOT login_role.rolreplication AND NOT login_role.rolbypassrls)
+      OR EXISTS (SELECT 1 FROM pg_catalog.pg_authid WHERE rolname='gym_registration_login' AND rolpassword IS NOT NULL) THEN
+        RAISE EXCEPTION 'Dormant registration login attributes/credential state drift';
+    END IF;
+    FOR r IN SELECT * FROM (VALUES
+        ('index','private.attendance_checkins_pkey','private.attendance_checkins'),
+        ('index','private.attendance_date_idx','private.attendance_checkins'),
+        ('index','private.attendance_member_date_idx','private.attendance_checkins'),
+        ('index','private.attendance_one_checkin_per_walkin','private.attendance_checkins'),
+        ('index','private.attendance_one_member_valid_checkin_per_day','private.attendance_checkins'),
+        ('index','private.attendance_validity_resolutions_pkey','private.attendance_validity_resolutions'),
+        ('index','private.audit_chain_heads_pkey','private.audit_chain_heads'),
+        ('index','private.audit_events_actor_created_idx','private.audit_events'),
+        ('index','private.audit_events_created_at_idx','private.audit_events'),
+        ('index','private.audit_events_pkey','private.audit_events'),
+        ('index','private.audit_events_stream_created_idx','private.audit_events'),
+        ('index','private.cash_adjustments_reconciliation_idx','private.cash_reconciliation_adjustments'),
+        ('index','private.cash_drawer_only_one_open_session','private.cash_drawer_sessions'),
+        ('index','private.cash_drawer_sessions_pkey','private.cash_drawer_sessions'),
+        ('index','private.cash_reconciliation_adjustments_pkey','private.cash_reconciliation_adjustments'),
+        ('index','private.cash_reconciliations_date_idx','private.cash_reconciliations'),
+        ('index','private.cash_reconciliations_drawer_session_id_key','private.cash_reconciliations'),
+        ('index','private.cash_reconciliations_pkey','private.cash_reconciliations'),
+        ('index','private.member_pin_credentials_pkey','private.member_pin_credentials'),
+        ('index','private.member_pin_setup_tokens_active_enrollment_idx','private.member_pin_setup_tokens'),
+        ('index','private.member_pin_setup_tokens_expiry_idx','private.member_pin_setup_tokens'),
+        ('index','private.member_pin_setup_tokens_member_idx','private.member_pin_setup_tokens'),
+        ('index','private.member_pin_setup_tokens_pkey','private.member_pin_setup_tokens'),
+        ('index','private.member_pin_setup_tokens_token_hash_key','private.member_pin_setup_tokens'),
+        ('index','private.members_member_code_key','private.members'),
+        ('index','private.members_mobile_lookup_hash_key','private.members'),
+        ('index','private.members_pkey','private.members'),
+        ('index','private.members_status_idx','private.members'),
+        ('index','private.membership_plans_normalized_name_uidx','private.membership_plans'),
+        ('index','private.membership_plans_pkey','private.membership_plans'),
+        ('index','private.membership_purchases_member_idx','private.membership_purchases'),
+        ('index','private.membership_purchases_no_overlapping_periods','private.membership_purchases'),
+        ('index','private.membership_purchases_pkey','private.membership_purchases'),
+        ('index','private.membership_purchases_plan_idx','private.membership_purchases'),
+        ('index','private.owner_access_pkey','private.owner_access'),
+        ('index','private.payment_allocations_membership_idx','private.payment_allocations'),
+        ('index','private.payment_allocations_membership_purchase_uidx','private.payment_allocations'),
+        ('index','private.payment_allocations_payment_id_key','private.payment_allocations'),
+        ('index','private.payment_allocations_pkey','private.payment_allocations'),
+        ('index','private.payment_allocations_walkin_idx','private.payment_allocations'),
+        ('index','private.payment_corrections_payment_idx','private.payment_corrections'),
+        ('index','private.payment_corrections_pkey','private.payment_corrections'),
+        ('index','private.payment_events_payment_created_idx','private.payment_events'),
+        ('index','private.payment_events_pkey','private.payment_events'),
+        ('index','private.payment_records_membership_external_reference_uidx','private.payment_records'),
+        ('index','private.payment_records_membership_idx','private.payment_records'),
+        ('index','private.payment_records_operation_id_uidx','private.payment_records'),
+        ('index','private.payment_records_pending_membership_uidx','private.payment_records'),
+        ('index','private.payment_records_pkey','private.payment_records'),
+        ('index','private.pin_attempt_buckets_blocked_idx','private.pin_attempt_buckets'),
+        ('index','private.pin_attempt_buckets_pkey','private.pin_attempt_buckets'),
+        ('index','private.pin_bucket_unique_window','private.pin_attempt_buckets'),
+        ('index','private.pin_enrollment_global_rate_limit_events_pkey','private.pin_enrollment_global_rate_limit_events'),
+        ('index','private.pin_enrollment_global_rate_limit_events_requested_at_idx','private.pin_enrollment_global_rate_limit_events'),
+        ('index','private.walkin_fee_versions_pkey','private.walkin_fee_versions'),
+        ('index','private.walkin_requests_pkey','private.walkin_requests'),
+        ('index','public.gym_settings_pkey','public.gym_settings'),
+        ('type','private._attendance_checkins','private.attendance_checkins'),
+        ('type','private._attendance_validity_resolutions','private.attendance_validity_resolutions'),
+        ('type','private._audit_chain_heads','private.audit_chain_heads'),
+        ('type','private._audit_events','private.audit_events'),
+        ('type','private._cash_drawer_sessions','private.cash_drawer_sessions'),
+        ('type','private._cash_reconciliation_adjustments','private.cash_reconciliation_adjustments'),
+        ('type','private._cash_reconciliations','private.cash_reconciliations'),
+        ('type','private._member_pin_credentials','private.member_pin_credentials'),
+        ('type','private._member_pin_setup_tokens','private.member_pin_setup_tokens'),
+        ('type','private._members','private.members'),
+        ('type','private._membership_plans','private.membership_plans'),
+        ('type','private._membership_purchases','private.membership_purchases'),
+        ('type','private._owner_access','private.owner_access'),
+        ('type','private._payment_allocations','private.payment_allocations'),
+        ('type','private._payment_corrections','private.payment_corrections'),
+        ('type','private._payment_events','private.payment_events'),
+        ('type','private._payment_records','private.payment_records'),
+        ('type','private._pin_attempt_buckets','private.pin_attempt_buckets'),
+        ('type','private._pin_enrollment_global_rate_limit_events','private.pin_enrollment_global_rate_limit_events'),
+        ('type','private._walkin_fee_versions','private.walkin_fee_versions'),
+        ('type','private._walkin_requests','private.walkin_requests'),
+        ('type','private.attendance_checkins','private.attendance_checkins'),
+        ('type','private.attendance_validity_resolutions','private.attendance_validity_resolutions'),
+        ('type','private.audit_chain_heads','private.audit_chain_heads'),
+        ('type','private.audit_events','private.audit_events'),
+        ('type','private.cash_drawer_sessions','private.cash_drawer_sessions'),
+        ('type','private.cash_reconciliation_adjustments','private.cash_reconciliation_adjustments'),
+        ('type','private.cash_reconciliations','private.cash_reconciliations'),
+        ('type','private.member_pin_credentials','private.member_pin_credentials'),
+        ('type','private.member_pin_setup_tokens','private.member_pin_setup_tokens'),
+        ('type','private.members','private.members'),
+        ('type','private.membership_plans','private.membership_plans'),
+        ('type','private.membership_purchases','private.membership_purchases'),
+        ('type','private.owner_access','private.owner_access'),
+        ('type','private.payment_allocations','private.payment_allocations'),
+        ('type','private.payment_corrections','private.payment_corrections'),
+        ('type','private.payment_events','private.payment_events'),
+        ('type','private.payment_records','private.payment_records'),
+        ('type','private.pin_attempt_buckets','private.pin_attempt_buckets'),
+        ('type','private.pin_enrollment_global_rate_limit_events','private.pin_enrollment_global_rate_limit_events'),
+        ('type','private.walkin_fee_versions','private.walkin_fee_versions'),
+        ('type','private.walkin_requests','private.walkin_requests'),
+        ('type','public._gym_settings','public.gym_settings'),
+        ('type','public.gym_settings','public.gym_settings')
+    ) v(kind,name,parent) LOOP
+        IF r.kind='index' AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class c
+            JOIN pg_catalog.pg_index i ON i.indexrelid=c.oid WHERE c.oid=pg_catalog.to_regclass(r.name)
+              AND i.indrelid=pg_catalog.to_regclass(r.parent) AND c.relowner=expected_owner
+              AND i.indisvalid AND i.indisready) THEN
+            RAISE EXCEPTION 'Dependent index owner/binding/validity mismatch: %',r.name;
+        ELSIF r.kind='type' AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_type t
+            JOIN pg_catalog.pg_class c ON c.oid=pg_catalog.to_regclass(r.parent)
+            JOIN pg_catalog.pg_type base ON base.oid=c.reltype
+            WHERE t.oid=pg_catalog.to_regtype(r.name) AND (t.oid=base.oid OR t.oid=base.typarray)
+              AND t.typowner=expected_owner) THEN
+            RAISE EXCEPTION 'Dependent type owner/binding mismatch: %',r.name;
+        END IF;
+    END LOOP;
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_constraint c JOIN pg_catalog.pg_namespace n ON n.oid=c.connamespace
+       WHERE n.nspname IN ('private','public') AND NOT c.convalidated) THEN
+        RAISE EXCEPTION 'Unvalidated application constraint';
+    END IF;
+END;
+$dependency_assertions$;
+DO $offline_contract$
+DECLARE
+    contract jsonb := $contract_json${"format":1,"origin":"Pinned migration source; strict lexical definitions, NOT a server catalog export","native_exposed_routines":[],"hosted":{"supported":false,"reason":"Provider metadata/version/ACL inventory not approved","documented_candidate":"graphql_public.graphql(text,text,jsonb,jsonb); pg_graphql-owned SECURITY INVOKER; NOT an allowed exception"},"creators":["postgres","gym_data_owner","gym_owner_executor","gym_public_executor","gym_registration_login"],"default_privileges":{"scopes":["global","private","api","public","graphql_public"],"kinds":["r","S","f","T"],"non_owner_grants":[],"implicit_public_type_usage":"allow_only_unmodified_builtin_without_explicit_global_entry"},"tables":[{"name":"private.attendance_checkins","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"member_id","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"walkin_request_id","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"gym_local_date","type":"date","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"checked_in_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"attendance_status","type":"text","not_null":true,"default":"'valid'","identity":"","generated":"","catalog_default":"'valid' :: text"}],"constraints":[{"name":"attendance_checkins_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"attendance_checkins_member_id_fkey","kind":"f","definition":"foreign key ( member_id ) references private . members ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( member_id ) references private . members ( id ) on delete restrict","no_inherit":null},{"name":"attendance_checkins_walkin_request_id_fkey","kind":"f","definition":"foreign key ( walkin_request_id ) references private . walkin_requests ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( walkin_request_id ) references private . walkin_requests ( id ) on delete restrict","no_inherit":null},{"name":"attendance_exactly_one_subject","kind":"c","definition":"check ( ( member_id is not null ) <> ( walkin_request_id is not null ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( ( member_id is not null ) <> ( walkin_request_id is not null ) ) )","no_inherit":false},{"name":"attendance_status_valid","kind":"c","definition":"check ( attendance_status in ( 'valid' , 'invalidated_payment' , 'invalidated_correction' , 'review' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( attendance_status = any ( array [ 'valid' :: text , 'invalidated_payment' :: text , 'invalidated_correction' :: text , 'review' :: text ] ) ) )","no_inherit":false}]},{"name":"private.attendance_validity_resolutions","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"attendance_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"prior_status","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"new_status","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"reason","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"resolved_by","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"resolved_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"attendance_validity_resolutions_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"attendance_validity_resolutions_attendance_id_fkey","kind":"f","definition":"foreign key ( attendance_id ) references private . attendance_checkins ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( attendance_id ) references private . attendance_checkins ( id ) on delete restrict","no_inherit":null},{"name":"attendance_validity_resolutions_resolved_by_fkey","kind":"f","definition":"foreign key ( resolved_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( resolved_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"attendance_resolution_reason_not_blank","kind":"c","definition":"check ( length ( trim ( reason ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from reason ) ) > 0 ) )","no_inherit":false},{"name":"attendance_resolution_status_valid","kind":"c","definition":"check ( prior_status in ( 'valid' , 'invalidated_payment' , 'invalidated_correction' , 'review' ) and new_status in ( 'valid' , 'invalidated_payment' , 'invalidated_correction' , 'review' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( ( prior_status = any ( array [ 'valid' :: text , 'invalidated_payment' :: text , 'invalidated_correction' :: text , 'review' :: text ] ) ) and ( new_status = any ( array [ 'valid' :: text , 'invalidated_payment' :: text , 'invalidated_correction' :: text , 'review' :: text ] ) ) ) )","no_inherit":false}]},{"name":"private.audit_chain_heads","columns":[{"name":"stream_key","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"last_event_id","type":"bigint","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"last_event_hash","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"updated_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"audit_chain_heads_pkey","kind":"p","definition":"primary key ( stream_key )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( stream_key )","no_inherit":null},{"name":"audit_chain_stream_not_blank","kind":"c","definition":"check ( length ( trim ( stream_key ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from stream_key ) ) > 0 ) )","no_inherit":false},{"name":"audit_chain_head_consistent","kind":"c","definition":"check ( ( last_event_id is null and last_event_hash is null ) or ( last_event_id is not null and last_event_hash is not null ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( ( ( last_event_id is null ) and ( last_event_hash is null ) ) or ( ( last_event_id is not null ) and ( last_event_hash is not null ) ) ) )","no_inherit":false}]},{"name":"private.audit_events","columns":[{"name":"id","type":"bigint","not_null":true,"default":null,"identity":"a","generated":"","catalog_default":null},{"name":"actor_user_id","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"event_type","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"subject_type","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"subject_id","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"details","type":"jsonb","not_null":true,"default":"'{}' :: jsonb","identity":"","generated":"","catalog_default":"'{}' :: jsonb"},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"stream_key","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"previous_event_hash","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"event_hash","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null}],"constraints":[{"name":"audit_events_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"audit_events_actor_user_id_fkey","kind":"f","definition":"foreign key ( actor_user_id ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( actor_user_id ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"audit_event_type_not_blank","kind":"c","definition":"check ( length ( trim ( event_type ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from event_type ) ) > 0 ) )","no_inherit":false},{"name":"audit_subject_type_not_blank","kind":"c","definition":"check ( length ( trim ( subject_type ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from subject_type ) ) > 0 ) )","no_inherit":false}]},{"name":"private.cash_drawer_sessions","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"opened_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"opened_by","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"opening_float_php","type":"numeric ( 12 , 2 )","not_null":true,"default":"0","identity":"","generated":"","catalog_default":"0"},{"name":"session_status","type":"text","not_null":true,"default":"'open'","identity":"","generated":"","catalog_default":"'open' :: text"},{"name":"closed_at","type":"timestamp with time zone","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"closed_by","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null}],"constraints":[{"name":"cash_drawer_sessions_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"cash_drawer_sessions_opened_by_fkey","kind":"f","definition":"foreign key ( opened_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( opened_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"cash_drawer_sessions_closed_by_fkey","kind":"f","definition":"foreign key ( closed_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( closed_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"cash_opening_float_nonnegative","kind":"c","definition":"check ( opening_float_php >= 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( opening_float_php >= ( 0 ) :: numeric ) )","no_inherit":false},{"name":"cash_drawer_status_valid","kind":"c","definition":"check ( session_status in ( 'open' , 'closed' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( session_status = any ( array [ 'open' :: text , 'closed' :: text ] ) ) )","no_inherit":false},{"name":"cash_drawer_close_consistent","kind":"c","definition":"check ( ( session_status = 'open' and closed_at is null and closed_by is null ) or ( session_status = 'closed' and closed_at is not null and closed_by is not null ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( ( ( session_status = 'open' :: text ) and ( closed_at is null ) and ( closed_by is null ) ) or ( ( session_status = 'closed' :: text ) and ( closed_at is not null ) and ( closed_by is not null ) ) ) )","no_inherit":false}]},{"name":"private.cash_reconciliation_adjustments","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"reconciliation_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"amount_delta_php","type":"numeric ( 12 , 2 )","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"reason","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"evidence_reference","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"recorded_by","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"cash_reconciliation_adjustments_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"cash_reconciliation_adjustments_reconciliation_id_fkey","kind":"f","definition":"foreign key ( reconciliation_id ) references private . cash_reconciliations ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( reconciliation_id ) references private . cash_reconciliations ( id ) on delete restrict","no_inherit":null},{"name":"cash_reconciliation_adjustments_recorded_by_fkey","kind":"f","definition":"foreign key ( recorded_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( recorded_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"cash_adjustment_nonzero","kind":"c","definition":"check ( amount_delta_php <> 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( amount_delta_php <> ( 0 ) :: numeric ) )","no_inherit":false},{"name":"cash_adjustment_reason_not_blank","kind":"c","definition":"check ( length ( trim ( reason ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from reason ) ) > 0 ) )","no_inherit":false}]},{"name":"private.cash_reconciliations","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"drawer_session_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"expected_cash_php","type":"numeric ( 12 , 2 )","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"counted_cash_php","type":"numeric ( 12 , 2 )","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"variance_php","type":"numeric ( 12 , 2 )","not_null":false,"default":"( counted_cash_php - expected_cash_php )","identity":"","generated":"s","catalog_default":"( counted_cash_php - expected_cash_php )"},{"name":"reconciled_by","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"reconciled_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"notes","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null}],"constraints":[{"name":"cash_reconciliations_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"cash_reconciliations_drawer_session_id_key","kind":"u","definition":"unique ( drawer_session_id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"unique ( drawer_session_id )","no_inherit":null},{"name":"cash_reconciliations_drawer_session_id_fkey","kind":"f","definition":"foreign key ( drawer_session_id ) references private . cash_drawer_sessions ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( drawer_session_id ) references private . cash_drawer_sessions ( id ) on delete restrict","no_inherit":null},{"name":"cash_reconciliations_reconciled_by_fkey","kind":"f","definition":"foreign key ( reconciled_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( reconciled_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"reconciliation_expected_cash_nonnegative","kind":"c","definition":"check ( expected_cash_php >= 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( expected_cash_php >= ( 0 ) :: numeric ) )","no_inherit":false},{"name":"reconciliation_counted_cash_nonnegative","kind":"c","definition":"check ( counted_cash_php >= 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( counted_cash_php >= ( 0 ) :: numeric ) )","no_inherit":false}]},{"name":"private.member_pin_credentials","columns":[{"name":"member_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"password_hash","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"credential_version","type":"integer","not_null":true,"default":"1","identity":"","generated":"","catalog_default":"1"},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"updated_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"member_pin_credentials_pkey","kind":"p","definition":"primary key ( member_id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( member_id )","no_inherit":null},{"name":"member_pin_credentials_member_id_fkey","kind":"f","definition":"foreign key ( member_id ) references private . members ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( member_id ) references private . members ( id ) on delete restrict","no_inherit":null},{"name":"member_pin_hash_not_blank","kind":"c","definition":"check ( length ( trim ( password_hash ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from password_hash ) ) > 0 ) )","no_inherit":false},{"name":"member_pin_version_positive","kind":"c","definition":"check ( credential_version > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( credential_version > 0 ) )","no_inherit":false}]},{"name":"private.member_pin_setup_tokens","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"member_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"token_hash","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"token_purpose","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"expires_at","type":"timestamp with time zone","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"consumed_at","type":"timestamp with time zone","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"member_pin_setup_tokens_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"member_pin_setup_tokens_member_id_fkey","kind":"f","definition":"foreign key ( member_id ) references private . members ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( member_id ) references private . members ( id ) on delete restrict","no_inherit":null},{"name":"member_pin_setup_tokens_token_hash_key","kind":"u","definition":"unique ( token_hash )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"unique ( token_hash )","no_inherit":null},{"name":"pin_token_hash_not_blank","kind":"c","definition":"check ( length ( trim ( token_hash ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from token_hash ) ) > 0 ) )","no_inherit":false},{"name":"pin_token_purpose_valid","kind":"c","definition":"check ( token_purpose in ( 'enrollment' , 'reset' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( token_purpose = any ( array [ 'enrollment' :: text , 'reset' :: text ] ) ) )","no_inherit":false},{"name":"pin_token_expiry_after_creation","kind":"c","definition":"check ( expires_at > created_at )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( expires_at > created_at ) )","no_inherit":false}]},{"name":"private.members","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"member_code","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"full_name","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"mobile_lookup_hash","type":"bytea","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"mobile_encrypted","type":"bytea","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"status","type":"text","not_null":true,"default":"'pending'","identity":"","generated":"","catalog_default":"'pending' :: text"},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"updated_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"approved_at","type":"timestamp with time zone","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null}],"constraints":[{"name":"members_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"members_member_code_key","kind":"u","definition":"unique ( member_code )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"unique ( member_code )","no_inherit":null},{"name":"members_mobile_lookup_hash_key","kind":"u","definition":"unique ( mobile_lookup_hash )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"unique ( mobile_lookup_hash )","no_inherit":null},{"name":"members_code_not_blank","kind":"c","definition":"check ( length ( trim ( member_code ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from member_code ) ) > 0 ) )","no_inherit":false},{"name":"members_name_not_blank","kind":"c","definition":"check ( length ( trim ( full_name ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from full_name ) ) > 0 ) )","no_inherit":false},{"name":"members_mobile_lookup_hash_not_empty","kind":"c","definition":"check ( octet_length ( mobile_lookup_hash ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( octet_length ( mobile_lookup_hash ) > 0 ) )","no_inherit":false},{"name":"members_mobile_encrypted_not_empty","kind":"c","definition":"check ( octet_length ( mobile_encrypted ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( octet_length ( mobile_encrypted ) > 0 ) )","no_inherit":false},{"name":"members_status_valid","kind":"c","definition":"check ( status in ( 'pending' , 'active' , 'suspended' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( status = any ( array [ 'pending' :: text , 'active' :: text , 'suspended' :: text ] ) ) )","no_inherit":false}]},{"name":"private.membership_plans","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"name","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"price_php","type":"numeric ( 12 , 2 )","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"is_active","type":"boolean","not_null":true,"default":"true","identity":"","generated":"","catalog_default":"true"},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"membership_plans_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"membership_plan_name_not_blank","kind":"c","definition":"check ( length ( trim ( name ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from name ) ) > 0 ) )","no_inherit":false},{"name":"membership_plan_price_positive","kind":"c","definition":"check ( price_php > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( price_php > ( 0 ) :: numeric ) )","no_inherit":false}]},{"name":"private.membership_purchases","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"member_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"plan_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"price_php","type":"numeric ( 12 , 2 )","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"purchase_status","type":"text","not_null":true,"default":"'pending_payment'","identity":"","generated":"","catalog_default":"'pending_payment' :: text"},{"name":"activation_date","type":"date","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"expiry_date","type":"date","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"membership_purchases_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"membership_purchases_member_id_fkey","kind":"f","definition":"foreign key ( member_id ) references private . members ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( member_id ) references private . members ( id ) on delete restrict","no_inherit":null},{"name":"membership_purchases_plan_id_fkey","kind":"f","definition":"foreign key ( plan_id ) references private . membership_plans ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( plan_id ) references private . membership_plans ( id ) on delete restrict","no_inherit":null},{"name":"membership_purchase_price_positive","kind":"c","definition":"check ( price_php > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( price_php > ( 0 ) :: numeric ) )","no_inherit":false},{"name":"membership_purchase_status_valid","kind":"c","definition":"check ( purchase_status in ( 'pending_payment' , 'pending_activation' , 'active' , 'expired' , 'payment_review' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( purchase_status = any ( array [ 'pending_payment' :: text , 'pending_activation' :: text , 'active' :: text , 'expired' :: text , 'payment_review' :: text ] ) ) )","no_inherit":false},{"name":"membership_purchase_dates_consistent","kind":"c","definition":"check ( ( activation_date is null and expiry_date is null ) or ( activation_date is not null and expiry_date is not null and expiry_date >= activation_date ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( ( ( activation_date is null ) and ( expiry_date is null ) ) or ( ( activation_date is not null ) and ( expiry_date is not null ) and ( expiry_date >= activation_date ) ) ) )","no_inherit":false},{"name":"membership_purchases_no_overlapping_periods","kind":"x","definition":"exclude using gist ( member_id extensions . gist_uuid_ops with = , daterange ( activation_date , expiry_date , '[]' ) with && ) where ( activation_date is not null and expiry_date is not null )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"exclude using gist ( member_id with = , daterange ( activation_date , expiry_date , '[]' :: text ) with && ) where ( ( ( activation_date is not null ) and ( expiry_date is not null ) ) )","no_inherit":true,"exclusion":{"method":"gist","opclasses":[{"schema":"extensions","name":"gist_uuid_ops","type":"uuid"},{"schema":"pg_catalog","name":"range_ops","type":"anyrange"}],"operators":["pg_catalog.=(uuid,uuid)","pg_catalog.&&(anyrange,anyrange)"]}}]},{"name":"private.owner_access","columns":[{"name":"user_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"is_active","type":"boolean","not_null":true,"default":"false","identity":"","generated":"","catalog_default":"false"},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"deactivated_at","type":"timestamp with time zone","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null}],"constraints":[{"name":"owner_access_pkey","kind":"p","definition":"primary key ( user_id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( user_id )","no_inherit":null},{"name":"owner_access_user_id_fkey","kind":"f","definition":"foreign key ( user_id ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( user_id ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"owner_access_deactivation_consistent","kind":"c","definition":"check ( ( is_active and deactivated_at is null ) or ( not is_active ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( ( is_active and ( deactivated_at is null ) ) or ( not is_active ) ) )","no_inherit":false}]},{"name":"private.payment_allocations","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"payment_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"membership_purchase_id","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"walkin_request_id","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"allocated_by","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"allocated_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"payment_allocations_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"payment_allocations_payment_id_key","kind":"u","definition":"unique ( payment_id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"unique ( payment_id )","no_inherit":null},{"name":"payment_allocations_payment_id_fkey","kind":"f","definition":"foreign key ( payment_id ) references private . payment_records ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( payment_id ) references private . payment_records ( id ) on delete restrict","no_inherit":null},{"name":"payment_allocations_membership_purchase_id_fkey","kind":"f","definition":"foreign key ( membership_purchase_id ) references private . membership_purchases ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( membership_purchase_id ) references private . membership_purchases ( id ) on delete restrict","no_inherit":null},{"name":"payment_allocations_allocated_by_fkey","kind":"f","definition":"foreign key ( allocated_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( allocated_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"payment_allocation_exactly_one_target","kind":"c","definition":"check ( ( membership_purchase_id is not null ) <> ( walkin_request_id is not null ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( ( membership_purchase_id is not null ) <> ( walkin_request_id is not null ) ) )","no_inherit":false},{"name":"payment_allocations_walkin_request_fk","kind":"f","definition":"foreign key ( walkin_request_id ) references private . walkin_requests ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( walkin_request_id ) references private . walkin_requests ( id ) on delete restrict","no_inherit":null}]},{"name":"private.payment_corrections","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"payment_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"proposed_amount_php","type":"numeric ( 12 , 2 )","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"proposed_payment_method","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"reason","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"evidence_reference","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"correction_status","type":"text","not_null":true,"default":"'proposed'","identity":"","generated":"","catalog_default":"'proposed' :: text"},{"name":"proposed_by","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"proposed_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"decided_by","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"decided_at","type":"timestamp with time zone","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"decision_reason","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null}],"constraints":[{"name":"payment_corrections_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"payment_corrections_payment_id_fkey","kind":"f","definition":"foreign key ( payment_id ) references private . payment_records ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( payment_id ) references private . payment_records ( id ) on delete restrict","no_inherit":null},{"name":"payment_corrections_proposed_by_fkey","kind":"f","definition":"foreign key ( proposed_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( proposed_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"payment_corrections_decided_by_fkey","kind":"f","definition":"foreign key ( decided_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( decided_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"payment_correction_reason_not_blank","kind":"c","definition":"check ( length ( trim ( reason ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from reason ) ) > 0 ) )","no_inherit":false},{"name":"payment_correction_amount_valid","kind":"c","definition":"check ( proposed_amount_php is null or proposed_amount_php > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( ( proposed_amount_php is null ) or ( proposed_amount_php > ( 0 ) :: numeric ) ) )","no_inherit":false},{"name":"payment_correction_method_valid","kind":"c","definition":"check ( proposed_payment_method is null or proposed_payment_method in ( 'cash' , 'gcash' , 'bank_transfer' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( ( proposed_payment_method is null ) or ( proposed_payment_method = any ( array [ 'cash' :: text , 'gcash' :: text , 'bank_transfer' :: text ] ) ) ) )","no_inherit":false},{"name":"payment_correction_status_valid","kind":"c","definition":"check ( correction_status in ( 'proposed' , 'approved' , 'rejected' , 'withdrawn' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( correction_status = any ( array [ 'proposed' :: text , 'approved' :: text , 'rejected' :: text , 'withdrawn' :: text ] ) ) )","no_inherit":false}]},{"name":"private.payment_events","columns":[{"name":"id","type":"bigint","not_null":true,"default":null,"identity":"a","generated":"","catalog_default":null},{"name":"payment_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"event_type","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"reason","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"actor_user_id","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"payment_events_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"payment_events_payment_id_fkey","kind":"f","definition":"foreign key ( payment_id ) references private . payment_records ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( payment_id ) references private . payment_records ( id ) on delete restrict","no_inherit":null},{"name":"payment_events_actor_user_id_fkey","kind":"f","definition":"foreign key ( actor_user_id ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( actor_user_id ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"payment_event_type_not_blank","kind":"c","definition":"check ( length ( trim ( event_type ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from event_type ) ) > 0 ) )","no_inherit":false}]},{"name":"private.payment_records","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"amount_php","type":"numeric ( 12 , 2 )","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"payment_method","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"received_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"verification_status","type":"text","not_null":true,"default":"'recorded'","identity":"","generated":"","catalog_default":"'recorded' :: text"},{"name":"external_reference","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"evidence_reference","type":"text","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"recorded_by","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"operation_id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"target_membership_purchase_id","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null}],"constraints":[{"name":"payment_records_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"payment_records_recorded_by_fkey","kind":"f","definition":"foreign key ( recorded_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( recorded_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"payment_amount_positive","kind":"c","definition":"check ( amount_php > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( amount_php > ( 0 ) :: numeric ) )","no_inherit":false},{"name":"payment_method_valid","kind":"c","definition":"check ( payment_method in ( 'cash' , 'gcash' , 'bank_transfer' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( payment_method = any ( array [ 'cash' :: text , 'gcash' :: text , 'bank_transfer' :: text ] ) ) )","no_inherit":false},{"name":"payment_verification_status_valid","kind":"c","definition":"check ( verification_status in ( 'recorded' , 'confirmed' , 'rejected' , 'confirmation_voided_in_error' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( verification_status = any ( array [ 'recorded' :: text , 'confirmed' :: text , 'rejected' :: text , 'confirmation_voided_in_error' :: text ] ) ) )","no_inherit":false},{"name":"payment_records_target_membership_purchase_id_fkey","kind":"f","definition":"foreign key ( target_membership_purchase_id ) references private . membership_purchases ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( target_membership_purchase_id ) references private . membership_purchases ( id ) on delete restrict","no_inherit":null}]},{"name":"private.pin_attempt_buckets","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"bucket_type","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"identifier_digest","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"window_started_at","type":"timestamp with time zone","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"failed_attempts","type":"integer","not_null":true,"default":"0","identity":"","generated":"","catalog_default":"0"},{"name":"blocked_until","type":"timestamp with time zone","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"updated_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"pin_attempt_buckets_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"pin_bucket_type_valid","kind":"c","definition":"check ( bucket_type in ( 'member_identifier' , 'trusted_network' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( bucket_type = any ( array [ 'member_identifier' :: text , 'trusted_network' :: text ] ) ) )","no_inherit":false},{"name":"pin_identifier_digest_not_blank","kind":"c","definition":"check ( length ( trim ( identifier_digest ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from identifier_digest ) ) > 0 ) )","no_inherit":false},{"name":"pin_failed_attempts_nonnegative","kind":"c","definition":"check ( failed_attempts >= 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( failed_attempts >= 0 ) )","no_inherit":false},{"name":"pin_bucket_unique_window","kind":"u","definition":"unique ( bucket_type , identifier_digest , window_started_at )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"unique ( bucket_type , identifier_digest , window_started_at )","no_inherit":null}]},{"name":"private.pin_enrollment_global_rate_limit_events","columns":[{"name":"id","type":"bigint","not_null":true,"default":null,"identity":"a","generated":"","catalog_default":null},{"name":"requested_at","type":"timestamp with time zone","not_null":true,"default":"clock_timestamp ( )","identity":"","generated":"","catalog_default":"clock_timestamp ( )"}],"constraints":[{"name":"pin_enrollment_global_rate_limit_events_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null}]},{"name":"private.walkin_fee_versions","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"fee_php","type":"numeric ( 12 , 2 )","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"currency","type":"text","not_null":true,"default":"'PHP'","identity":"","generated":"","catalog_default":"'PHP' :: text"},{"name":"effective_from","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"created_by","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"walkin_fee_versions_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"walkin_fee_versions_created_by_fkey","kind":"f","definition":"foreign key ( created_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( created_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"walkin_fee_positive","kind":"c","definition":"check ( fee_php > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( fee_php > ( 0 ) :: numeric ) )","no_inherit":false},{"name":"walkin_fee_currency_php","kind":"c","definition":"check ( currency = 'PHP' )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( currency = 'PHP' :: text ) )","no_inherit":false}]},{"name":"private.walkin_requests","columns":[{"name":"id","type":"uuid","not_null":true,"default":"gen_random_uuid ( )","identity":"","generated":"","catalog_default":"gen_random_uuid ( )"},{"name":"fee_version_id","type":"uuid","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"fee_php","type":"numeric ( 12 , 2 )","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"currency","type":"text","not_null":true,"default":"'PHP'","identity":"","generated":"","catalog_default":"'PHP' :: text"},{"name":"request_status","type":"text","not_null":true,"default":"'pending'","identity":"","generated":"","catalog_default":"'pending' :: text"},{"name":"created_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"},{"name":"expires_at","type":"timestamp with time zone","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"confirmed_by","type":"uuid","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"confirmed_at","type":"timestamp with time zone","not_null":false,"default":null,"identity":"","generated":"","catalog_default":null}],"constraints":[{"name":"walkin_requests_pkey","kind":"p","definition":"primary key ( id )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( id )","no_inherit":null},{"name":"walkin_requests_fee_version_id_fkey","kind":"f","definition":"foreign key ( fee_version_id ) references private . walkin_fee_versions ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( fee_version_id ) references private . walkin_fee_versions ( id ) on delete restrict","no_inherit":null},{"name":"walkin_requests_confirmed_by_fkey","kind":"f","definition":"foreign key ( confirmed_by ) references auth . users ( id ) on delete restrict","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"foreign key ( confirmed_by ) references auth . users ( id ) on delete restrict","no_inherit":null},{"name":"walkin_request_fee_positive","kind":"c","definition":"check ( fee_php > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( fee_php > ( 0 ) :: numeric ) )","no_inherit":false},{"name":"walkin_request_currency_php","kind":"c","definition":"check ( currency = 'PHP' )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( currency = 'PHP' :: text ) )","no_inherit":false},{"name":"walkin_request_expiry_after_creation","kind":"c","definition":"check ( expires_at > created_at )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( expires_at > created_at ) )","no_inherit":false},{"name":"walkin_request_status_valid","kind":"c","definition":"check ( request_status in ( 'pending' , 'confirmed' , 'expired' , 'payment_review' , 'rejected' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( request_status = any ( array [ 'pending' :: text , 'confirmed' :: text , 'expired' :: text , 'payment_review' :: text , 'rejected' :: text ] ) ) )","no_inherit":false},{"name":"walkin_confirmation_consistent","kind":"c","definition":"check ( ( request_status = 'confirmed' and confirmed_by is not null and confirmed_at is not null ) or ( request_status <> 'confirmed' ) )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( ( ( request_status = 'confirmed' :: text ) and ( confirmed_by is not null ) and ( confirmed_at is not null ) ) or ( request_status <> 'confirmed' :: text ) ) )","no_inherit":false}]},{"name":"public.gym_settings","columns":[{"name":"setting_key","type":"text","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"setting_value","type":"jsonb","not_null":true,"default":null,"identity":"","generated":"","catalog_default":null},{"name":"updated_at","type":"timestamp with time zone","not_null":true,"default":"now ( )","identity":"","generated":"","catalog_default":"now ( )"}],"constraints":[{"name":"gym_settings_pkey","kind":"p","definition":"primary key ( setting_key )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"primary key ( setting_key )","no_inherit":null},{"name":"gym_settings_key_not_blank","kind":"c","definition":"check ( length ( trim ( setting_key ) ) > 0 )","validated":true,"deferrable":false,"deferred":false,"catalog_definition":"check ( ( length ( trim ( both from setting_key ) ) > 0 ) )","no_inherit":false}]}],"indexes":[{"name":"private.members_status_idx","parent":"private.members","unique":false,"definition":"create index members_status_idx on private . members using btree ( status )","valid":true,"ready":true,"catalog_definition":"create index members_status_idx on private . members using btree ( status )","keys":[{"position":1,"column":"status","type":"text","opclass":"text_ops","options":0,"collation":"pg_catalog.\"default\""}]},{"name":"private.audit_events_created_at_idx","parent":"private.audit_events","unique":false,"definition":"create index audit_events_created_at_idx on private . audit_events using btree ( created_at desc )","valid":true,"ready":true,"catalog_definition":"create index audit_events_created_at_idx on private . audit_events using btree ( created_at desc )","keys":[{"position":1,"column":"created_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":3,"collation":null}]},{"name":"private.audit_events_actor_created_idx","parent":"private.audit_events","unique":false,"definition":"create index audit_events_actor_created_idx on private . audit_events using btree ( actor_user_id , created_at desc )","valid":true,"ready":true,"catalog_definition":"create index audit_events_actor_created_idx on private . audit_events using btree ( actor_user_id , created_at desc )","keys":[{"position":1,"column":"actor_user_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null},{"position":2,"column":"created_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":3,"collation":null}]},{"name":"private.membership_purchases_member_idx","parent":"private.membership_purchases","unique":false,"definition":"create index membership_purchases_member_idx on private . membership_purchases using btree ( member_id , created_at desc )","valid":true,"ready":true,"catalog_definition":"create index membership_purchases_member_idx on private . membership_purchases using btree ( member_id , created_at desc )","keys":[{"position":1,"column":"member_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null},{"position":2,"column":"created_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":3,"collation":null}]},{"name":"private.membership_purchases_plan_idx","parent":"private.membership_purchases","unique":false,"definition":"create index membership_purchases_plan_idx on private . membership_purchases using btree ( plan_id )","valid":true,"ready":true,"catalog_definition":"create index membership_purchases_plan_idx on private . membership_purchases using btree ( plan_id )","keys":[{"position":1,"column":"plan_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null}]},{"name":"private.payment_allocations_membership_idx","parent":"private.payment_allocations","unique":false,"definition":"create index payment_allocations_membership_idx on private . payment_allocations using btree ( membership_purchase_id ) where membership_purchase_id is not null","valid":true,"ready":true,"catalog_definition":"create index payment_allocations_membership_idx on private . payment_allocations using btree ( membership_purchase_id ) where ( membership_purchase_id is not null )","keys":[{"position":1,"column":"membership_purchase_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null}]},{"name":"private.payment_allocations_walkin_idx","parent":"private.payment_allocations","unique":false,"definition":"create index payment_allocations_walkin_idx on private . payment_allocations using btree ( walkin_request_id ) where walkin_request_id is not null","valid":true,"ready":true,"catalog_definition":"create index payment_allocations_walkin_idx on private . payment_allocations using btree ( walkin_request_id ) where ( walkin_request_id is not null )","keys":[{"position":1,"column":"walkin_request_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null}]},{"name":"private.payment_events_payment_created_idx","parent":"private.payment_events","unique":false,"definition":"create index payment_events_payment_created_idx on private . payment_events using btree ( payment_id , created_at )","valid":true,"ready":true,"catalog_definition":"create index payment_events_payment_created_idx on private . payment_events using btree ( payment_id , created_at )","keys":[{"position":1,"column":"payment_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null},{"position":2,"column":"created_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":0,"collation":null}]},{"name":"private.payment_corrections_payment_idx","parent":"private.payment_corrections","unique":false,"definition":"create index payment_corrections_payment_idx on private . payment_corrections using btree ( payment_id , proposed_at desc )","valid":true,"ready":true,"catalog_definition":"create index payment_corrections_payment_idx on private . payment_corrections using btree ( payment_id , proposed_at desc )","keys":[{"position":1,"column":"payment_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null},{"position":2,"column":"proposed_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":3,"collation":null}]},{"name":"private.attendance_one_member_valid_checkin_per_day","parent":"private.attendance_checkins","unique":true,"definition":"create unique index attendance_one_member_valid_checkin_per_day on private . attendance_checkins using btree ( member_id , gym_local_date ) where member_id is not null and attendance_status = 'valid'","valid":true,"ready":true,"catalog_definition":"create unique index attendance_one_member_valid_checkin_per_day on private . attendance_checkins using btree ( member_id , gym_local_date ) where ( ( member_id is not null ) and ( attendance_status = 'valid' :: text ) )","keys":[{"position":1,"column":"member_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null},{"position":2,"column":"gym_local_date","type":"date","opclass":"date_ops","options":0,"collation":null}]},{"name":"private.attendance_one_checkin_per_walkin","parent":"private.attendance_checkins","unique":true,"definition":"create unique index attendance_one_checkin_per_walkin on private . attendance_checkins using btree ( walkin_request_id ) where walkin_request_id is not null","valid":true,"ready":true,"catalog_definition":"create unique index attendance_one_checkin_per_walkin on private . attendance_checkins using btree ( walkin_request_id ) where ( walkin_request_id is not null )","keys":[{"position":1,"column":"walkin_request_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null}]},{"name":"private.attendance_date_idx","parent":"private.attendance_checkins","unique":false,"definition":"create index attendance_date_idx on private . attendance_checkins using btree ( gym_local_date desc )","valid":true,"ready":true,"catalog_definition":"create index attendance_date_idx on private . attendance_checkins using btree ( gym_local_date desc )","keys":[{"position":1,"column":"gym_local_date","type":"date","opclass":"date_ops","options":3,"collation":null}]},{"name":"private.attendance_member_date_idx","parent":"private.attendance_checkins","unique":false,"definition":"create index attendance_member_date_idx on private . attendance_checkins using btree ( member_id , gym_local_date desc ) where member_id is not null","valid":true,"ready":true,"catalog_definition":"create index attendance_member_date_idx on private . attendance_checkins using btree ( member_id , gym_local_date desc ) where ( member_id is not null )","keys":[{"position":1,"column":"member_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null},{"position":2,"column":"gym_local_date","type":"date","opclass":"date_ops","options":3,"collation":null}]},{"name":"private.member_pin_setup_tokens_member_idx","parent":"private.member_pin_setup_tokens","unique":false,"definition":"create index member_pin_setup_tokens_member_idx on private . member_pin_setup_tokens using btree ( member_id , created_at desc )","valid":true,"ready":true,"catalog_definition":"create index member_pin_setup_tokens_member_idx on private . member_pin_setup_tokens using btree ( member_id , created_at desc )","keys":[{"position":1,"column":"member_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null},{"position":2,"column":"created_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":3,"collation":null}]},{"name":"private.member_pin_setup_tokens_expiry_idx","parent":"private.member_pin_setup_tokens","unique":false,"definition":"create index member_pin_setup_tokens_expiry_idx on private . member_pin_setup_tokens using btree ( expires_at ) where consumed_at is null","valid":true,"ready":true,"catalog_definition":"create index member_pin_setup_tokens_expiry_idx on private . member_pin_setup_tokens using btree ( expires_at ) where ( consumed_at is null )","keys":[{"position":1,"column":"expires_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":0,"collation":null}]},{"name":"private.pin_attempt_buckets_blocked_idx","parent":"private.pin_attempt_buckets","unique":false,"definition":"create index pin_attempt_buckets_blocked_idx on private . pin_attempt_buckets using btree ( blocked_until ) where blocked_until is not null","valid":true,"ready":true,"catalog_definition":"create index pin_attempt_buckets_blocked_idx on private . pin_attempt_buckets using btree ( blocked_until ) where ( blocked_until is not null )","keys":[{"position":1,"column":"blocked_until","type":"timestamp with time zone","opclass":"timestamptz_ops","options":0,"collation":null}]},{"name":"private.cash_drawer_only_one_open_session","parent":"private.cash_drawer_sessions","unique":true,"definition":"create unique index cash_drawer_only_one_open_session on private . cash_drawer_sessions using btree ( ( session_status ) ) where session_status = 'open'","valid":true,"ready":true,"catalog_definition":"create unique index cash_drawer_only_one_open_session on private . cash_drawer_sessions using btree ( session_status ) where ( session_status = 'open' :: text )","keys":[{"position":1,"column":"session_status","type":"text","opclass":"text_ops","options":0,"collation":"pg_catalog.\"default\""}]},{"name":"private.cash_reconciliations_date_idx","parent":"private.cash_reconciliations","unique":false,"definition":"create index cash_reconciliations_date_idx on private . cash_reconciliations using btree ( reconciled_at desc )","valid":true,"ready":true,"catalog_definition":"create index cash_reconciliations_date_idx on private . cash_reconciliations using btree ( reconciled_at desc )","keys":[{"position":1,"column":"reconciled_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":3,"collation":null}]},{"name":"private.cash_adjustments_reconciliation_idx","parent":"private.cash_reconciliation_adjustments","unique":false,"definition":"create index cash_adjustments_reconciliation_idx on private . cash_reconciliation_adjustments using btree ( reconciliation_id , created_at )","valid":true,"ready":true,"catalog_definition":"create index cash_adjustments_reconciliation_idx on private . cash_reconciliation_adjustments using btree ( reconciliation_id , created_at )","keys":[{"position":1,"column":"reconciliation_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null},{"position":2,"column":"created_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":0,"collation":null}]},{"name":"private.audit_events_stream_created_idx","parent":"private.audit_events","unique":false,"definition":"create index audit_events_stream_created_idx on private . audit_events using btree ( stream_key , created_at , id )","valid":true,"ready":true,"catalog_definition":"create index audit_events_stream_created_idx on private . audit_events using btree ( stream_key , created_at , id )","keys":[{"position":1,"column":"stream_key","type":"text","opclass":"text_ops","options":0,"collation":"pg_catalog.\"default\""},{"position":2,"column":"created_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":0,"collation":null},{"position":3,"column":"id","type":"bigint","opclass":"int8_ops","options":0,"collation":null}]},{"name":"private.member_pin_setup_tokens_active_enrollment_idx","parent":"private.member_pin_setup_tokens","unique":false,"definition":"create index member_pin_setup_tokens_active_enrollment_idx on private . member_pin_setup_tokens using btree ( member_id ) where token_purpose = 'enrollment' and consumed_at is null","valid":true,"ready":true,"catalog_definition":"create index member_pin_setup_tokens_active_enrollment_idx on private . member_pin_setup_tokens using btree ( member_id ) where ( ( token_purpose = 'enrollment' :: text ) and ( consumed_at is null ) )","keys":[{"position":1,"column":"member_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null}]},{"name":"private.pin_enrollment_global_rate_limit_events_requested_at_idx","parent":"private.pin_enrollment_global_rate_limit_events","unique":false,"definition":"create index pin_enrollment_global_rate_limit_events_requested_at_idx on private . pin_enrollment_global_rate_limit_events using btree ( requested_at )","valid":true,"ready":true,"catalog_definition":"create index pin_enrollment_global_rate_limit_events_requested_at_idx on private . pin_enrollment_global_rate_limit_events using btree ( requested_at )","keys":[{"position":1,"column":"requested_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":0,"collation":null}]},{"name":"private.membership_plans_normalized_name_uidx","parent":"private.membership_plans","unique":true,"definition":"create unique index membership_plans_normalized_name_uidx on private . membership_plans using btree ( pg_catalog . lower ( pg_catalog . btrim ( pg_catalog . regexp_replace ( name , '\\s+' , ' ' , 'g' ) ) ) )","valid":true,"ready":true,"catalog_definition":"create unique index membership_plans_normalized_name_uidx on private . membership_plans using btree ( lower ( btrim ( regexp_replace ( name , '\\s+' :: text , ' ' :: text , 'g' :: text ) ) ) )","keys":[{"position":1,"column":"","type":"text","opclass":"text_ops","options":0,"collation":"pg_catalog.\"default\""}]},{"name":"private.payment_records_operation_id_uidx","parent":"private.payment_records","unique":true,"definition":"create unique index payment_records_operation_id_uidx on private . payment_records using btree ( operation_id )","valid":true,"ready":true,"catalog_definition":"create unique index payment_records_operation_id_uidx on private . payment_records using btree ( operation_id )","keys":[{"position":1,"column":"operation_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null}]},{"name":"private.payment_records_membership_idx","parent":"private.payment_records","unique":false,"definition":"create index payment_records_membership_idx on private . payment_records using btree ( target_membership_purchase_id , created_at desc ) where target_membership_purchase_id is not null","valid":true,"ready":true,"catalog_definition":"create index payment_records_membership_idx on private . payment_records using btree ( target_membership_purchase_id , created_at desc ) where ( target_membership_purchase_id is not null )","keys":[{"position":1,"column":"target_membership_purchase_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null},{"position":2,"column":"created_at","type":"timestamp with time zone","opclass":"timestamptz_ops","options":3,"collation":null}]},{"name":"private.payment_records_membership_external_reference_uidx","parent":"private.payment_records","unique":true,"definition":"create unique index payment_records_membership_external_reference_uidx on private . payment_records using btree ( payment_method , pg_catalog . lower ( pg_catalog . btrim ( external_reference ) ) ) where target_membership_purchase_id is not null and nullif ( pg_catalog . btrim ( external_reference ) , '' ) is not null","valid":true,"ready":true,"catalog_definition":"create unique index payment_records_membership_external_reference_uidx on private . payment_records using btree ( payment_method , lower ( btrim ( external_reference ) ) ) where ( ( target_membership_purchase_id is not null ) and ( nullif ( btrim ( external_reference ) , '' :: text ) is not null ) )","keys":[{"position":1,"column":"payment_method","type":"text","opclass":"text_ops","options":0,"collation":"pg_catalog.\"default\""},{"position":2,"column":"","type":"text","opclass":"text_ops","options":0,"collation":"pg_catalog.\"default\""}]},{"name":"private.payment_records_pending_membership_uidx","parent":"private.payment_records","unique":true,"definition":"create unique index payment_records_pending_membership_uidx on private . payment_records using btree ( target_membership_purchase_id ) where target_membership_purchase_id is not null and verification_status = 'recorded'","valid":true,"ready":true,"catalog_definition":"create unique index payment_records_pending_membership_uidx on private . payment_records using btree ( target_membership_purchase_id ) where ( ( target_membership_purchase_id is not null ) and ( verification_status = 'recorded' :: text ) )","keys":[{"position":1,"column":"target_membership_purchase_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null}]},{"name":"private.payment_allocations_membership_purchase_uidx","parent":"private.payment_allocations","unique":true,"definition":"create unique index payment_allocations_membership_purchase_uidx on private . payment_allocations using btree ( membership_purchase_id ) where membership_purchase_id is not null","valid":true,"ready":true,"catalog_definition":"create unique index payment_allocations_membership_purchase_uidx on private . payment_allocations using btree ( membership_purchase_id ) where ( membership_purchase_id is not null )","keys":[{"position":1,"column":"membership_purchase_id","type":"uuid","opclass":"uuid_ops","options":0,"collation":null}]}],"routines":[{"name":"api.append_audit_event","kind":"f","language":"plpgsql","argument_names":["p_stream_key","p_actor_user_id","p_event_type","p_subject_type","p_subject_id","p_details"],"input_types":["text","uuid","text","text","text","jsonb"],"output_types":[],"argument_defaults":"null , '{}' :: jsonb","default_count":2,"result":"bigint","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"7a05ca54592137c75b9adda7023516a8","extension":null,"signature":"api.append_audit_event(text, uuid, text, text, text, jsonb)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role","gym_public_executor"],"search_path":"","catalog_argument_defaults":"null :: text , '{}' :: jsonb"},{"name":"api.is_active_owner_for_user","kind":"f","language":"sql","argument_names":["p_user_id"],"input_types":["uuid"],"output_types":[],"argument_defaults":"","default_count":0,"result":"boolean","returns_set":false,"strict":false,"volatility":"s","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"830f29066e37d9f2593c3cd99878ae93","extension":null,"signature":"api.is_active_owner_for_user(uuid)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"api.member_enroll_pin","kind":"f","language":"plpgsql","argument_names":["p_token_hash","p_password_hash"],"input_types":["text","text"],"output_types":[],"argument_defaults":"","default_count":0,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"6bf1d4a963b2b853ba9cdc7cb582c342","extension":null,"signature":"api.member_enroll_pin(text, text)","proposed_owner":"gym_public_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"api.owner_confirm_membership_payment","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id","p_payment_id","p_evidence_reviewed"],"input_types":["uuid","uuid","boolean"],"output_types":[],"argument_defaults":"","default_count":0,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"ce58f4473d75469ef2676f232794dce0","extension":null,"signature":"api.owner_confirm_membership_payment(uuid, uuid, boolean)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"api.owner_create_membership_purchase","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id","p_member_id","p_plan_id"],"input_types":["uuid","uuid","uuid"],"output_types":[],"argument_defaults":"","default_count":0,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"f8f310bd5576274401706c5213c6746d","extension":null,"signature":"api.owner_create_membership_purchase(uuid, uuid, uuid)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"api.owner_create_pin_enrollment_token","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id","p_member_id","p_token_hash","p_expires_at"],"input_types":["uuid","uuid","text","timestamp with time zone"],"output_types":[],"argument_defaults":"","default_count":0,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"7a226978d83e191643a436c829f9dd07","extension":null,"signature":"api.owner_create_pin_enrollment_token(uuid, uuid, text, timestamp with time zone)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"api.owner_list_members","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id","p_search","p_status","p_limit","p_offset"],"input_types":["uuid","text","text","integer","integer"],"output_types":[],"argument_defaults":"null , 'all' , 50 , 0","default_count":4,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"342dd9a2131e068c1a849694b053ebdf","extension":null,"signature":"api.owner_list_members(uuid, text, text, integer, integer)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":"null :: text , 'all' :: text , 50 , 0"},{"name":"api.owner_list_membership_payments","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id","p_search","p_status","p_limit","p_offset"],"input_types":["uuid","text","text","integer","integer"],"output_types":[],"argument_defaults":"null , 'all' , 50 , 0","default_count":4,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"6ac0d61dfc24c15123812ec788294197","extension":null,"signature":"api.owner_list_membership_payments(uuid, text, text, integer, integer)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":"null :: text , 'all' :: text , 50 , 0"},{"name":"api.owner_list_membership_plans","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id"],"input_types":["uuid"],"output_types":[],"argument_defaults":"","default_count":0,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"fc3ed2be2834b6458f2835bfc18d9b4e","extension":null,"signature":"api.owner_list_membership_plans(uuid)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"api.owner_list_membership_purchases","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id","p_search","p_status","p_limit","p_offset"],"input_types":["uuid","text","text","integer","integer"],"output_types":[],"argument_defaults":"null , 'all' , 50 , 0","default_count":4,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"d6fd6f1ba099afe317dcf1606d49d64f","extension":null,"signature":"api.owner_list_membership_purchases(uuid, text, text, integer, integer)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":"null :: text , 'all' :: text , 50 , 0"},{"name":"api.owner_record_membership_payment","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id","p_operation_id","p_membership_purchase_id","p_amount_php","p_payment_method","p_external_reference"],"input_types":["uuid","uuid","uuid","numeric","text","text"],"output_types":[],"argument_defaults":"null","default_count":1,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"c21766acb601a8b92dc26d59f73be2a3","extension":null,"signature":"api.owner_record_membership_payment(uuid, uuid, uuid, numeric, text, text)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":"null :: text"},{"name":"api.owner_register_member","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id","p_full_name","p_mobile_lookup_hash","p_mobile_encrypted"],"input_types":["uuid","text","bytea","bytea"],"output_types":[],"argument_defaults":"","default_count":0,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"e56b20e809c8dfcebd782d4e8aa5fbb5","extension":null,"signature":"api.owner_register_member(uuid, text, bytea, bytea)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"api.owner_reject_membership_payment","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id","p_payment_id","p_reason"],"input_types":["uuid","uuid","text"],"output_types":[],"argument_defaults":"","default_count":0,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"b55e7879cbae6d9074264826ed75eac0","extension":null,"signature":"api.owner_reject_membership_payment(uuid, uuid, text)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"api.owner_save_membership_plan","kind":"f","language":"plpgsql","argument_names":["p_actor_user_id","p_plan_id","p_name","p_price_php","p_is_active"],"input_types":["uuid","uuid","text","numeric","boolean"],"output_types":[],"argument_defaults":"","default_count":0,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"c128144cda372362b26ec91dc64fd6fa","extension":null,"signature":"api.owner_save_membership_plan(uuid, uuid, text, numeric, boolean)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"api.reserve_pin_enrollment_request","kind":"f","language":"plpgsql","argument_names":[],"input_types":[],"output_types":[],"argument_defaults":"","default_count":0,"result":"jsonb","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"ed1a67d4a3cd30fed31a0ee36222eb5b","extension":null,"signature":"api.reserve_pin_enrollment_request()","proposed_owner":"gym_public_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"api.verify_audit_stream","kind":"f","language":"plpgsql","argument_names":["p_stream_key","is_valid","checked_events","failure_event_id","reason"],"input_types":["text"],"output_types":["boolean","bigint","bigint","text"],"argument_defaults":"","default_count":0,"result":"table ( is_valid boolean , checked_events bigint , failure_event_id bigint , reason text )","returns_set":true,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":1000,"body_md5":"f7c5cdb53ec4cf2d845e38f404df5fb9","extension":null,"signature":"api.verify_audit_stream(text)","proposed_owner":"gym_owner_executor","proposed_definer":true,"callers":["service_role"],"search_path":"","catalog_argument_defaults":""},{"name":"private.audit_events_chain_insert","kind":"f","language":"plpgsql","argument_names":[],"input_types":[],"output_types":[],"argument_defaults":"","default_count":0,"result":"trigger","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"6fa6a434395de93250213752513ffb34","extension":null,"signature":"private.audit_events_chain_insert()","proposed_owner":"gym_data_owner","proposed_definer":false,"callers":["gym_owner_executor"],"search_path":"","catalog_argument_defaults":""},{"name":"private.compute_audit_event_hash","kind":"f","language":"sql","argument_names":["p_id","p_stream_key","p_previous_event_hash","p_actor_user_id","p_event_type","p_subject_type","p_subject_id","p_details","p_created_at"],"input_types":["bigint","text","text","uuid","text","text","text","jsonb","timestamp with time zone"],"output_types":[],"argument_defaults":"","default_count":0,"result":"text","returns_set":false,"strict":false,"volatility":"i","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"a0635caf0c329b24571bd68df684f69f","extension":null,"signature":"private.compute_audit_event_hash(bigint, text, text, uuid, text, text, text, jsonb, timestamp with time zone)","proposed_owner":"gym_data_owner","proposed_definer":false,"callers":["gym_owner_executor"],"search_path":"","catalog_argument_defaults":""},{"name":"private.guard_membership_payment_allocation","kind":"f","language":"plpgsql","argument_names":[],"input_types":[],"output_types":[],"argument_defaults":"","default_count":0,"result":"trigger","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"4836529309d8c518d42d24b9d191d6d5","extension":null,"signature":"private.guard_membership_payment_allocation()","proposed_owner":"gym_data_owner","proposed_definer":false,"callers":["gym_owner_executor"],"search_path":"","catalog_argument_defaults":""},{"name":"private.guard_membership_payment_record_insert","kind":"f","language":"plpgsql","argument_names":[],"input_types":[],"output_types":[],"argument_defaults":"","default_count":0,"result":"trigger","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"edaae9f3a89330d4e55ce37d7d16d074","extension":null,"signature":"private.guard_membership_payment_record_insert()","proposed_owner":"gym_data_owner","proposed_definer":false,"callers":["gym_owner_executor"],"search_path":"","catalog_argument_defaults":""},{"name":"private.guard_membership_payment_record_update","kind":"f","language":"plpgsql","argument_names":[],"input_types":[],"output_types":[],"argument_defaults":"","default_count":0,"result":"trigger","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"9386192bae0b7aec6e34fce2e2aadbda","extension":null,"signature":"private.guard_membership_payment_record_update()","proposed_owner":"gym_data_owner","proposed_definer":false,"callers":["gym_owner_executor"],"search_path":"","catalog_argument_defaults":""},{"name":"private.guard_purchase_pending_activation","kind":"f","language":"plpgsql","argument_names":[],"input_types":[],"output_types":[],"argument_defaults":"","default_count":0,"result":"trigger","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"c3467a65c399cf75243d4e3e9e31b36c","extension":null,"signature":"private.guard_purchase_pending_activation()","proposed_owner":"gym_data_owner","proposed_definer":false,"callers":["gym_owner_executor"],"search_path":"","catalog_argument_defaults":""},{"name":"private.is_active_owner","kind":"f","language":"sql","argument_names":[],"input_types":[],"output_types":[],"argument_defaults":"","default_count":0,"result":"boolean","returns_set":false,"strict":false,"volatility":"s","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"76af3203b0fe03c30e1eb6d8264a04e6","extension":null,"signature":"private.is_active_owner()","proposed_owner":"gym_data_owner","proposed_definer":false,"callers":[],"search_path":"","catalog_argument_defaults":""},{"name":"private.prevent_audit_event_mutation","kind":"f","language":"plpgsql","argument_names":[],"input_types":[],"output_types":[],"argument_defaults":"","default_count":0,"result":"trigger","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"d835b9b2db211d2439e03ec9d8a6337d","extension":null,"signature":"private.prevent_audit_event_mutation()","proposed_owner":"gym_data_owner","proposed_definer":false,"callers":["gym_owner_executor"],"search_path":"","catalog_argument_defaults":""},{"name":"private.prevent_payment_history_mutation","kind":"f","language":"plpgsql","argument_names":[],"input_types":[],"output_types":[],"argument_defaults":"","default_count":0,"result":"trigger","returns_set":false,"strict":false,"volatility":"v","parallel":"u","leakproof":false,"support":"-","variadic":"-","transforms":[],"cost":100,"rows":0,"body_md5":"0ad4feeac81403c334c6665ff018485e","extension":null,"signature":"private.prevent_payment_history_mutation()","proposed_owner":"gym_data_owner","proposed_definer":false,"callers":["gym_owner_executor"],"search_path":"","catalog_argument_defaults":""}],"triggers":[{"table_name":"private.audit_events","name":"audit_events_chain_insert_trigger","definition":"CREATE TRIGGER audit_events_chain_insert_trigger BEFORE INSERT ON private.audit_events FOR EACH ROW EXECUTE FUNCTION private.audit_events_chain_insert()"},{"table_name":"private.audit_events","name":"audit_events_no_truncate","definition":"CREATE TRIGGER audit_events_no_truncate BEFORE TRUNCATE ON private.audit_events FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_audit_event_mutation()"},{"table_name":"private.audit_events","name":"audit_events_no_update_delete","definition":"CREATE TRIGGER audit_events_no_update_delete BEFORE DELETE OR UPDATE ON private.audit_events FOR EACH ROW EXECUTE FUNCTION private.prevent_audit_event_mutation()"},{"table_name":"private.membership_purchases","name":"membership_purchase_requires_confirmed_payment","definition":"CREATE TRIGGER membership_purchase_requires_confirmed_payment BEFORE INSERT OR UPDATE ON private.membership_purchases FOR EACH ROW EXECUTE FUNCTION private.guard_purchase_pending_activation()"},{"table_name":"private.payment_allocations","name":"payment_allocations_no_truncate","definition":"CREATE TRIGGER payment_allocations_no_truncate BEFORE TRUNCATE ON private.payment_allocations FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_payment_history_mutation()"},{"table_name":"private.payment_allocations","name":"payment_allocations_no_update_delete","definition":"CREATE TRIGGER payment_allocations_no_update_delete BEFORE DELETE OR UPDATE ON private.payment_allocations FOR EACH ROW EXECUTE FUNCTION private.prevent_payment_history_mutation()"},{"table_name":"private.payment_allocations","name":"payment_allocations_validate_membership","definition":"CREATE TRIGGER payment_allocations_validate_membership BEFORE INSERT ON private.payment_allocations FOR EACH ROW EXECUTE FUNCTION private.guard_membership_payment_allocation()"},{"table_name":"private.payment_events","name":"payment_events_no_truncate","definition":"CREATE TRIGGER payment_events_no_truncate BEFORE TRUNCATE ON private.payment_events FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_payment_history_mutation()"},{"table_name":"private.payment_events","name":"payment_events_no_update_delete","definition":"CREATE TRIGGER payment_events_no_update_delete BEFORE DELETE OR UPDATE ON private.payment_events FOR EACH ROW EXECUTE FUNCTION private.prevent_payment_history_mutation()"},{"table_name":"private.payment_records","name":"payment_records_guard_update","definition":"CREATE TRIGGER payment_records_guard_update BEFORE UPDATE ON private.payment_records FOR EACH ROW EXECUTE FUNCTION private.guard_membership_payment_record_update()"},{"table_name":"private.payment_records","name":"payment_records_no_delete","definition":"CREATE TRIGGER payment_records_no_delete BEFORE DELETE ON private.payment_records FOR EACH ROW EXECUTE FUNCTION private.prevent_payment_history_mutation()"},{"table_name":"private.payment_records","name":"payment_records_no_truncate","definition":"CREATE TRIGGER payment_records_no_truncate BEFORE TRUNCATE ON private.payment_records FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_payment_history_mutation()"},{"table_name":"private.payment_records","name":"payment_records_validate_membership_insert","definition":"CREATE TRIGGER payment_records_validate_membership_insert BEFORE INSERT ON private.payment_records FOR EACH ROW EXECUTE FUNCTION private.guard_membership_payment_record_insert()"}],"permissions":[{"table":"private.owner_access","role":"gym_owner_executor","command":"SELECT","columns":["user_id","is_active","created_at","deactivated_at"],"policy":"gf_owner_select"},{"table":"private.members","role":"gym_owner_executor","command":"SELECT","columns":["id","member_code","full_name","mobile_lookup_hash","mobile_encrypted","status","created_at","updated_at","approved_at"],"policy":"gf_owner_select"},{"table":"private.members","role":"gym_owner_executor","command":"INSERT","columns":["member_code","full_name","mobile_lookup_hash","mobile_encrypted","status"],"policy":"gf_owner_insert"},{"table":"private.members","role":"gym_owner_executor","command":"UPDATE","columns":["updated_at"],"policy":"gf_owner_update"},{"table":"private.membership_plans","role":"gym_owner_executor","command":"SELECT","columns":["id","name","price_php","is_active","created_at"],"policy":"gf_owner_select"},{"table":"private.membership_plans","role":"gym_owner_executor","command":"INSERT","columns":["name","price_php","is_active"],"policy":"gf_owner_insert"},{"table":"private.membership_plans","role":"gym_owner_executor","command":"UPDATE","columns":["name","price_php","is_active"],"policy":"gf_owner_update"},{"table":"private.membership_purchases","role":"gym_owner_executor","command":"SELECT","columns":["id","member_id","plan_id","price_php","purchase_status","activation_date","expiry_date","created_at"],"policy":"gf_owner_select"},{"table":"private.membership_purchases","role":"gym_owner_executor","command":"INSERT","columns":["member_id","plan_id","price_php","purchase_status"],"policy":"gf_owner_insert"},{"table":"private.membership_purchases","role":"gym_owner_executor","command":"UPDATE","columns":["purchase_status"],"policy":"gf_owner_update"},{"table":"private.payment_records","role":"gym_owner_executor","command":"SELECT","columns":["id","amount_php","payment_method","received_at","verification_status","external_reference","evidence_reference","recorded_by","created_at","operation_id","target_membership_purchase_id"],"policy":"gf_owner_select"},{"table":"private.payment_records","role":"gym_owner_executor","command":"INSERT","columns":["amount_php","payment_method","verification_status","external_reference","recorded_by","operation_id","target_membership_purchase_id"],"policy":"gf_owner_insert"},{"table":"private.payment_records","role":"gym_owner_executor","command":"UPDATE","columns":["verification_status"],"policy":"gf_owner_update"},{"table":"private.payment_allocations","role":"gym_owner_executor","command":"SELECT","columns":["id","payment_id","membership_purchase_id","walkin_request_id","allocated_by","allocated_at"],"policy":"gf_owner_select"},{"table":"private.payment_allocations","role":"gym_owner_executor","command":"INSERT","columns":["payment_id","membership_purchase_id","allocated_by"],"policy":"gf_owner_insert"},{"table":"private.payment_events","role":"gym_owner_executor","command":"SELECT","columns":["id","payment_id","event_type","reason","actor_user_id","created_at"],"policy":"gf_owner_select"},{"table":"private.payment_events","role":"gym_owner_executor","command":"INSERT","columns":["payment_id","event_type","reason","actor_user_id"],"policy":"gf_owner_insert"},{"table":"private.audit_events","role":"gym_owner_executor","command":"SELECT","columns":["id","actor_user_id","event_type","subject_type","subject_id","details","created_at","stream_key","previous_event_hash","event_hash"],"policy":"gf_owner_select"},{"table":"private.audit_events","role":"gym_owner_executor","command":"INSERT","columns":["stream_key","actor_user_id","event_type","subject_type","subject_id","details"],"policy":"gf_owner_insert"},{"table":"private.audit_chain_heads","role":"gym_owner_executor","command":"SELECT","columns":["stream_key","last_event_id","last_event_hash","updated_at"],"policy":"gf_owner_select"},{"table":"private.audit_chain_heads","role":"gym_owner_executor","command":"INSERT","columns":["stream_key","last_event_id","last_event_hash"],"policy":"gf_owner_insert"},{"table":"private.audit_chain_heads","role":"gym_owner_executor","command":"UPDATE","columns":["last_event_id","last_event_hash","updated_at"],"policy":"gf_owner_update"},{"table":"private.member_pin_setup_tokens","role":"gym_owner_executor","command":"SELECT","columns":["id","member_id","token_hash","token_purpose","expires_at","consumed_at","created_at"],"policy":"gf_owner_select"},{"table":"private.member_pin_setup_tokens","role":"gym_owner_executor","command":"INSERT","columns":["member_id","token_hash","token_purpose","expires_at"],"policy":"gf_owner_insert"},{"table":"private.member_pin_setup_tokens","role":"gym_owner_executor","command":"UPDATE","columns":["consumed_at"],"policy":"gf_owner_update"},{"table":"private.members","role":"gym_public_executor","command":"SELECT","columns":["id","status"],"policy":"gf_public_select"},{"table":"private.members","role":"gym_public_executor","command":"UPDATE","columns":["updated_at"],"policy":"gf_public_update"},{"table":"private.member_pin_setup_tokens","role":"gym_public_executor","command":"SELECT","columns":["id","member_id","token_hash","token_purpose","expires_at","consumed_at"],"policy":"gf_public_select"},{"table":"private.member_pin_setup_tokens","role":"gym_public_executor","command":"UPDATE","columns":["consumed_at"],"policy":"gf_public_update"},{"table":"private.member_pin_credentials","role":"gym_public_executor","command":"SELECT","columns":["member_id"],"policy":"gf_public_select"},{"table":"private.member_pin_credentials","role":"gym_public_executor","command":"INSERT","columns":["member_id","password_hash","credential_version","created_at","updated_at"],"policy":"gf_public_insert"},{"table":"private.pin_enrollment_global_rate_limit_events","role":"gym_public_executor","command":"SELECT","columns":["requested_at"],"policy":"gf_public_select"},{"table":"private.pin_enrollment_global_rate_limit_events","role":"gym_public_executor","command":"INSERT","columns":["requested_at"],"policy":"gf_public_insert"},{"table":"private.pin_enrollment_global_rate_limit_events","role":"gym_public_executor","command":"DELETE","columns":[],"policy":"gf_public_delete"}],"sequence_runtime_grants":[],"provider_profile":"native_only","executor_memberships":[],"catalog_alignment":{"source":"Original contract preserved with separately verified catalog expectations","constraints":110,"explicit_indexes":28,"index_keys":40,"columns":149,"provider":"native_pg18_only"}}$contract_json$::jsonb;
+    item jsonb; col jsonb; key_entry jsonb; obj oid; actual text; normalized text; wanted text;
+    creator text; namespace_name text; object_kind text; creator_oid oid;
+    lex_pattern text := $lex$'(?:''|[^'])*'|"(?:""|[^"])*"|[a-zA-Z_][a-zA-Z_0-9]*|[0-9]+(?:\.[0-9]+)?|::|<>|<=|>=|&&|!=|\|\||[^[:space:]]$lex$;
+BEGIN
+    IF current_setting('server_version_num')::integer / 10000 <> 18 THEN
+      RAISE EXCEPTION 'Aligned catalog assertions require the reviewed native PostgreSQL 18 target';
+    END IF;
+    -- Native profile has NO public/graphql_public functions or procedures.
+    -- No provider exemption is inferred from a name or presumed extension.
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+       WHERE n.nspname IN ('public','graphql_public')) THEN
+        RAISE EXCEPTION 'Unexpected exposed function/procedure: native profile allows none';
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_namespace n,
+       LATERAL pg_catalog.aclexplode(COALESCE(n.nspacl,pg_catalog.acldefault('n',n.nspowner))) acl
+       WHERE n.nspname IN ('public','private','api','graphql_public','extensions')
+         AND acl.privilege_type='CREATE' AND acl.grantee<>n.nspowner
+         AND acl.grantee<>(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='postgres')) THEN
+      RAISE EXCEPTION 'Unapproved schema-creating principal';
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_namespace n
+       WHERE n.nspname IN ('private','api') AND n.nspowner<>(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='postgres')) THEN
+        RAISE EXCEPTION 'Application schema owner drift';
+    END IF;
+    FOREACH creator IN ARRAY ARRAY['anon','authenticated','service_role','gym_registration_login','gym_data_owner','gym_owner_executor','gym_public_executor'] LOOP
+      FOREACH namespace_name IN ARRAY ARRAY['public','private','api','graphql_public','extensions'] LOOP
+        IF pg_catalog.to_regnamespace(namespace_name) IS NOT NULL
+           AND pg_catalog.has_schema_privilege(creator,namespace_name,'CREATE') THEN
+          RAISE EXCEPTION 'Unapproved schema CREATE: % / %',creator,namespace_name;
+        END IF;
+      END LOOP;
+    END LOOP;
+    -- Every creator independently: implicit global defaults plus additive schema defaults.
+    -- No default ACL changes here. Function EXECUTE remains owner-only.
+    -- Only unmodified implicit PUBLIC type USAGE is accepted: not table/RPC access.
+    FOR creator IN SELECT jsonb_array_elements_text(contract->'creators') LOOP
+      SELECT oid INTO creator_oid FROM pg_catalog.pg_roles WHERE rolname=creator;
+      IF creator_oid IS NULL THEN RAISE EXCEPTION 'Missing reviewed creator %',creator; END IF;
+      FOREACH object_kind IN ARRAY ARRAY['r','S','f','T'] LOOP
+        IF EXISTS (SELECT 1 FROM pg_catalog.aclexplode(COALESCE(
+          (SELECT d.defaclacl FROM pg_catalog.pg_default_acl d WHERE d.defaclrole=creator_oid
+           AND d.defaclnamespace=0 AND d.defaclobjtype=object_kind::pg_catalog."char"),
+          pg_catalog.acldefault(object_kind::pg_catalog."char",creator_oid))) acl
+          WHERE acl.grantee<>creator_oid
+            AND NOT (object_kind='T' AND acl.grantee=0 AND acl.privilege_type='USAGE' AND NOT acl.is_grantable
+              AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_default_acl implicit_type
+                WHERE implicit_type.defaclrole=creator_oid AND implicit_type.defaclnamespace=0
+                  AND implicit_type.defaclobjtype='T'))) THEN
+          RAISE EXCEPTION 'Unsafe effective global default ACL: creator % kind %',creator,object_kind;
+        END IF;
+        IF EXISTS (SELECT 1 FROM pg_catalog.pg_default_acl d JOIN pg_catalog.pg_namespace n ON n.oid=d.defaclnamespace,
+          LATERAL pg_catalog.aclexplode(d.defaclacl) acl
+          WHERE d.defaclrole=creator_oid AND d.defaclobjtype=object_kind::pg_catalog."char"
+            AND n.nspname IN ('private','api','public','graphql_public') AND acl.grantee<>creator_oid) THEN
+          RAISE EXCEPTION 'Unsafe additive schema default ACL: creator % kind %',creator,object_kind;
+        END IF;
+      END LOOP;
+    END LOOP;
+    FOR item IN SELECT value FROM jsonb_array_elements(contract->'tables') LOOP
+      obj := pg_catalog.to_regclass(item->>'name');
+      IF obj IS NULL THEN RAISE EXCEPTION 'Missing contract table'; END IF;
+      IF (SELECT count(*) FROM pg_catalog.pg_attribute WHERE attrelid=obj AND attnum>0 AND NOT attisdropped)
+         <>jsonb_array_length(item->'columns') THEN RAISE EXCEPTION 'Column inventory mismatch: %',item->>'name'; END IF;
+      FOR col IN SELECT value FROM jsonb_array_elements(item->'columns') LOOP
+        IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a WHERE a.attrelid=obj AND a.attname=col->>'name'
+          AND a.attnum>0 AND NOT a.attisdropped AND a.attnotnull=(col->>'not_null')::boolean
+          AND a.attidentity::text=col->>'identity' AND a.attgenerated::text=col->>'generated') THEN
+          RAISE EXCEPTION 'Column nullability/identity/generated mismatch: %.%',item->>'name',col->>'name';
+        END IF;
+        SELECT pg_catalog.format_type(a.atttypid,a.atttypmod) INTO actual FROM pg_catalog.pg_attribute a
+          WHERE a.attrelid=obj AND a.attname=col->>'name';
+        SELECT string_agg(CASE WHEN left(m[1],1) IN ('''','"') THEN m[1] ELSE lower(m[1]) END,' ' ORDER BY ordinal) INTO normalized
+          FROM pg_catalog.regexp_matches(actual,lex_pattern,'g') WITH ORDINALITY token(m,ordinal);
+        IF normalized IS DISTINCT FROM col->>'type' THEN RAISE EXCEPTION 'Column type drift'; END IF;
+        SELECT pg_catalog.pg_get_expr(d.adbin,d.adrelid,false) INTO actual FROM pg_catalog.pg_attrdef d
+          JOIN pg_catalog.pg_attribute a ON a.attrelid=d.adrelid AND a.attnum=d.adnum
+          WHERE a.attrelid=obj AND a.attname=col->>'name';
+        SELECT string_agg(CASE WHEN left(m[1],1) IN ('''','"') THEN m[1] ELSE lower(m[1]) END,' ' ORDER BY ordinal) INTO normalized
+          FROM pg_catalog.regexp_matches(actual,lex_pattern,'g') WITH ORDINALITY token(m,ordinal);
+        IF normalized IS DISTINCT FROM col->>'catalog_default' THEN
+          RAISE EXCEPTION 'Column default/generated expression drift (verified catalog contract): %.%',item->>'name',col->>'name';
+        END IF;
+      END LOOP;
+      -- PostgreSQL 18 NOT NULL catalog constraints are represented by attnotnull above.
+      IF (SELECT count(*) FROM pg_catalog.pg_constraint WHERE conrelid=obj AND contype<>'n')
+         <>jsonb_array_length(item->'constraints') THEN RAISE EXCEPTION 'Constraint inventory drift'; END IF;
+      FOR col IN SELECT value FROM jsonb_array_elements(item->'constraints') LOOP
+        SELECT pg_catalog.pg_get_constraintdef(c.oid,false) INTO actual FROM pg_catalog.pg_constraint c
+          WHERE c.conrelid=obj AND c.conname=col->>'name' AND c.contype::text=col->>'kind'
+            AND c.convalidated AND c.conislocal AND c.coninhcount=0 AND c.conenforced
+            AND (col->>'no_inherit' IS NULL OR c.connoinherit=(col->>'no_inherit')::boolean)
+            AND c.condeferrable=(col->>'deferrable')::boolean AND c.condeferred=(col->>'deferred')::boolean;
+        SELECT string_agg(CASE WHEN left(m[1],1) IN ('''','"') THEN m[1] ELSE lower(m[1]) END,' ' ORDER BY ordinal) INTO normalized
+          FROM pg_catalog.regexp_matches(actual,lex_pattern,'g') WITH ORDINALITY token(m,ordinal);
+        IF normalized IS DISTINCT FROM col->>'catalog_definition' THEN
+          RAISE EXCEPTION 'Constraint definition drift (verified catalog contract): %',col->>'name';
+        END IF;
+        IF col->>'kind'='x' AND NOT EXISTS (
+          SELECT 1 FROM pg_catalog.pg_constraint ck JOIN pg_catalog.pg_index ix ON ix.indexrelid=ck.conindid
+          JOIN pg_catalog.pg_class ic ON ic.oid=ix.indexrelid JOIN pg_catalog.pg_am am ON am.oid=ic.relam
+          WHERE ck.conrelid=obj AND ck.conname=col->>'name' AND am.amname=col->'exclusion'->>'method'
+            AND ix.indnkeyatts=2 AND ix.indnatts=2 AND ix.indisexclusion
+            AND ix.indkey[0]=(SELECT attnum FROM pg_catalog.pg_attribute WHERE attrelid=obj AND attname='member_id')
+            AND ix.indkey[1]=0
+            AND ck.conexclop=(SELECT array_agg(pg_catalog.to_regoperator(value)::oid ORDER BY ord)
+              FROM jsonb_array_elements_text(col->'exclusion'->'operators') WITH ORDINALITY e(value,ord))
+            AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(col->'exclusion'->'opclasses') WITH ORDINALITY e(v,ord)
+              WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_opclass oc JOIN pg_catalog.pg_namespace ns ON ns.oid=oc.opcnamespace
+                WHERE oc.oid=ix.indclass[e.ord::integer-1] AND ns.nspname=e.v->>'schema' AND oc.opcname=e.v->>'name'
+                  AND oc.opcintype=pg_catalog.to_regtype(e.v->>'type') AND oc.opcdefault AND oc.opcmethod=am.oid))
+        ) THEN RAISE EXCEPTION 'Exclusion opclass/operator/key drift'; END IF;
+      END LOOP;
+      IF EXISTS (SELECT 1 FROM pg_catalog.pg_constraint c JOIN pg_catalog.pg_index i ON i.indexrelid=c.conindid
+        WHERE c.conrelid=obj AND c.contype IN ('p','u','x') AND
+          (NOT i.indisvalid OR NOT i.indisready OR NOT i.indislive OR
+           i.indisprimary IS DISTINCT FROM (c.contype='p') OR
+           i.indisunique IS DISTINCT FROM (c.contype IN ('p','u')) OR
+           i.indisexclusion IS DISTINCT FROM (c.contype='x') OR
+           i.indimmediate IS DISTINCT FROM (NOT c.condeferrable))) THEN
+        RAISE EXCEPTION 'Constraint-backed index metadata drift';
+      END IF;
+      IF EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite WHERE ev_class=obj) THEN RAISE EXCEPTION 'Unexpected table rewrite rule'; END IF;
+    END LOOP;
+    FOR item IN SELECT value FROM jsonb_array_elements(contract->'indexes') LOOP
+      SELECT pg_catalog.pg_get_indexdef(c.oid,0,false) INTO actual FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_index i ON i.indexrelid=c.oid WHERE c.oid=pg_catalog.to_regclass(item->>'name')
+          AND i.indrelid=pg_catalog.to_regclass(item->>'parent') AND i.indisvalid AND i.indisready AND i.indislive
+          AND i.indisunique=(item->>'unique')::boolean
+          AND NOT i.indisprimary AND NOT i.indisexclusion AND i.indimmediate AND NOT i.indnullsnotdistinct
+          AND i.indnkeyatts=jsonb_array_length(item->'keys') AND i.indnatts=jsonb_array_length(item->'keys');
+      SELECT string_agg(CASE WHEN left(m[1],1) IN ('''','"') THEN m[1] ELSE lower(m[1]) END,' ' ORDER BY ordinal) INTO normalized
+        FROM pg_catalog.regexp_matches(actual,lex_pattern,'g') WITH ORDINALITY token(m,ordinal);
+      IF normalized IS DISTINCT FROM item->>'catalog_definition' THEN RAISE EXCEPTION 'Explicit index definition drift: %',item->>'name'; END IF;
+      FOR key_entry IN SELECT value FROM jsonb_array_elements(item->'keys') LOOP
+        IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_index ix
+          JOIN pg_catalog.pg_attribute ka ON ka.attrelid=ix.indexrelid AND ka.attnum=(key_entry->>'position')::integer AND NOT ka.attisdropped
+          JOIN pg_catalog.pg_opclass oc ON oc.oid=ix.indclass[(key_entry->>'position')::integer-1]
+          JOIN pg_catalog.pg_namespace ns ON ns.oid=oc.opcnamespace JOIN pg_catalog.pg_am am ON am.oid=oc.opcmethod
+          WHERE ix.indexrelid=pg_catalog.to_regclass(item->>'name') AND am.amname='btree' AND ns.nspname='pg_catalog'
+            AND oc.opcname=key_entry->>'opclass' AND oc.opcdefault AND oc.opcintype=pg_catalog.to_regtype(key_entry->>'type')
+            AND ka.atttypid=pg_catalog.to_regtype(key_entry->>'type')
+            AND ix.indkey[(key_entry->>'position')::integer-1]=CASE WHEN key_entry->>'column'='' THEN 0
+              ELSE (SELECT attnum FROM pg_catalog.pg_attribute WHERE attrelid=ix.indrelid AND attname=key_entry->>'column' AND NOT attisdropped) END
+            AND ix.indoption[(key_entry->>'position')::integer-1]=(key_entry->>'options')::integer
+            AND ix.indcollation[(key_entry->>'position')::integer-1]=CASE WHEN key_entry->>'collation' IS NULL THEN 0::oid
+              ELSE pg_catalog.to_regcollation(key_entry->>'collation')::oid END
+        ) THEN RAISE EXCEPTION 'Explicit index key/opclass/order/collation drift'; END IF;
+      END LOOP;
+    END LOOP;
+    -- Exact full index inventory (constraint-backed definitions checked via constraints).
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_index i JOIN pg_catalog.pg_class t ON t.oid=i.indrelid
+      JOIN pg_catalog.pg_namespace n ON n.oid=t.relnamespace
+      WHERE n.nspname IN ('private','public') AND NOT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_constraint c WHERE c.conindid=i.indexrelid AND c.conrelid=i.indrelid
+        AND c.contype IN ('p','u','x')) AND NOT EXISTS (
+        SELECT 1 FROM jsonb_array_elements(contract->'indexes') e
+        WHERE pg_catalog.to_regclass(e->>'name')=i.indexrelid)) THEN RAISE EXCEPTION 'Unexpected index'; END IF;
+    IF (SELECT count(*) FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_class c ON c.oid=t.tgrelid
+      JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('private','public') AND NOT t.tgisinternal)
+      <>jsonb_array_length(contract->'triggers') THEN RAISE EXCEPTION 'Unexpected/missing user trigger'; END IF;
+    FOR item IN SELECT value FROM jsonb_array_elements(contract->'routines') LOOP
+      obj := pg_catalog.to_regprocedure(item->>'signature');
+      IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_language l ON l.oid=p.prolang
+        WHERE p.oid=obj AND p.prokind::text=item->>'kind' AND l.lanname=item->>'language'
+          AND p.proisstrict=(item->>'strict')::boolean AND p.proretset=(item->>'returns_set')::boolean
+          AND p.provolatile::text=item->>'volatility' AND p.proparallel::text=item->>'parallel'
+          AND p.proleakproof=(item->>'leakproof')::boolean AND p.prosupport=0 AND p.provariadic=0
+          AND p.probin IS NULL AND p.prosqlbody IS NULL AND p.pronargs=jsonb_array_length(item->'input_types')
+          AND p.pronargdefaults=(item->>'default_count')::integer
+          AND p.protrftypes IS NULL AND p.procost=(item->>'cost')::real AND p.prorows=(item->>'rows')::real
+          AND COALESCE(to_jsonb(p.proargnames),'[]'::jsonb)=item->'argument_names') THEN
+        RAISE EXCEPTION 'Routine execution metadata drift: %',item->>'name';
+      END IF;
+      IF (SELECT COALESCE(to_jsonb(p.proargmodes),'null'::jsonb) FROM pg_catalog.pg_proc p WHERE p.oid=obj)
+         IS DISTINCT FROM (CASE WHEN jsonb_array_length(item->'output_types')=0 THEN 'null'::jsonb
+         ELSE (SELECT jsonb_agg(mode ORDER BY ordinal) FROM (
+           SELECT 'i'::text mode, ordinality ordinal FROM jsonb_array_elements(item->'input_types') WITH ORDINALITY
+           UNION ALL SELECT 't',ordinality+jsonb_array_length(item->'input_types')
+             FROM jsonb_array_elements(item->'output_types') WITH ORDINALITY) modes) END) THEN
+        RAISE EXCEPTION 'Routine argument modes drift';
+      END IF;
+      IF (SELECT COALESCE(jsonb_agg(pg_catalog.format_type(a.type_oid,NULL) ORDER BY a.ordinality),'[]'::jsonb)
+          FROM pg_catalog.pg_proc p,
+          LATERAL unnest(COALESCE(p.proallargtypes,p.proargtypes::oid[])) WITH ORDINALITY a(type_oid,ordinality)
+          WHERE p.oid=obj) IS DISTINCT FROM ((item->'input_types')||(item->'output_types')) THEN
+        RAISE EXCEPTION 'Routine input/output argument types drift';
+      END IF;
+      SELECT pg_catalog.pg_get_function_result(obj) INTO actual;
+      SELECT string_agg(CASE WHEN left(m[1],1) IN ('''','"') THEN m[1] ELSE lower(m[1]) END,' ' ORDER BY ordinal) INTO normalized
+        FROM pg_catalog.regexp_matches(actual,lex_pattern,'g') WITH ORDINALITY token(m,ordinal);
+      IF normalized IS DISTINCT FROM item->>'result' THEN RAISE EXCEPTION 'Routine result drift'; END IF;
+      SELECT COALESCE(pg_catalog.pg_get_expr(p.proargdefaults,0,false),'') INTO actual FROM pg_catalog.pg_proc p WHERE p.oid=obj;
+      SELECT COALESCE(string_agg(CASE WHEN left(m[1],1) IN ('''','"') THEN m[1] ELSE lower(m[1]) END,' ' ORDER BY ordinal),'') INTO normalized
+        FROM pg_catalog.regexp_matches(actual,lex_pattern,'g') WITH ORDINALITY token(m,ordinal);
+      IF normalized IS DISTINCT FROM item->>'catalog_argument_defaults' THEN RAISE EXCEPTION 'Routine default argument drift'; END IF;
+      IF EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.classid='pg_catalog.pg_proc'::regclass
+        AND d.objid=obj AND d.deptype='e') THEN RAISE EXCEPTION 'Unexpected routine extension membership'; END IF;
+    END LOOP;
+END;
+$offline_contract$;
+ROLLBACK;

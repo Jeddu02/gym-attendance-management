@@ -1,0 +1,162 @@
+[
+  {
+    "index_name": "private.members_status_idx",
+    "key_position": "1"
+  },
+  {
+    "index_name": "private.audit_events_created_at_idx",
+    "key_position": "1"
+  },
+  {
+    "index_name": "private.audit_events_actor_created_idx",
+    "key_position": "1"
+  },
+  {
+    "index_name": "private.audit_events_actor_created_idx",
+    "key_position": "2"
+  },
+  {
+    "index_name": "private.membership_purchases_member_idx",
+    "key_position": "1"
+  },
+  {
+    "index_name": "private.membership_purchases_member_idx",
+    "key_position": "2"
+  },
+  {
+    "index_name": "private.membership_purchases_plan_idx",
+    "key_position": "1"
+  },
+  {
+    "index_name": "private.payment_allocations_membership_idx",
+    "key_position": "1"
+  },
+  {
+    "index_name": "private.payment_allocations_walkin_idx",
+    "key_position": "1"
+  },
+  {
+    "index_name": "private.payment_events_payment_created_idx",
+    "key_position": "1"
+  },
+  {
+    "index_name": "private.payment_events_payment_created_idx",
+    "key_position": "2"
+  },
+  {
+    "index_name": "private.payment_corrections_payment_idx",
+    "key_position": "1"
+  },
+  {
+    "index_name": "private.payment_corrections_payment_idx",
+    "key_position": "2"
+  },
+  {
+    "index_name": "private.attendance_one_member_valid_checkin_per_day",
+    "key_position": "1"
+  },
+  {
+    "index_name": "private.attendance_one_member_valid_checkin_per_day",
+    "key_position": "2"
+  },
+  {
+    "index_name": "private.attendance_one_checkin_per_walkin",
+    "key_position": "1"
+  },
+  {
+    "index_name": "private.attendance_date_idx",
+    "key_position": "1"
+  },
+  {
+    "index_name": "private.attendance_member_date_idx",
+    "key_position": "1"
+  },
+  {
+    "index_name": "private.attendance_member_date_idx",
+    "key_position": "2"
+  },
+  {
+    "index_name": "private.member_pin_setup_tokens_member_idx",
+    "key_position": "1"
+  },
+  {
+    "index_name": "private.member_pin_setup_tokens_member_idx",
+    "key_position": "2"
+  },
+  {
+    "index_name": "private.member_pin_setup_tokens_expiry_idx",
+    "key_position": "1"
+  },
+  {
+    "index_name": "private.pin_attempt_buckets_blocked_idx",
+    "key_position": "1"
+  },
+  {
+    "index_name": "private.cash_drawer_only_one_open_session",
+    "key_position": "1"
+  },
+  {
+    "index_name": "private.cash_reconciliations_date_idx",
+    "key_position": "1"
+  },
+  {
+    "index_name": "private.cash_adjustments_reconciliation_idx",
+    "key_position": "1"
+  },
+  {
+    "index_name": "private.cash_adjustments_reconciliation_idx",
+    "key_position": "2"
+  },
+  {
+    "index_name": "private.audit_events_stream_created_idx",
+    "key_position": "1"
+  },
+  {
+    "index_name": "private.audit_events_stream_created_idx",
+    "key_position": "2"
+  },
+  {
+    "index_name": "private.audit_events_stream_created_idx",
+    "key_position": "3"
+  },
+  {
+    "index_name": "private.member_pin_setup_tokens_active_enrollment_idx",
+    "key_position": "1"
+  },
+  {
+    "index_name": "private.pin_enrollment_global_rate_limit_events_requested_at_idx",
+    "key_position": "1"
+  },
+  {
+    "index_name": "private.membership_plans_normalized_name_uidx",
+    "key_position": "1"
+  },
+  {
+    "index_name": "private.payment_records_operation_id_uidx",
+    "key_position": "1"
+  },
+  {
+    "index_name": "private.payment_records_membership_idx",
+    "key_position": "1"
+  },
+  {
+    "index_name": "private.payment_records_membership_idx",
+    "key_position": "2"
+  },
+  {
+    "index_name": "private.payment_records_membership_external_reference_uidx",
+    "key_position": "1"
+  },
+  {
+    "index_name": "private.payment_records_membership_external_reference_uidx",
+    "key_position": "2"
+  },
+  {
+    "index_name": "private.payment_records_pending_membership_uidx",
+    "key_position": "1"
+  },
+  {
+    "index_name": "private.payment_allocations_membership_purchase_uidx",
+    "key_position": "1"
+  }
+]

@@ -1,0 +1,459 @@
+{
+  "source_sha256": "679a5a58de77e97a1d4c8f4dd41d2466955a88721fd3e2ad436e6f51a1b362cc",
+  "scope": "Declarative review only; every executor scenario remains NOT RUN",
+  "cases": [
+    {
+      "id": "N1",
+      "category": "nested_rpc",
+      "actor": "service_role",
+      "status": "NOT_EXECUTED_NOT_INCLUDED_IN_CATALOGUE_CANDIDATE",
+      "preconditions": [
+        "Fresh strict cluster/endpoint/database/SCRAM identity verification",
+        "Reviewed proposed owners/ACLs/RLS active in explicitly approved isolation",
+        "Owner-approved restore evidence, fixture collision checks and unique synthetic IDs",
+        "No live or pre-existing member/payment/PIN rows reused",
+        "Owner-approved nonzero sequence budget and protected baseline capture"
+      ],
+      "steps": [
+        "Provision only approved synthetic active Owner and plan",
+        "Invoke with Owner actor, then synthetic non-Owner and null actor",
+        "Inspect fixed synthetic audit subjects using booleans only"
+      ],
+      "pass_criteria": [
+        "Owner operation and invoker trigger/hash dependency succeed under restricted owners",
+        "Non-Owner/null return 42501, no audit/business mutation",
+        "service_role has no direct protected-table access"
+      ],
+      "fail_criteria": [
+        "Any mismatched SQLSTATE, unexpected success, unauthorized row or unexpected zero-row write",
+        "Any unexplained business/audit/sequence/schema/default-ACL change",
+        "Any unsupported/omitted step; never report partial scenario as PASS"
+      ],
+      "catalogue_subset": "None; full scenario deferred"
+    },
+    {
+      "id": "N2",
+      "category": "nested_rpc",
+      "actor": "service_role",
+      "status": "NOT_EXECUTED_NOT_INCLUDED_IN_CATALOGUE_CANDIDATE",
+      "preconditions": [
+        "Fresh strict cluster/endpoint/database/SCRAM identity verification",
+        "Reviewed proposed owners/ACLs/RLS active in explicitly approved isolation",
+        "Owner-approved restore evidence, fixture collision checks and unique synthetic IDs",
+        "No live or pre-existing member/payment/PIN rows reused",
+        "Owner-approved nonzero sequence budget and protected baseline capture"
+      ],
+      "steps": [
+        "Use approved synthetic unconsumed enrollment token and secure encoded PIN fixture",
+        "Enroll once, then repeat and try expired/consumed token"
+      ],
+      "pass_criteria": [
+        "Public executor can call only the documented Owner-executor audit append path",
+        "One credential/token consumption/audit result atomically; replay/expiry refused",
+        "No token/hash/PIN output"
+      ],
+      "fail_criteria": [
+        "Any mismatched SQLSTATE, unexpected success, unauthorized row or unexpected zero-row write",
+        "Any unexplained business/audit/sequence/schema/default-ACL change",
+        "Any unsupported/omitted step; never report partial scenario as PASS"
+      ],
+      "catalogue_subset": "None; full scenario deferred"
+    },
+    {
+      "id": "T1",
+      "category": "triggers",
+      "actor": "service_role",
+      "status": "NOT_EXECUTED_NOT_INCLUDED_IN_CATALOGUE_CANDIDATE",
+      "preconditions": [
+        "Fresh strict cluster/endpoint/database/SCRAM identity verification",
+        "Reviewed proposed owners/ACLs/RLS active in explicitly approved isolation",
+        "Owner-approved restore evidence, fixture collision checks and unique synthetic IDs",
+        "No live or pre-existing member/payment/PIN rows reused",
+        "Owner-approved nonzero sequence budget and protected baseline capture"
+      ],
+      "steps": [
+        "Record exact full-price synthetic payment through RPC",
+        "Confirm with Owner and evidence reviewed; test duplicate confirmation and false evidence"
+      ],
+      "pass_criteria": [
+        "All relevant insert/update/allocation/purchase/audit triggers fire",
+        "One allocation and pending_activation with null access dates",
+        "42501 for non-Owner; 22023 for missing evidence; no unpaid activation"
+      ],
+      "fail_criteria": [
+        "Any mismatched SQLSTATE, unexpected success, unauthorized row or unexpected zero-row write",
+        "Any unexplained business/audit/sequence/schema/default-ACL change",
+        "Any unsupported/omitted step; never report partial scenario as PASS"
+      ],
+      "catalogue_subset": "None; full scenario deferred"
+    },
+    {
+      "id": "T2",
+      "category": "triggers",
+      "actor": "trusted_fixture_administrator",
+      "status": "NOT_EXECUTED_NOT_INCLUDED_IN_CATALOGUE_CANDIDATE",
+      "preconditions": [
+        "Fresh strict cluster/endpoint/database/SCRAM identity verification",
+        "Reviewed proposed owners/ACLs/RLS active in explicitly approved isolation",
+        "Owner-approved restore evidence, fixture collision checks and unique synthetic IDs",
+        "No live or pre-existing member/payment/PIN rows reused",
+        "Owner-approved nonzero sequence budget and protected baseline capture"
+      ],
+      "steps": [
+        "After separate fixture-tamper approval attempt UPDATE/DELETE/TRUNCATE only against synthetic immutable history",
+        "Map each of the 13 enabled triggers to at least one accepted operation or denied attempt"
+      ],
+      "pass_criteria": [
+        "Trigger guard refusal preserved even for the approved administrator attempt",
+        "Do not grant executor DELETE/TRUNCATE to reach a trigger",
+        "All originals and audit chain retained"
+      ],
+      "fail_criteria": [
+        "Any mismatched SQLSTATE, unexpected success, unauthorized row or unexpected zero-row write",
+        "Any unexplained business/audit/sequence/schema/default-ACL change",
+        "Any unsupported/omitted step; never report partial scenario as PASS"
+      ],
+      "catalogue_subset": "None; full scenario deferred"
+    },
+    {
+      "id": "L1",
+      "category": "row_locks",
+      "actor": "service_role",
+      "status": "NOT_EXECUTED_NOT_INCLUDED_IN_CATALOGUE_CANDIDATE",
+      "preconditions": [
+        "Fresh strict cluster/endpoint/database/SCRAM identity verification",
+        "Reviewed proposed owners/ACLs/RLS active in explicitly approved isolation",
+        "Owner-approved restore evidence, fixture collision checks and unique synthetic IDs",
+        "No live or pre-existing member/payment/PIN rows reused"
+      ],
+      "steps": [
+        "Exercise member FOR UPDATE and plan FOR SHARE through real RPC paths",
+        "As each executor probe only approved synthetic IDs",
+        "Attempt protected status/date UPDATE separately"
+      ],
+      "pass_criteria": [
+        "Minimum member updated_at UPDATE grant plus SELECT/UPDATE policies suffices",
+        "No permission denied hidden by superuser execution",
+        "Status/approval/activation/expiry UPDATE refused with 42501"
+      ],
+      "fail_criteria": [
+        "Any mismatched SQLSTATE, unexpected success, unauthorized row or unexpected zero-row write",
+        "Any unexplained business/audit/sequence/schema/default-ACL change",
+        "Any unsupported/omitted step; never report partial scenario as PASS"
+      ],
+      "catalogue_subset": "None; full scenario deferred"
+    },
+    {
+      "id": "L2",
+      "category": "row_locks",
+      "actor": "service_role",
+      "status": "NOT_EXECUTED_NOT_INCLUDED_IN_CATALOGUE_CANDIDATE",
+      "preconditions": [
+        "Fresh strict cluster/endpoint/database/SCRAM identity verification",
+        "Reviewed proposed owners/ACLs/RLS active in explicitly approved isolation",
+        "Owner-approved restore evidence, fixture collision checks and unique synthetic IDs",
+        "No live or pre-existing member/payment/PIN rows reused"
+      ],
+      "steps": [
+        "Exercise purchase/payment FOR UPDATE and trigger FOR KEY SHARE",
+        "Append twice to same synthetic audit stream to exercise head lock"
+      ],
+      "pass_criteria": [
+        "Only manifest column privileges are sufficient",
+        "No lost head/duplicate allocation or partial business state"
+      ],
+      "fail_criteria": [
+        "Any mismatched SQLSTATE, unexpected success, unauthorized row or unexpected zero-row write",
+        "Any unexplained business/audit/sequence/schema/default-ACL change",
+        "Any unsupported/omitted step; never report partial scenario as PASS"
+      ],
+      "catalogue_subset": "None; full scenario deferred"
+    },
+    {
+      "id": "I1",
+      "category": "rls",
+      "actor": "each_manifest_role",
+      "status": "NOT_EXECUTED_NOT_INCLUDED_IN_CATALOGUE_CANDIDATE",
+      "preconditions": [
+        "Fresh strict cluster/endpoint/database/SCRAM identity verification",
+        "Reviewed proposed owners/ACLs/RLS active in explicitly approved isolation",
+        "Owner-approved restore evidence, fixture collision checks and unique synthetic IDs",
+        "No live or pre-existing member/payment/PIN rows reused"
+      ],
+      "steps": [
+        "Verify all 22 tables have RLS and FORCE after promotion",
+        "For anon/authenticated/service_role/registration test protected SELECT and DML",
+        "For both executors compare exact command/column capability matrix"
+      ],
+      "pass_criteria": [
+        "Browser/service/registration direct access denied",
+        "Permitted executor operations match exact role/command policies",
+        "Credentials password_hash SELECT and protected DELETE denied",
+        "Zero affected rows is asserted as zero, never mistaken for a successful write"
+      ],
+      "fail_criteria": [
+        "Any mismatched SQLSTATE, unexpected success, unauthorized row or unexpected zero-row write",
+        "Any unexplained business/audit/sequence/schema/default-ACL change",
+        "Any unsupported/omitted step; never report partial scenario as PASS"
+      ],
+      "catalogue_subset": "Candidate catalog assertions check declared ACL/role/RLS metadata only; no runtime behavior evidence"
+    },
+    {
+      "id": "I2",
+      "category": "rls",
+      "actor": "gym_data_owner",
+      "status": "NOT_EXECUTED_NOT_INCLUDED_IN_CATALOGUE_CANDIDATE",
+      "preconditions": [
+        "Fresh strict cluster/endpoint/database/SCRAM identity verification",
+        "Reviewed proposed owners/ACLs/RLS active in explicitly approved isolation",
+        "Owner-approved restore evidence, fixture collision checks and unique synthetic IDs",
+        "No live or pre-existing member/payment/PIN rows reused"
+      ],
+      "steps": [
+        "Probe FORCE RLS as dormant data owner using trusted session-role simulation",
+        "Attempt ordinary protected row access without executor policy"
+      ],
+      "pass_criteria": [
+        "Owner row access remains restricted by FORCE RLS",
+        "No claim that FORCE prevents object owner ALTER/DROP; role remains NOLOGIN with no membership"
+      ],
+      "fail_criteria": [
+        "Any mismatched SQLSTATE, unexpected success, unauthorized row or unexpected zero-row write",
+        "Any unexplained business/audit/sequence/schema/default-ACL change",
+        "Any unsupported/omitted step; never report partial scenario as PASS"
+      ],
+      "catalogue_subset": "Candidate catalog assertions check declared ACL/role/RLS metadata only; no runtime behavior evidence"
+    },
+    {
+      "id": "E1",
+      "category": "role_escalation",
+      "actor": "each_manifest_role",
+      "status": "NOT_EXECUTED_NOT_INCLUDED_IN_CATALOGUE_CANDIDATE",
+      "preconditions": [
+        "Fresh strict cluster/endpoint/database/SCRAM identity verification",
+        "Reviewed proposed owners/ACLs/RLS active in explicitly approved isolation",
+        "Owner-approved restore evidence, fixture collision checks and unique synthetic IDs",
+        "No live or pre-existing member/payment/PIN rows reused"
+      ],
+      "steps": [
+        "Verify zero membership edges and exact NOLOGIN/LOGIN/NOINHERIT and privileged-attribute invariants",
+        "Use separately approved SET SESSION AUTHORIZATION simulation; assert session_user/current_user before SET ROLE probe",
+        "Attempt executor/data-owner role assumption and schema CREATE"
+      ],
+      "pass_criteria": [
+        "42501 for unauthorized SET ROLE/schema CREATE",
+        "Do not use SET LOCAL ROLE alone from postgres to prove SET ROLE denial",
+        "Simulation retains original superuser reset power and is not real-login authentication evidence"
+      ],
+      "fail_criteria": [
+        "Any mismatched SQLSTATE, unexpected success, unauthorized row or unexpected zero-row write",
+        "Any unexplained business/audit/sequence/schema/default-ACL change",
+        "Any unsupported/omitted step; never report partial scenario as PASS"
+      ],
+      "catalogue_subset": "Candidate catalog assertions check declared ACL/role/RLS metadata only; no runtime behavior evidence"
+    },
+    {
+      "id": "E2",
+      "category": "role_escalation",
+      "actor": "gym_public_executor",
+      "status": "NOT_EXECUTED_NOT_INCLUDED_IN_CATALOGUE_CANDIDATE",
+      "preconditions": [
+        "Fresh strict cluster/endpoint/database/SCRAM identity verification",
+        "Reviewed proposed owners/ACLs/RLS active in explicitly approved isolation",
+        "Owner-approved restore evidence, fixture collision checks and unique synthetic IDs",
+        "No live or pre-existing member/payment/PIN rows reused"
+      ],
+      "steps": [
+        "Probe off-allowlist API/private helper EXECUTE and direct sequence access",
+        "Verify no executor can create/replace a routine or grant itself membership"
+      ],
+      "pass_criteria": [
+        "Only manifest callers execute permitted routines",
+        "No PUBLIC/browser default EXECUTE or unexpected executable routine",
+        "No CREATE/CREATEROLE/BYPASSRLS/replication or membership introduced"
+      ],
+      "fail_criteria": [
+        "Any mismatched SQLSTATE, unexpected success, unauthorized row or unexpected zero-row write",
+        "Any unexplained business/audit/sequence/schema/default-ACL change",
+        "Any unsupported/omitted step; never report partial scenario as PASS"
+      ],
+      "catalogue_subset": "Candidate catalog assertions check declared ACL/role/RLS metadata only; no runtime behavior evidence"
+    },
+    {
+      "id": "B1",
+      "category": "rollback",
+      "actor": "trusted_fixture_administrator",
+      "status": "NOT_EXECUTED_NOT_INCLUDED_IN_CATALOGUE_CANDIDATE",
+      "preconditions": [
+        "Fresh strict cluster/endpoint/database/SCRAM identity verification",
+        "Reviewed proposed owners/ACLs/RLS active in explicitly approved isolation",
+        "Owner-approved restore evidence, fixture collision checks and unique synthetic IDs",
+        "No live or pre-existing member/payment/PIN rows reused",
+        "Owner-approved nonzero sequence budget and protected baseline capture"
+      ],
+      "steps": [
+        "Use reviewed single outer BEGIN with no internal COMMIT",
+        "SAVEPOINT before approved synthetic operation; after a successful real RPC inject division by zero in the same transaction",
+        "ROLLBACK TO SAVEPOINT and verify fixture-scoped booleans",
+        "Final ROLLBACK and compare original catalog/ACL/row invariants from a fresh connection",
+        "Separately review a natural nested-trigger failure reproducer; do not invent a trigger bypass or modify an RPC to inject faults"
+      ],
+      "pass_criteria": [
+        "No partial payment/allocation/audit/head state",
+        "Post-RPC failure proves transaction rollback, not the RPC internal exception paths",
+        "Expected native failure remains visible and propagated",
+        "Sequence advances measured separately; no automatic setval or repair"
+      ],
+      "fail_criteria": [
+        "Any mismatched SQLSTATE, unexpected success, unauthorized row or unexpected zero-row write",
+        "Any unexplained business/audit/sequence/schema/default-ACL change",
+        "Any unsupported/omitted step; never report partial scenario as PASS"
+      ],
+      "catalogue_subset": "None; full scenario deferred"
+    },
+    {
+      "id": "B2",
+      "category": "rollback",
+      "actor": "trusted_fixture_administrator",
+      "status": "NOT_EXECUTED_NOT_INCLUDED_IN_CATALOGUE_CANDIDATE",
+      "preconditions": [
+        "Fresh strict cluster/endpoint/database/SCRAM identity verification",
+        "Reviewed proposed owners/ACLs/RLS active in explicitly approved isolation",
+        "Owner-approved restore evidence, fixture collision checks and unique synthetic IDs",
+        "No live or pre-existing member/payment/PIN rows reused",
+        "Owner-approved nonzero sequence budget and protected baseline capture"
+      ],
+      "steps": [
+        "Review ON_ERROR_STOP=1 client behavior for deliberate uncaught failure",
+        "Use separate invocation for expected failure and fresh connection for verification"
+      ],
+      "pass_criteria": [
+        "psql SQL refusal exits 3; connection refusal exits 2",
+        "No script continues after unexpected failure",
+        "Expected failures handled only by explicit test oracle, never global error suppression"
+      ],
+      "fail_criteria": [
+        "Any mismatched SQLSTATE, unexpected success, unauthorized row or unexpected zero-row write",
+        "Any unexplained business/audit/sequence/schema/default-ACL change",
+        "Any unsupported/omitted step; never report partial scenario as PASS"
+      ],
+      "catalogue_subset": "None; full scenario deferred"
+    },
+    {
+      "id": "S1",
+      "category": "sequences",
+      "actor": "service_role",
+      "status": "NOT_EXECUTED_NOT_INCLUDED_IN_CATALOGUE_CANDIDATE",
+      "preconditions": [
+        "Fresh strict cluster/endpoint/database/SCRAM identity verification",
+        "Reviewed proposed owners/ACLs/RLS active in explicitly approved isolation",
+        "Owner-approved restore evidence, fixture collision checks and unique synthetic IDs",
+        "No live or pre-existing member/payment/PIN rows reused",
+        "Owner-approved nonzero sequence budget and protected baseline capture"
+      ],
+      "steps": [
+        "Record protected is_called/cache/advancement budget for three identity sequences",
+        "Exercise synthetic audit/payment/limiter inserts via documented RPCs",
+        "Rollback and measure only approved sequence side effects"
+      ],
+      "pass_criteria": [
+        "Identity insertion works without runtime sequence USAGE",
+        "Never infer preservation from table rollback alone",
+        "No sequence reset; cache and failed-attempt consumption fit Owner-approved budget"
+      ],
+      "fail_criteria": [
+        "Any mismatched SQLSTATE, unexpected success, unauthorized row or unexpected zero-row write",
+        "Any unexplained business/audit/sequence/schema/default-ACL change",
+        "Any unsupported/omitted step; never report partial scenario as PASS"
+      ],
+      "catalogue_subset": "Candidate catalog assertions check declared ACL/role/RLS metadata only; no runtime behavior evidence"
+    },
+    {
+      "id": "S2",
+      "category": "sequences",
+      "actor": "each_manifest_role",
+      "status": "NOT_EXECUTED_NOT_INCLUDED_IN_CATALOGUE_CANDIDATE",
+      "preconditions": [
+        "Fresh strict cluster/endpoint/database/SCRAM identity verification",
+        "Reviewed proposed owners/ACLs/RLS active in explicitly approved isolation",
+        "Owner-approved restore evidence, fixture collision checks and unique synthetic IDs",
+        "No live or pre-existing member/payment/PIN rows reused",
+        "Owner-approved nonzero sequence budget and protected baseline capture"
+      ],
+      "steps": [
+        "Check nextval/setval/currval direct capabilities without consuming a sequence",
+        "After approval use dedicated denial probe only when ACL says denial is certain"
+      ],
+      "pass_criteria": [
+        "Executors/browser/service/registration have no direct sequence privileges",
+        "Do not call nextval as administrator merely to test denial"
+      ],
+      "fail_criteria": [
+        "Any mismatched SQLSTATE, unexpected success, unauthorized row or unexpected zero-row write",
+        "Any unexplained business/audit/sequence/schema/default-ACL change",
+        "Any unsupported/omitted step; never report partial scenario as PASS"
+      ],
+      "catalogue_subset": "Candidate catalog assertions check declared ACL/role/RLS metadata only; no runtime behavior evidence"
+    },
+    {
+      "id": "C1",
+      "category": "concurrency",
+      "actor": "two_approved_sessions",
+      "status": "NOT_EXECUTED_NOT_INCLUDED_IN_CATALOGUE_CANDIDATE",
+      "preconditions": [
+        "Fresh strict cluster/endpoint/database/SCRAM identity verification",
+        "Reviewed proposed owners/ACLs/RLS active in explicitly approved isolation",
+        "Owner-approved restore evidence, fixture collision checks and unique synthetic IDs",
+        "No live or pre-existing member/payment/PIN rows reused",
+        "Separately approved committed isolated state visible to both sessions",
+        "Explicit barriers, lock/statement timeouts, bounded retry policy"
+      ],
+      "steps": [
+        "Require separately approved committed isolated proposed schema and synthetic fixtures",
+        "Use explicit barriers and bounded lock/statement timeouts",
+        "Race enrollment token redemption and same payment operation ID; compare mismatch request"
+      ],
+      "pass_criteria": [
+        "One credential/token consumption; deterministic idempotency or documented conflict",
+        "No duplicate receipt/allocation or lost audit head",
+        "No partial uncommitted state visible"
+      ],
+      "fail_criteria": [
+        "Any mismatched SQLSTATE, unexpected success, unauthorized row or unexpected zero-row write",
+        "Any unexplained business/audit/sequence/schema/default-ACL change",
+        "Any unsupported/omitted step; never report partial scenario as PASS"
+      ],
+      "catalogue_subset": "None; full scenario deferred"
+    },
+    {
+      "id": "C2",
+      "category": "concurrency",
+      "actor": "two_approved_sessions",
+      "status": "NOT_EXECUTED_NOT_INCLUDED_IN_CATALOGUE_CANDIDATE",
+      "preconditions": [
+        "Fresh strict cluster/endpoint/database/SCRAM identity verification",
+        "Reviewed proposed owners/ACLs/RLS active in explicitly approved isolation",
+        "Owner-approved restore evidence, fixture collision checks and unique synthetic IDs",
+        "No live or pre-existing member/payment/PIN rows reused",
+        "Separately approved committed isolated state visible to both sessions",
+        "Explicit barriers, lock/statement timeouts, bounded retry policy"
+      ],
+      "steps": [
+        "Demonstrate B cannot observe A uncommitted catalog/fixture changes",
+        "Only after committed-isolation approval test plan edit versus snapshot and simultaneous stream append",
+        "Control commit/rollback order; capture boolean outcomes and allowed SQLSTATEs"
+      ],
+      "pass_criteria": [
+        "Row locking yields coherent immutable price snapshot and audit chain",
+        "A single-session rollback test never certifies B visibility",
+        "Deadlock/serialization retry policy reviewed; no silent retries that duplicate business operations"
+      ],
+      "fail_criteria": [
+        "Any mismatched SQLSTATE, unexpected success, unauthorized row or unexpected zero-row write",
+        "Any unexplained business/audit/sequence/schema/default-ACL change",
+        "Any unsupported/omitted step; never report partial scenario as PASS"
+      ],
+      "catalogue_subset": "None; full scenario deferred"
+    }
+  ]
+}

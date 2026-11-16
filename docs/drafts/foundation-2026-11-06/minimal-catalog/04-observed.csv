@@ -1,0 +1,150 @@
+﻿schema_name,table_name,column_name,ordinal,type_name,not_null,identity_kind,generated_kind,has_default_or_generated_expression
+private,attendance_checkins,id,1,uuid,t,,,t
+private,attendance_checkins,member_id,2,uuid,f,,,f
+private,attendance_checkins,walkin_request_id,3,uuid,f,,,f
+private,attendance_checkins,gym_local_date,4,date,t,,,f
+private,attendance_checkins,checked_in_at,5,timestamp with time zone,t,,,t
+private,attendance_checkins,attendance_status,6,text,t,,,t
+private,attendance_validity_resolutions,id,1,uuid,t,,,t
+private,attendance_validity_resolutions,attendance_id,2,uuid,t,,,f
+private,attendance_validity_resolutions,prior_status,3,text,t,,,f
+private,attendance_validity_resolutions,new_status,4,text,t,,,f
+private,attendance_validity_resolutions,reason,5,text,t,,,f
+private,attendance_validity_resolutions,resolved_by,6,uuid,f,,,f
+private,attendance_validity_resolutions,resolved_at,7,timestamp with time zone,t,,,t
+private,audit_chain_heads,stream_key,1,text,t,,,f
+private,audit_chain_heads,last_event_id,2,bigint,f,,,f
+private,audit_chain_heads,last_event_hash,3,text,f,,,f
+private,audit_chain_heads,updated_at,4,timestamp with time zone,t,,,t
+private,audit_events,id,1,bigint,t,a,,f
+private,audit_events,actor_user_id,2,uuid,f,,,f
+private,audit_events,event_type,3,text,t,,,f
+private,audit_events,subject_type,4,text,t,,,f
+private,audit_events,subject_id,5,text,f,,,f
+private,audit_events,details,6,jsonb,t,,,t
+private,audit_events,created_at,7,timestamp with time zone,t,,,t
+private,audit_events,stream_key,8,text,t,,,f
+private,audit_events,previous_event_hash,9,text,f,,,f
+private,audit_events,event_hash,10,text,t,,,f
+private,cash_drawer_sessions,id,1,uuid,t,,,t
+private,cash_drawer_sessions,opened_at,2,timestamp with time zone,t,,,t
+private,cash_drawer_sessions,opened_by,3,uuid,t,,,f
+private,cash_drawer_sessions,opening_float_php,4,"numeric(12,2)",t,,,t
+private,cash_drawer_sessions,session_status,5,text,t,,,t
+private,cash_drawer_sessions,closed_at,6,timestamp with time zone,f,,,f
+private,cash_drawer_sessions,closed_by,7,uuid,f,,,f
+private,cash_reconciliation_adjustments,id,1,uuid,t,,,t
+private,cash_reconciliation_adjustments,reconciliation_id,2,uuid,t,,,f
+private,cash_reconciliation_adjustments,amount_delta_php,3,"numeric(12,2)",t,,,f
+private,cash_reconciliation_adjustments,reason,4,text,t,,,f
+private,cash_reconciliation_adjustments,evidence_reference,5,text,f,,,f
+private,cash_reconciliation_adjustments,recorded_by,6,uuid,t,,,f
+private,cash_reconciliation_adjustments,created_at,7,timestamp with time zone,t,,,t
+private,cash_reconciliations,id,1,uuid,t,,,t
+private,cash_reconciliations,drawer_session_id,2,uuid,t,,,f
+private,cash_reconciliations,expected_cash_php,3,"numeric(12,2)",t,,,f
+private,cash_reconciliations,counted_cash_php,4,"numeric(12,2)",t,,,f
+private,cash_reconciliations,variance_php,5,"numeric(12,2)",f,,s,t
+private,cash_reconciliations,reconciled_by,6,uuid,t,,,f
+private,cash_reconciliations,reconciled_at,7,timestamp with time zone,t,,,t
+private,cash_reconciliations,notes,8,text,f,,,f
+private,member_pin_credentials,member_id,1,uuid,t,,,f
+private,member_pin_credentials,password_hash,2,text,t,,,f
+private,member_pin_credentials,credential_version,3,integer,t,,,t
+private,member_pin_credentials,created_at,4,timestamp with time zone,t,,,t
+private,member_pin_credentials,updated_at,5,timestamp with time zone,t,,,t
+private,member_pin_setup_tokens,id,1,uuid,t,,,t
+private,member_pin_setup_tokens,member_id,2,uuid,t,,,f
+private,member_pin_setup_tokens,token_hash,3,text,t,,,f
+private,member_pin_setup_tokens,token_purpose,4,text,t,,,f
+private,member_pin_setup_tokens,expires_at,5,timestamp with time zone,t,,,f
+private,member_pin_setup_tokens,consumed_at,6,timestamp with time zone,f,,,f
+private,member_pin_setup_tokens,created_at,7,timestamp with time zone,t,,,t
+private,members,id,1,uuid,t,,,t
+private,members,member_code,2,text,t,,,f
+private,members,full_name,3,text,t,,,f
+private,members,mobile_lookup_hash,4,bytea,t,,,f
+private,members,mobile_encrypted,5,bytea,t,,,f
+private,members,status,6,text,t,,,t
+private,members,created_at,7,timestamp with time zone,t,,,t
+private,members,updated_at,8,timestamp with time zone,t,,,t
+private,members,approved_at,9,timestamp with time zone,f,,,f
+private,membership_plans,id,1,uuid,t,,,t
+private,membership_plans,name,2,text,t,,,f
+private,membership_plans,price_php,3,"numeric(12,2)",t,,,f
+private,membership_plans,is_active,4,boolean,t,,,t
+private,membership_plans,created_at,5,timestamp with time zone,t,,,t
+private,membership_purchases,id,1,uuid,t,,,t
+private,membership_purchases,member_id,2,uuid,t,,,f
+private,membership_purchases,plan_id,3,uuid,t,,,f
+private,membership_purchases,price_php,4,"numeric(12,2)",t,,,f
+private,membership_purchases,purchase_status,5,text,t,,,t
+private,membership_purchases,activation_date,6,date,f,,,f
+private,membership_purchases,expiry_date,7,date,f,,,f
+private,membership_purchases,created_at,8,timestamp with time zone,t,,,t
+private,owner_access,user_id,1,uuid,t,,,f
+private,owner_access,is_active,2,boolean,t,,,t
+private,owner_access,created_at,3,timestamp with time zone,t,,,t
+private,owner_access,deactivated_at,4,timestamp with time zone,f,,,f
+private,payment_allocations,id,1,uuid,t,,,t
+private,payment_allocations,payment_id,2,uuid,t,,,f
+private,payment_allocations,membership_purchase_id,3,uuid,f,,,f
+private,payment_allocations,walkin_request_id,4,uuid,f,,,f
+private,payment_allocations,allocated_by,5,uuid,f,,,f
+private,payment_allocations,allocated_at,6,timestamp with time zone,t,,,t
+private,payment_corrections,id,1,uuid,t,,,t
+private,payment_corrections,payment_id,2,uuid,t,,,f
+private,payment_corrections,proposed_amount_php,3,"numeric(12,2)",f,,,f
+private,payment_corrections,proposed_payment_method,4,text,f,,,f
+private,payment_corrections,reason,5,text,t,,,f
+private,payment_corrections,evidence_reference,6,text,f,,,f
+private,payment_corrections,correction_status,7,text,t,,,t
+private,payment_corrections,proposed_by,8,uuid,f,,,f
+private,payment_corrections,proposed_at,9,timestamp with time zone,t,,,t
+private,payment_corrections,decided_by,10,uuid,f,,,f
+private,payment_corrections,decided_at,11,timestamp with time zone,f,,,f
+private,payment_corrections,decision_reason,12,text,f,,,f
+private,payment_events,id,1,bigint,t,a,,f
+private,payment_events,payment_id,2,uuid,t,,,f
+private,payment_events,event_type,3,text,t,,,f
+private,payment_events,reason,4,text,f,,,f
+private,payment_events,actor_user_id,5,uuid,f,,,f
+private,payment_events,created_at,6,timestamp with time zone,t,,,t
+private,payment_records,id,1,uuid,t,,,t
+private,payment_records,amount_php,2,"numeric(12,2)",t,,,f
+private,payment_records,payment_method,3,text,t,,,f
+private,payment_records,received_at,4,timestamp with time zone,t,,,t
+private,payment_records,verification_status,5,text,t,,,t
+private,payment_records,external_reference,6,text,f,,,f
+private,payment_records,evidence_reference,7,text,f,,,f
+private,payment_records,recorded_by,8,uuid,f,,,f
+private,payment_records,created_at,9,timestamp with time zone,t,,,t
+private,payment_records,operation_id,10,uuid,t,,,t
+private,payment_records,target_membership_purchase_id,11,uuid,f,,,f
+private,pin_attempt_buckets,id,1,uuid,t,,,t
+private,pin_attempt_buckets,bucket_type,2,text,t,,,f
+private,pin_attempt_buckets,identifier_digest,3,text,t,,,f
+private,pin_attempt_buckets,window_started_at,4,timestamp with time zone,t,,,f
+private,pin_attempt_buckets,failed_attempts,5,integer,t,,,t
+private,pin_attempt_buckets,blocked_until,6,timestamp with time zone,f,,,f
+private,pin_attempt_buckets,updated_at,7,timestamp with time zone,t,,,t
+private,pin_enrollment_global_rate_limit_events,id,1,bigint,t,a,,f
+private,pin_enrollment_global_rate_limit_events,requested_at,2,timestamp with time zone,t,,,t
+private,walkin_fee_versions,id,1,uuid,t,,,t
+private,walkin_fee_versions,fee_php,2,"numeric(12,2)",t,,,f
+private,walkin_fee_versions,currency,3,text,t,,,t
+private,walkin_fee_versions,effective_from,4,timestamp with time zone,t,,,t
+private,walkin_fee_versions,created_by,5,uuid,f,,,f
+private,walkin_fee_versions,created_at,6,timestamp with time zone,t,,,t
+private,walkin_requests,id,1,uuid,t,,,t
+private,walkin_requests,fee_version_id,2,uuid,t,,,f
+private,walkin_requests,fee_php,3,"numeric(12,2)",t,,,f
+private,walkin_requests,currency,4,text,t,,,t
+private,walkin_requests,request_status,5,text,t,,,t
+private,walkin_requests,created_at,6,timestamp with time zone,t,,,t
+private,walkin_requests,expires_at,7,timestamp with time zone,t,,,f
+private,walkin_requests,confirmed_by,8,uuid,f,,,f
+private,walkin_requests,confirmed_at,9,timestamp with time zone,f,,,f
+public,gym_settings,setting_key,1,text,t,,,f
+public,gym_settings,setting_value,2,jsonb,t,,,f
+public,gym_settings,updated_at,3,timestamp with time zone,t,,,t

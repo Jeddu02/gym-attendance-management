@@ -1,0 +1,16 @@
+[
+ {"id":"parenthesized-searched-case","accept":true,"bodies":1,"sql":"DO $$ BEGIN IF 1 IS DISTINCT FROM (CASE WHEN true THEN 1 ELSE 2 END) THEN NULL; END IF; END $$;"},
+ {"id":"parenthesized-simple-case","accept":true,"bodies":1,"sql":"DO $$ BEGIN IF 'r' IS DISTINCT FROM (CASE 'SELECT' WHEN 'SELECT' THEN 'r' ELSE 'w' END) THEN NULL; END IF; END $$;"},
+ {"id":"nested-dollar-quotes","accept":true,"bodies":1,"sql":"DO $outer$ DECLARE value jsonb := $json${\"marker\":\"synthetic\"}$json$::jsonb; BEGIN PERFORM length($inner$END; THEN; $$; 'quoted'$inner$); END $outer$;"},
+ {"id":"utf8-multiple-boundaries","accept":true,"bodies":3,"sql":"-- synthetic UTF-8 ñ 🏋\nDO $one$ BEGIN PERFORM 'ñ'; END $one$; CREATE FUNCTION fixture_only() RETURNS void LANGUAGE plpgsql AS $two$ BEGIN NULL; END $two$; DO $three$ BEGIN NULL; END $three$;"},
+ {"id":"procedural-text-is-not-a-body","accept":true,"bodies":1,"sql":"SELECT 'DO $$ malformed text $$'; DO $$ BEGIN NULL; END $$;"},
+ {"id":"unparenthesized-searched-case","accept":false,"sql":"DO $$ BEGIN IF 1 IS DISTINCT FROM CASE WHEN true THEN 1 ELSE 2 END THEN NULL; END IF; END $$;"},
+ {"id":"unparenthesized-simple-case","accept":false,"sql":"DO $$ BEGIN IF 'r' IS DISTINCT FROM CASE 'SELECT' WHEN 'SELECT' THEN 'r' ELSE 'w' END THEN NULL; END IF; END $$;"},
+ {"id":"missing-end-if","accept":false,"sql":"DO $$ BEGIN IF true THEN NULL; END $$;"},
+ {"id":"malformed-inner-sql","accept":false,"sql":"DO $$ BEGIN PERFORM (SELECT FROM); END $$;"},
+ {"id":"missing-inner-semicolon","accept":false,"sql":"DO $$ BEGIN NULL END $$;"},
+ {"id":"second-procedural-body-invalid","accept":false,"sql":"DO $one$ BEGIN NULL; END $one$; DO $two$ BEGIN IF THEN NULL; END IF; END $two$;"},
+ {"id":"unterminated-nested-dollar-quote","accept":false,"sql":"DO $outer$ BEGIN PERFORM $inner$bad; END $outer$;"},
+ {"id":"function-body-invalid","accept":false,"sql":"CREATE FUNCTION fixture_only() RETURNS void LANGUAGE plpgsql AS $$ BEGIN IF THEN NULL; END IF; END $$;"},
+ {"id":"unsupported-do-language","accept":false,"sql":"DO LANGUAGE sql $$ SELECT 1 $$;"}
+]

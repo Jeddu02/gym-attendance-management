@@ -1,0 +1,910 @@
+[
+  {
+    "kind": "constraint",
+    "table": "private.attendance_checkins",
+    "name": "attendance_exactly_one_subject",
+    "source": "check ( ( member_id is not null ) <> ( walkin_request_id is not null ) )",
+    "candidate": "check ( ( ( member_id is not null ) <> ( walkin_request_id is not null ) ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.attendance_checkins",
+    "name": "attendance_status_valid",
+    "source": "check ( attendance_status in ( 'valid' , 'invalidated_payment' , 'invalidated_correction' , 'review' ) )",
+    "candidate": "check ( ( attendance_status = any ( array [ 'valid' :: text , 'invalidated_payment' :: text , 'invalidated_correction' :: text , 'review' :: text ] ) ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "text-IN-to-typed-ANY-array"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.attendance_validity_resolutions",
+    "name": "attendance_resolution_reason_not_blank",
+    "source": "check ( length ( trim ( reason ) ) > 0 )",
+    "candidate": "check ( ( length ( trim ( both from reason ) ) > 0 ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "TRIM-BOTH-FROM-grammar-spelling"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.attendance_validity_resolutions",
+    "name": "attendance_resolution_status_valid",
+    "source": "check ( prior_status in ( 'valid' , 'invalidated_payment' , 'invalidated_correction' , 'review' ) and new_status in ( 'valid' , 'invalidated_payment' , 'invalidated_correction' , 'review' ) )",
+    "candidate": "check ( ( ( prior_status = any ( array [ 'valid' :: text , 'invalidated_payment' :: text , 'invalidated_correction' :: text , 'review' :: text ] ) ) and ( new_status = any ( array [ 'valid' :: text , 'invalidated_payment' :: text , 'invalidated_correction' :: text , 'review' :: text ] ) ) ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "text-IN-to-typed-ANY-array"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.audit_chain_heads",
+    "name": "audit_chain_stream_not_blank",
+    "source": "check ( length ( trim ( stream_key ) ) > 0 )",
+    "candidate": "check ( ( length ( trim ( both from stream_key ) ) > 0 ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "TRIM-BOTH-FROM-grammar-spelling"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.audit_chain_heads",
+    "name": "audit_chain_head_consistent",
+    "source": "check ( ( last_event_id is null and last_event_hash is null ) or ( last_event_id is not null and last_event_hash is not null ) )",
+    "candidate": "check ( ( ( ( last_event_id is null ) and ( last_event_hash is null ) ) or ( ( last_event_id is not null ) and ( last_event_hash is not null ) ) ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.audit_events",
+    "name": "audit_event_type_not_blank",
+    "source": "check ( length ( trim ( event_type ) ) > 0 )",
+    "candidate": "check ( ( length ( trim ( both from event_type ) ) > 0 ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "TRIM-BOTH-FROM-grammar-spelling"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.audit_events",
+    "name": "audit_subject_type_not_blank",
+    "source": "check ( length ( trim ( subject_type ) ) > 0 )",
+    "candidate": "check ( ( length ( trim ( both from subject_type ) ) > 0 ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "TRIM-BOTH-FROM-grammar-spelling"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.cash_drawer_sessions",
+    "name": "cash_opening_float_nonnegative",
+    "source": "check ( opening_float_php >= 0 )",
+    "candidate": "check ( ( opening_float_php >= ( 0 ) :: numeric ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "numeric-constant-coercion"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.cash_drawer_sessions",
+    "name": "cash_drawer_status_valid",
+    "source": "check ( session_status in ( 'open' , 'closed' ) )",
+    "candidate": "check ( ( session_status = any ( array [ 'open' :: text , 'closed' :: text ] ) ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "text-IN-to-typed-ANY-array"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.cash_drawer_sessions",
+    "name": "cash_drawer_close_consistent",
+    "source": "check ( ( session_status = 'open' and closed_at is null and closed_by is null ) or ( session_status = 'closed' and closed_at is not null and closed_by is not null ) )",
+    "candidate": "check ( ( ( ( session_status = 'open' :: text ) and ( closed_at is null ) and ( closed_by is null ) ) or ( ( session_status = 'closed' :: text ) and ( closed_at is not null ) and ( closed_by is not null ) ) ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "known-text-literal-coercion"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.cash_reconciliation_adjustments",
+    "name": "cash_adjustment_nonzero",
+    "source": "check ( amount_delta_php <> 0 )",
+    "candidate": "check ( ( amount_delta_php <> ( 0 ) :: numeric ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "numeric-constant-coercion"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.cash_reconciliation_adjustments",
+    "name": "cash_adjustment_reason_not_blank",
+    "source": "check ( length ( trim ( reason ) ) > 0 )",
+    "candidate": "check ( ( length ( trim ( both from reason ) ) > 0 ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "TRIM-BOTH-FROM-grammar-spelling"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.cash_reconciliations",
+    "name": "reconciliation_expected_cash_nonnegative",
+    "source": "check ( expected_cash_php >= 0 )",
+    "candidate": "check ( ( expected_cash_php >= ( 0 ) :: numeric ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "numeric-constant-coercion"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.cash_reconciliations",
+    "name": "reconciliation_counted_cash_nonnegative",
+    "source": "check ( counted_cash_php >= 0 )",
+    "candidate": "check ( ( counted_cash_php >= ( 0 ) :: numeric ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "numeric-constant-coercion"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.member_pin_credentials",
+    "name": "member_pin_hash_not_blank",
+    "source": "check ( length ( trim ( password_hash ) ) > 0 )",
+    "candidate": "check ( ( length ( trim ( both from password_hash ) ) > 0 ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "TRIM-BOTH-FROM-grammar-spelling"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.member_pin_credentials",
+    "name": "member_pin_version_positive",
+    "source": "check ( credential_version > 0 )",
+    "candidate": "check ( ( credential_version > 0 ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.member_pin_setup_tokens",
+    "name": "pin_token_hash_not_blank",
+    "source": "check ( length ( trim ( token_hash ) ) > 0 )",
+    "candidate": "check ( ( length ( trim ( both from token_hash ) ) > 0 ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "TRIM-BOTH-FROM-grammar-spelling"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.member_pin_setup_tokens",
+    "name": "pin_token_purpose_valid",
+    "source": "check ( token_purpose in ( 'enrollment' , 'reset' ) )",
+    "candidate": "check ( ( token_purpose = any ( array [ 'enrollment' :: text , 'reset' :: text ] ) ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "text-IN-to-typed-ANY-array"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.member_pin_setup_tokens",
+    "name": "pin_token_expiry_after_creation",
+    "source": "check ( expires_at > created_at )",
+    "candidate": "check ( ( expires_at > created_at ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.members",
+    "name": "members_code_not_blank",
+    "source": "check ( length ( trim ( member_code ) ) > 0 )",
+    "candidate": "check ( ( length ( trim ( both from member_code ) ) > 0 ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "TRIM-BOTH-FROM-grammar-spelling"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.members",
+    "name": "members_name_not_blank",
+    "source": "check ( length ( trim ( full_name ) ) > 0 )",
+    "candidate": "check ( ( length ( trim ( both from full_name ) ) > 0 ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "TRIM-BOTH-FROM-grammar-spelling"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.members",
+    "name": "members_mobile_lookup_hash_not_empty",
+    "source": "check ( octet_length ( mobile_lookup_hash ) > 0 )",
+    "candidate": "check ( ( octet_length ( mobile_lookup_hash ) > 0 ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.members",
+    "name": "members_mobile_encrypted_not_empty",
+    "source": "check ( octet_length ( mobile_encrypted ) > 0 )",
+    "candidate": "check ( ( octet_length ( mobile_encrypted ) > 0 ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.members",
+    "name": "members_status_valid",
+    "source": "check ( status in ( 'pending' , 'active' , 'suspended' ) )",
+    "candidate": "check ( ( status = any ( array [ 'pending' :: text , 'active' :: text , 'suspended' :: text ] ) ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "text-IN-to-typed-ANY-array"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.membership_plans",
+    "name": "membership_plan_name_not_blank",
+    "source": "check ( length ( trim ( name ) ) > 0 )",
+    "candidate": "check ( ( length ( trim ( both from name ) ) > 0 ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "TRIM-BOTH-FROM-grammar-spelling"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.membership_plans",
+    "name": "membership_plan_price_positive",
+    "source": "check ( price_php > 0 )",
+    "candidate": "check ( ( price_php > ( 0 ) :: numeric ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "numeric-constant-coercion"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.membership_purchases",
+    "name": "membership_purchase_price_positive",
+    "source": "check ( price_php > 0 )",
+    "candidate": "check ( ( price_php > ( 0 ) :: numeric ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "numeric-constant-coercion"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.membership_purchases",
+    "name": "membership_purchase_status_valid",
+    "source": "check ( purchase_status in ( 'pending_payment' , 'pending_activation' , 'active' , 'expired' , 'payment_review' ) )",
+    "candidate": "check ( ( purchase_status = any ( array [ 'pending_payment' :: text , 'pending_activation' :: text , 'active' :: text , 'expired' :: text , 'payment_review' :: text ] ) ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "text-IN-to-typed-ANY-array"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.membership_purchases",
+    "name": "membership_purchase_dates_consistent",
+    "source": "check ( ( activation_date is null and expiry_date is null ) or ( activation_date is not null and expiry_date is not null and expiry_date >= activation_date ) )",
+    "candidate": "check ( ( ( ( activation_date is null ) and ( expiry_date is null ) ) or ( ( activation_date is not null ) and ( expiry_date is not null ) and ( expiry_date >= activation_date ) ) ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.owner_access",
+    "name": "owner_access_deactivation_consistent",
+    "source": "check ( ( is_active and deactivated_at is null ) or ( not is_active ) )",
+    "candidate": "check ( ( ( is_active and ( deactivated_at is null ) ) or ( not is_active ) ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.payment_allocations",
+    "name": "payment_allocation_exactly_one_target",
+    "source": "check ( ( membership_purchase_id is not null ) <> ( walkin_request_id is not null ) )",
+    "candidate": "check ( ( ( membership_purchase_id is not null ) <> ( walkin_request_id is not null ) ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.payment_corrections",
+    "name": "payment_correction_reason_not_blank",
+    "source": "check ( length ( trim ( reason ) ) > 0 )",
+    "candidate": "check ( ( length ( trim ( both from reason ) ) > 0 ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "TRIM-BOTH-FROM-grammar-spelling"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.payment_corrections",
+    "name": "payment_correction_amount_valid",
+    "source": "check ( proposed_amount_php is null or proposed_amount_php > 0 )",
+    "candidate": "check ( ( ( proposed_amount_php is null ) or ( proposed_amount_php > ( 0 ) :: numeric ) ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "numeric-constant-coercion"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.payment_corrections",
+    "name": "payment_correction_method_valid",
+    "source": "check ( proposed_payment_method is null or proposed_payment_method in ( 'cash' , 'gcash' , 'bank_transfer' ) )",
+    "candidate": "check ( ( ( proposed_payment_method is null ) or ( proposed_payment_method = any ( array [ 'cash' :: text , 'gcash' :: text , 'bank_transfer' :: text ] ) ) ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "text-IN-to-typed-ANY-array"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.payment_corrections",
+    "name": "payment_correction_status_valid",
+    "source": "check ( correction_status in ( 'proposed' , 'approved' , 'rejected' , 'withdrawn' ) )",
+    "candidate": "check ( ( correction_status = any ( array [ 'proposed' :: text , 'approved' :: text , 'rejected' :: text , 'withdrawn' :: text ] ) ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "text-IN-to-typed-ANY-array"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.payment_events",
+    "name": "payment_event_type_not_blank",
+    "source": "check ( length ( trim ( event_type ) ) > 0 )",
+    "candidate": "check ( ( length ( trim ( both from event_type ) ) > 0 ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "TRIM-BOTH-FROM-grammar-spelling"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.payment_records",
+    "name": "payment_amount_positive",
+    "source": "check ( amount_php > 0 )",
+    "candidate": "check ( ( amount_php > ( 0 ) :: numeric ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "numeric-constant-coercion"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.payment_records",
+    "name": "payment_method_valid",
+    "source": "check ( payment_method in ( 'cash' , 'gcash' , 'bank_transfer' ) )",
+    "candidate": "check ( ( payment_method = any ( array [ 'cash' :: text , 'gcash' :: text , 'bank_transfer' :: text ] ) ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "text-IN-to-typed-ANY-array"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.payment_records",
+    "name": "payment_verification_status_valid",
+    "source": "check ( verification_status in ( 'recorded' , 'confirmed' , 'rejected' , 'confirmation_voided_in_error' ) )",
+    "candidate": "check ( ( verification_status = any ( array [ 'recorded' :: text , 'confirmed' :: text , 'rejected' :: text , 'confirmation_voided_in_error' :: text ] ) ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "text-IN-to-typed-ANY-array"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.pin_attempt_buckets",
+    "name": "pin_bucket_type_valid",
+    "source": "check ( bucket_type in ( 'member_identifier' , 'trusted_network' ) )",
+    "candidate": "check ( ( bucket_type = any ( array [ 'member_identifier' :: text , 'trusted_network' :: text ] ) ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "text-IN-to-typed-ANY-array"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.pin_attempt_buckets",
+    "name": "pin_identifier_digest_not_blank",
+    "source": "check ( length ( trim ( identifier_digest ) ) > 0 )",
+    "candidate": "check ( ( length ( trim ( both from identifier_digest ) ) > 0 ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "TRIM-BOTH-FROM-grammar-spelling"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.pin_attempt_buckets",
+    "name": "pin_failed_attempts_nonnegative",
+    "source": "check ( failed_attempts >= 0 )",
+    "candidate": "check ( ( failed_attempts >= 0 ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.walkin_fee_versions",
+    "name": "walkin_fee_positive",
+    "source": "check ( fee_php > 0 )",
+    "candidate": "check ( ( fee_php > ( 0 ) :: numeric ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "numeric-constant-coercion"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.walkin_fee_versions",
+    "name": "walkin_fee_currency_php",
+    "source": "check ( currency = 'PHP' )",
+    "candidate": "check ( ( currency = 'PHP' :: text ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "known-text-literal-coercion"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.walkin_requests",
+    "name": "walkin_request_fee_positive",
+    "source": "check ( fee_php > 0 )",
+    "candidate": "check ( ( fee_php > ( 0 ) :: numeric ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "numeric-constant-coercion"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.walkin_requests",
+    "name": "walkin_request_currency_php",
+    "source": "check ( currency = 'PHP' )",
+    "candidate": "check ( ( currency = 'PHP' :: text ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "known-text-literal-coercion"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.walkin_requests",
+    "name": "walkin_request_expiry_after_creation",
+    "source": "check ( expires_at > created_at )",
+    "candidate": "check ( ( expires_at > created_at ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.walkin_requests",
+    "name": "walkin_request_status_valid",
+    "source": "check ( request_status in ( 'pending' , 'confirmed' , 'expired' , 'payment_review' , 'rejected' ) )",
+    "candidate": "check ( ( request_status = any ( array [ 'pending' :: text , 'confirmed' :: text , 'expired' :: text , 'payment_review' :: text , 'rejected' :: text ] ) ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "text-IN-to-typed-ANY-array"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "private.walkin_requests",
+    "name": "walkin_confirmation_consistent",
+    "source": "check ( ( request_status = 'confirmed' and confirmed_by is not null and confirmed_at is not null ) or ( request_status <> 'confirmed' ) )",
+    "candidate": "check ( ( ( ( request_status = 'confirmed' :: text ) and ( confirmed_by is not null ) and ( confirmed_at is not null ) ) or ( request_status <> 'confirmed' :: text ) ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "known-text-literal-coercion"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "constraint",
+    "table": "public.gym_settings",
+    "name": "gym_settings_key_not_blank",
+    "source": "check ( length ( trim ( setting_key ) ) > 0 )",
+    "candidate": "check ( ( length ( trim ( both from setting_key ) ) > 0 ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-parentheses",
+      "TRIM-BOTH-FROM-grammar-spelling"
+    ],
+    "evidence": "20-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "index",
+    "table": "private.payment_allocations",
+    "name": "private.payment_allocations_membership_idx",
+    "source": "create index payment_allocations_membership_idx on private . payment_allocations using btree ( membership_purchase_id ) where membership_purchase_id is not null",
+    "candidate": "create index payment_allocations_membership_idx on private . payment_allocations using btree ( membership_purchase_id ) where ( membership_purchase_id is not null )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-predicate-parentheses"
+    ],
+    "evidence": "21-observed.csv + 24-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "index",
+    "table": "private.payment_allocations",
+    "name": "private.payment_allocations_walkin_idx",
+    "source": "create index payment_allocations_walkin_idx on private . payment_allocations using btree ( walkin_request_id ) where walkin_request_id is not null",
+    "candidate": "create index payment_allocations_walkin_idx on private . payment_allocations using btree ( walkin_request_id ) where ( walkin_request_id is not null )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-predicate-parentheses"
+    ],
+    "evidence": "21-observed.csv + 24-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "index",
+    "table": "private.attendance_checkins",
+    "name": "private.attendance_one_member_valid_checkin_per_day",
+    "source": "create unique index attendance_one_member_valid_checkin_per_day on private . attendance_checkins using btree ( member_id , gym_local_date ) where member_id is not null and attendance_status = 'valid'",
+    "candidate": "create unique index attendance_one_member_valid_checkin_per_day on private . attendance_checkins using btree ( member_id , gym_local_date ) where ( ( member_id is not null ) and ( attendance_status = 'valid' :: text ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-predicate-parentheses",
+      "known-text-literal-coercion"
+    ],
+    "evidence": "21-observed.csv + 24-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "index",
+    "table": "private.attendance_checkins",
+    "name": "private.attendance_one_checkin_per_walkin",
+    "source": "create unique index attendance_one_checkin_per_walkin on private . attendance_checkins using btree ( walkin_request_id ) where walkin_request_id is not null",
+    "candidate": "create unique index attendance_one_checkin_per_walkin on private . attendance_checkins using btree ( walkin_request_id ) where ( walkin_request_id is not null )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-predicate-parentheses"
+    ],
+    "evidence": "21-observed.csv + 24-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "index",
+    "table": "private.attendance_checkins",
+    "name": "private.attendance_member_date_idx",
+    "source": "create index attendance_member_date_idx on private . attendance_checkins using btree ( member_id , gym_local_date desc ) where member_id is not null",
+    "candidate": "create index attendance_member_date_idx on private . attendance_checkins using btree ( member_id , gym_local_date desc ) where ( member_id is not null )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-predicate-parentheses"
+    ],
+    "evidence": "21-observed.csv + 24-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "index",
+    "table": "private.member_pin_setup_tokens",
+    "name": "private.member_pin_setup_tokens_expiry_idx",
+    "source": "create index member_pin_setup_tokens_expiry_idx on private . member_pin_setup_tokens using btree ( expires_at ) where consumed_at is null",
+    "candidate": "create index member_pin_setup_tokens_expiry_idx on private . member_pin_setup_tokens using btree ( expires_at ) where ( consumed_at is null )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-predicate-parentheses"
+    ],
+    "evidence": "21-observed.csv + 24-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "index",
+    "table": "private.pin_attempt_buckets",
+    "name": "private.pin_attempt_buckets_blocked_idx",
+    "source": "create index pin_attempt_buckets_blocked_idx on private . pin_attempt_buckets using btree ( blocked_until ) where blocked_until is not null",
+    "candidate": "create index pin_attempt_buckets_blocked_idx on private . pin_attempt_buckets using btree ( blocked_until ) where ( blocked_until is not null )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-predicate-parentheses"
+    ],
+    "evidence": "21-observed.csv + 24-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "index",
+    "table": "private.cash_drawer_sessions",
+    "name": "private.cash_drawer_only_one_open_session",
+    "source": "create unique index cash_drawer_only_one_open_session on private . cash_drawer_sessions using btree ( ( session_status ) ) where session_status = 'open'",
+    "candidate": "create unique index cash_drawer_only_one_open_session on private . cash_drawer_sessions using btree ( session_status ) where ( session_status = 'open' :: text )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-predicate-parentheses",
+      "known-text-literal-coercion",
+      "parenthesized-simple-key-collapses-to-attribute"
+    ],
+    "evidence": "21-observed.csv + 24-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "index",
+    "table": "private.member_pin_setup_tokens",
+    "name": "private.member_pin_setup_tokens_active_enrollment_idx",
+    "source": "create index member_pin_setup_tokens_active_enrollment_idx on private . member_pin_setup_tokens using btree ( member_id ) where token_purpose = 'enrollment' and consumed_at is null",
+    "candidate": "create index member_pin_setup_tokens_active_enrollment_idx on private . member_pin_setup_tokens using btree ( member_id ) where ( ( token_purpose = 'enrollment' :: text ) and ( consumed_at is null ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-predicate-parentheses",
+      "known-text-literal-coercion"
+    ],
+    "evidence": "21-observed.csv + 24-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "index",
+    "table": "private.membership_plans",
+    "name": "private.membership_plans_normalized_name_uidx",
+    "source": "create unique index membership_plans_normalized_name_uidx on private . membership_plans using btree ( pg_catalog . lower ( pg_catalog . btrim ( pg_catalog . regexp_replace ( name , '\\s+' , ' ' , 'g' ) ) ) )",
+    "candidate": "create unique index membership_plans_normalized_name_uidx on private . membership_plans using btree ( lower ( btrim ( regexp_replace ( name , '\\s+' :: text , ' ' :: text , 'g' :: text ) ) ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "visible-pg_catalog-function-qualification",
+      "known-text-literal-coercion"
+    ],
+    "evidence": "21-observed.csv + 24-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "index",
+    "table": "private.payment_records",
+    "name": "private.payment_records_membership_idx",
+    "source": "create index payment_records_membership_idx on private . payment_records using btree ( target_membership_purchase_id , created_at desc ) where target_membership_purchase_id is not null",
+    "candidate": "create index payment_records_membership_idx on private . payment_records using btree ( target_membership_purchase_id , created_at desc ) where ( target_membership_purchase_id is not null )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-predicate-parentheses"
+    ],
+    "evidence": "21-observed.csv + 24-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "index",
+    "table": "private.payment_records",
+    "name": "private.payment_records_membership_external_reference_uidx",
+    "source": "create unique index payment_records_membership_external_reference_uidx on private . payment_records using btree ( payment_method , pg_catalog . lower ( pg_catalog . btrim ( external_reference ) ) ) where target_membership_purchase_id is not null and nullif ( pg_catalog . btrim ( external_reference ) , '' ) is not null",
+    "candidate": "create unique index payment_records_membership_external_reference_uidx on private . payment_records using btree ( payment_method , lower ( btrim ( external_reference ) ) ) where ( ( target_membership_purchase_id is not null ) and ( nullif ( btrim ( external_reference ) , '' :: text ) is not null ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-predicate-parentheses",
+      "visible-pg_catalog-function-qualification",
+      "known-text-literal-coercion"
+    ],
+    "evidence": "21-observed.csv + 24-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "index",
+    "table": "private.payment_records",
+    "name": "private.payment_records_pending_membership_uidx",
+    "source": "create unique index payment_records_pending_membership_uidx on private . payment_records using btree ( target_membership_purchase_id ) where target_membership_purchase_id is not null and verification_status = 'recorded'",
+    "candidate": "create unique index payment_records_pending_membership_uidx on private . payment_records using btree ( target_membership_purchase_id ) where ( ( target_membership_purchase_id is not null ) and ( verification_status = 'recorded' :: text ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-predicate-parentheses",
+      "known-text-literal-coercion"
+    ],
+    "evidence": "21-observed.csv + 24-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "index",
+    "table": "private.payment_allocations",
+    "name": "private.payment_allocations_membership_purchase_uidx",
+    "source": "create unique index payment_allocations_membership_purchase_uidx on private . payment_allocations using btree ( membership_purchase_id ) where membership_purchase_id is not null",
+    "candidate": "create unique index payment_allocations_membership_purchase_uidx on private . payment_allocations using btree ( membership_purchase_id ) where ( membership_purchase_id is not null )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-predicate-parentheses"
+    ],
+    "evidence": "21-observed.csv + 24-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  },
+  {
+    "kind": "exclusion",
+    "table": "private.membership_purchases",
+    "name": "membership_purchases_no_overlapping_periods",
+    "source": "exclude using gist ( member_id extensions . gist_uuid_ops with = , daterange ( activation_date , expiry_date , '[]' ) with && ) where ( activation_date is not null and expiry_date is not null )",
+    "candidate": "exclude using gist ( member_id with = , daterange ( activation_date , expiry_date , '[]' :: text ) with && ) where ( ( ( activation_date is not null ) and ( expiry_date is not null ) ) )",
+    "observed_representation": "Exact equality to this source-derived candidate verified server-side; no catalog expression exported",
+    "accepted_rules": [
+      "tree-preserving-predicate-parentheses",
+      "known-text-literal-coercion",
+      "default-GiST-opclass-display-omission"
+    ],
+    "evidence": "23-observed.csv",
+    "classification": "verified catalog normalization; no semantic schema discrepancy detected"
+  }
+]

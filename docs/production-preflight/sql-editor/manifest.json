@@ -1,0 +1,248 @@
+{
+  "status": "REVIEW REQUIRED; NOT EXECUTED",
+  "sources": [
+    {
+      "file": "01-catalog.sql",
+      "sha256": "ebbfcc096f28fc15cbd352010887eb07d095b7af6f82cb27b9b98d2fcccd1106",
+      "result_sets": 15
+    },
+    {
+      "file": "02-unrecorded-object-markers.sql",
+      "sha256": "9b187d2c9adf3590f6da7353940972d88502fd44e07584810a0d2d714b0a0277",
+      "result_sets": 1
+    }
+  ],
+  "files": [
+    {
+      "file": "01-01-identity.sql",
+      "source": "01-catalog.sql",
+      "result_set": 1,
+      "sha256": "ec2ae5068417de800407c4fc3a4b6c42a3b81d9343a224a48dc12d28ae142f18",
+      "select_sha256": "ca4fc26bf440d16127aa4e2f568f970fcc3908d39e9f5672e6ecf41ca0734e1c",
+      "columns": [
+        "effective_role",
+        "connection_role",
+        "postgres_version_number",
+        "read_only"
+      ]
+    },
+    {
+      "file": "01-02-migration-history.sql",
+      "source": "01-catalog.sql",
+      "result_set": 2,
+      "sha256": "0f68ecadba3b65beb5107a8497e76973de276d58ae0e503ee0f2abfbb906e5a2",
+      "select_sha256": "32cb8daff95f39eeac52c878c04b4cc5f8d7715fb172aa38cbc2c7517b068364",
+      "columns": [
+        "version"
+      ]
+    },
+    {
+      "file": "01-03-schemas.sql",
+      "source": "01-catalog.sql",
+      "result_set": 3,
+      "sha256": "accea708dec33e38eea1673b79ff3c21cd96c5d31833fbad50444840eb89ec04",
+      "select_sha256": "e316a830e9c95ec6dca4fe7e919119b1170754529e291db2e7df79871276a39c",
+      "columns": [
+        "schema_name",
+        "owner"
+      ]
+    },
+    {
+      "file": "01-04-routines.sql",
+      "source": "01-catalog.sql",
+      "result_set": 4,
+      "sha256": "50d815a047c48f35d5001f0a825ce679bc6ebf874ea31cd11905d494a062bbbc",
+      "select_sha256": "3dc6914392e2e7c1a27403f9232f5a058406b81dbab00804bdbe8c1797d72cb5",
+      "columns": [
+        "schema_name",
+        "routine",
+        "identity_arguments",
+        "result_type",
+        "kind",
+        "language",
+        "owner",
+        "security_definer",
+        "volatility",
+        "empty_search_path",
+        "explicit_utc"
+      ]
+    },
+    {
+      "file": "01-05-routine-acls.sql",
+      "source": "01-catalog.sql",
+      "result_set": 5,
+      "sha256": "c2e4359b1c6dfb1f800c8e8d0dc22ab7fbde935358ace1ea7a8af2e26ad28e0a",
+      "select_sha256": "1d60d359e7198bc0eb1d6732fac61b1944b6347fd4868dfd7960bd0816c049f3",
+      "columns": [
+        "schema_name",
+        "routine",
+        "identity_arguments",
+        "grantee",
+        "privilege_type",
+        "is_grantable"
+      ]
+    },
+    {
+      "file": "01-06-routine-permissions.sql",
+      "source": "01-catalog.sql",
+      "result_set": 6,
+      "sha256": "2c140b40743119cd219595d5dbc7afb3a0f91ad6c28e95dfdccc01ccd3a6f76f",
+      "select_sha256": "91a2084ea6c11d82a3942c3bb398042e9fc7c319789cf3f98570040fbb281643",
+      "columns": [
+        "schema_name",
+        "routine",
+        "identity_arguments",
+        "caller",
+        "can_execute"
+      ]
+    },
+    {
+      "file": "01-07-schema-permissions.sql",
+      "source": "01-catalog.sql",
+      "result_set": 7,
+      "sha256": "ead08012da6869e6878d30b7d011b5a7fccb6d05fa44bd1edc98e275c33e8c8d",
+      "select_sha256": "5e06062362002457d1b2201cfb78d65546fc5be3baa2308006a694fba5d0f899",
+      "columns": [
+        "schema_name",
+        "caller",
+        "can_use",
+        "can_create"
+      ]
+    },
+    {
+      "file": "01-08-default-acls.sql",
+      "source": "01-catalog.sql",
+      "result_set": 8,
+      "sha256": "694c079db19c118793d726c0abd458a73b3ca56fd1672ae1ae863927130cb008",
+      "select_sha256": "da550f89c5837ef4ba85fb70b35f9fdcd1c6fffc1a3ff6bbd71ba1eb99fdc1d2",
+      "columns": [
+        "schema_scope",
+        "creator_role",
+        "object_type",
+        "grantee",
+        "privilege_type",
+        "is_grantable"
+      ]
+    },
+    {
+      "file": "01-09-table-rls.sql",
+      "source": "01-catalog.sql",
+      "result_set": 9,
+      "sha256": "8144c90e46ee7763df79aa2b06b1fc2e142f1496863126eef3b1241ee93255d1",
+      "select_sha256": "fbf0c9dd722561dbd2da15134c06fc7f86f6e4b1a74f2849d1704619bc5b7c26",
+      "columns": [
+        "schema_name",
+        "relation",
+        "relkind",
+        "owner",
+        "rls_enabled",
+        "rls_forced",
+        "rls_filters_current_role"
+      ]
+    },
+    {
+      "file": "01-10-table-permissions.sql",
+      "source": "01-catalog.sql",
+      "result_set": 10,
+      "sha256": "b37dfc50a9bbf51a9c946563176466ab35b0871f63f1b1d0a04c4b1159d0e7d3",
+      "select_sha256": "961bff5da229197051b8a8463f1f259bcac3f97eae053e85b300e9a8320275f2",
+      "columns": [
+        "schema_name",
+        "relation",
+        "caller",
+        "any_table_privilege",
+        "any_column_privilege"
+      ]
+    },
+    {
+      "file": "01-11-policies.sql",
+      "source": "01-catalog.sql",
+      "result_set": 11,
+      "sha256": "077a49111cbe6579f08803d8281d37872423cd33e1251249624337ff4481da86",
+      "select_sha256": "7a36f503e82952bcbe36f4e5df2da2a9173e059c85ca48df485f2f6e5a9e750b",
+      "columns": [
+        "schema_name",
+        "relation",
+        "policy",
+        "command",
+        "permissive",
+        "has_using",
+        "has_check",
+        "roles"
+      ]
+    },
+    {
+      "file": "01-12-columns.sql",
+      "source": "01-catalog.sql",
+      "result_set": 12,
+      "sha256": "4fc5cfa7c15d7c750474a61896d75e8062d931d87b5f8bd93f6192f28bd25038",
+      "select_sha256": "964aa625999aa803292cad0c6bf59aa1ee316836aaf293ad00d08508291dd341",
+      "columns": [
+        "schema_name",
+        "relation",
+        "column_name",
+        "type",
+        "not_null"
+      ]
+    },
+    {
+      "file": "01-13-triggers.sql",
+      "source": "01-catalog.sql",
+      "result_set": 13,
+      "sha256": "372743b4fc21ac68b2ab006c3b05ada592b61916db6f5b13e5070a6c5fe078fe",
+      "select_sha256": "0b4bf120db3ed82119645c1a73a47f4e1044a2985c7f781119e13d4d3ed91f4e",
+      "columns": [
+        "schema_name",
+        "relation",
+        "trigger",
+        "enabled",
+        "routine"
+      ]
+    },
+    {
+      "file": "01-14-constraints.sql",
+      "source": "01-catalog.sql",
+      "result_set": 14,
+      "sha256": "81e3ba555247fb1376cd364bd1831f670418782d2c037f92d6a589569d20d3cd",
+      "select_sha256": "44dccef7ac53ee2e39ed5cccc6f41c836c77392c69ec85c940b4d02c0f033b88",
+      "columns": [
+        "schema_name",
+        "relation",
+        "constraint_name",
+        "type",
+        "validated"
+      ]
+    },
+    {
+      "file": "01-15-indexes.sql",
+      "source": "01-catalog.sql",
+      "result_set": 15,
+      "sha256": "410fb2525972b1dd43b7236544a32a77ad3771b948a3288af3508426c9e2ba14",
+      "select_sha256": "8f30fbc4720fabaf12fbec8bc37b126042f8c8566f4d41c906a67943a62acef4",
+      "columns": [
+        "schema_name",
+        "relation",
+        "index_name",
+        "valid",
+        "ready",
+        "unique_index"
+      ]
+    },
+    {
+      "file": "02-01-unrecorded-object-markers.sql",
+      "source": "02-unrecorded-object-markers.sql",
+      "result_set": 1,
+      "sha256": "71bca850a5ddb76ffbb15ab32a28c2bcca86209fa107bd5cbd00f5f82a14ba76",
+      "select_sha256": "4ec72173230a7efee56065d58b8d08874077b214aeb66b37e28da49a0f1f2109",
+      "columns": [
+        "version",
+        "kind",
+        "object_name",
+        "column_name",
+        "history_recorded",
+        "object_present",
+        "observation"
+      ]
+    }
+  ]
+}

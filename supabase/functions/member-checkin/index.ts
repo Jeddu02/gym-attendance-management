@@ -30,9 +30,10 @@ const headers = {
 const respond = (status: number, accepted = false, extra: Record<string, string> = {}) => new Response(JSON.stringify(publicMemberCheckinOutcome(accepted)), { status, headers: { ...headers, ...extra } });
 
 Deno.serve(async (request: Request): Promise<Response> => {
-  if (!enabled || !appOrigin || !url || !serviceKey || !lookupKey || !mobileKeyValid || !globalLimit || !identifierLimit || !isDevelopmentPinVerifier(dummyHash)) return respond(503);
+  if (!appOrigin) return respond(503);
   if (request.headers.get("Origin") !== appOrigin) return respond(403);
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers });
+  if (!enabled || !url || !serviceKey || !lookupKey || !mobileKeyValid || !globalLimit || !identifierLimit || !isDevelopmentPinVerifier(dummyHash)) return respond(503);
   if (request.method !== "POST") return respond(405);
   let input;
   try { input = parseMemberCheckinInput(await readPinRequestBody(request)); }

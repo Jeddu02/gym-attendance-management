@@ -15,9 +15,10 @@ const headers = {
 const respond = (status: number, body: Record<string, unknown>) => new Response(JSON.stringify(body), { status, headers });
 
 Deno.serve(async (request: Request): Promise<Response> => {
-  if (!appOrigin || !url || !publishableKey || !serviceKey) return respond(503, { error: "SERVICE_UNAVAILABLE" });
+  if (!appOrigin) return respond(503, { error: "SERVICE_UNAVAILABLE" });
   if (request.headers.get("Origin") !== appOrigin) return respond(403, { error: "ORIGIN_NOT_ALLOWED" });
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers });
+  if (!url || !publishableKey || !serviceKey) return respond(503, { error: "SERVICE_UNAVAILABLE" });
   if (request.method !== "POST") return respond(405, { error: "METHOD_NOT_ALLOWED" });
   const authorization = request.headers.get("Authorization");
   if (!authorization?.startsWith("Bearer ") || !authorization.slice(7).trim()) return respond(401, { error: "AUTHENTICATION_REQUIRED" });
@@ -54,6 +55,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
       if (error.code === "22023") return respond(400, { error: "INVALID_WALKIN_REQUEST" });
       if (error.code === "P0002") return respond(404, { error: "WALKIN_REQUEST_UNAVAILABLE" });
       if (["P0001", "23505", "23514"].includes(error.code)) return respond(409, { error: "WALKIN_CONFLICT" });
+      console.error("Owner walk-in RPC unavailable", /^[A-Z0-9]{5,10}$/.test(error.code ?? "") ? error.code : "UNKNOWN");
       return respond(503, { error: "SERVICE_UNAVAILABLE" });
     }
     if (data === null || typeof data !== "object" || (input.action === "list" && !Array.isArray(data))) return respond(503, { error: "SERVICE_UNAVAILABLE" });

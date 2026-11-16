@@ -1,0 +1,1585 @@
+{
+    "dependent_inventory": "dependent-objects.json",
+    "status":  "DRAFT ONLY; not executed",
+    "scope":  "native approved cluster only; hosted adaptation requires separate review",
+    "tables":  [
+                   {
+                       "name":  "private.attendance_checkins",
+                       "columns":  [
+                                       {
+                                           "name":  "id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "member_id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "walkin_request_id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "gym_local_date",
+                                           "type":  "date"
+                                       },
+                                       {
+                                           "name":  "checked_in_at",
+                                           "type":  "timestamp with time zone"
+                                       },
+                                       {
+                                           "name":  "attendance_status",
+                                           "type":  "text"
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "private.attendance_validity_resolutions",
+                       "columns":  [
+                                       {
+                                           "name":  "id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "attendance_id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "prior_status",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "new_status",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "reason",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "resolved_by",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "resolved_at",
+                                           "type":  "timestamp with time zone"
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "private.audit_chain_heads",
+                       "columns":  [
+                                       {
+                                           "name":  "stream_key",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "last_event_id",
+                                           "type":  "bigint"
+                                       },
+                                       {
+                                           "name":  "last_event_hash",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "updated_at",
+                                           "type":  "timestamp with time zone"
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "private.audit_events",
+                       "columns":  [
+                                       {
+                                           "name":  "id",
+                                           "type":  "bigint"
+                                       },
+                                       {
+                                           "name":  "actor_user_id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "event_type",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "subject_type",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "subject_id",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "details",
+                                           "type":  "jsonb"
+                                       },
+                                       {
+                                           "name":  "created_at",
+                                           "type":  "timestamp with time zone"
+                                       },
+                                       {
+                                           "name":  "stream_key",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "previous_event_hash",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "event_hash",
+                                           "type":  "text"
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "private.cash_drawer_sessions",
+                       "columns":  [
+                                       {
+                                           "name":  "id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "opened_at",
+                                           "type":  "timestamp with time zone"
+                                       },
+                                       {
+                                           "name":  "opened_by",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "opening_float_php",
+                                           "type":  "numeric(12,2)"
+                                       },
+                                       {
+                                           "name":  "session_status",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "closed_at",
+                                           "type":  "timestamp with time zone"
+                                       },
+                                       {
+                                           "name":  "closed_by",
+                                           "type":  "uuid"
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "private.cash_reconciliation_adjustments",
+                       "columns":  [
+                                       {
+                                           "name":  "id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "reconciliation_id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "amount_delta_php",
+                                           "type":  "numeric(12,2)"
+                                       },
+                                       {
+                                           "name":  "reason",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "evidence_reference",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "recorded_by",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "created_at",
+                                           "type":  "timestamp with time zone"
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "private.cash_reconciliations",
+                       "columns":  [
+                                       {
+                                           "name":  "id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "drawer_session_id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "expected_cash_php",
+                                           "type":  "numeric(12,2)"
+                                       },
+                                       {
+                                           "name":  "counted_cash_php",
+                                           "type":  "numeric(12,2)"
+                                       },
+                                       {
+                                           "name":  "variance_php",
+                                           "type":  "numeric(12,2)"
+                                       },
+                                       {
+                                           "name":  "reconciled_by",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "reconciled_at",
+                                           "type":  "timestamp with time zone"
+                                       },
+                                       {
+                                           "name":  "notes",
+                                           "type":  "text"
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "private.member_pin_credentials",
+                       "columns":  [
+                                       {
+                                           "name":  "member_id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "password_hash",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "credential_version",
+                                           "type":  "integer"
+                                       },
+                                       {
+                                           "name":  "created_at",
+                                           "type":  "timestamp with time zone"
+                                       },
+                                       {
+                                           "name":  "updated_at",
+                                           "type":  "timestamp with time zone"
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "private.member_pin_setup_tokens",
+                       "columns":  [
+                                       {
+                                           "name":  "id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "member_id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "token_hash",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "token_purpose",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "expires_at",
+                                           "type":  "timestamp with time zone"
+                                       },
+                                       {
+                                           "name":  "consumed_at",
+                                           "type":  "timestamp with time zone"
+                                       },
+                                       {
+                                           "name":  "created_at",
+                                           "type":  "timestamp with time zone"
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "private.members",
+                       "columns":  [
+                                       {
+                                           "name":  "id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "member_code",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "full_name",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "mobile_lookup_hash",
+                                           "type":  "bytea"
+                                       },
+                                       {
+                                           "name":  "mobile_encrypted",
+                                           "type":  "bytea"
+                                       },
+                                       {
+                                           "name":  "status",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "created_at",
+                                           "type":  "timestamp with time zone"
+                                       },
+                                       {
+                                           "name":  "updated_at",
+                                           "type":  "timestamp with time zone"
+                                       },
+                                       {
+                                           "name":  "approved_at",
+                                           "type":  "timestamp with time zone"
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "private.membership_plans",
+                       "columns":  [
+                                       {
+                                           "name":  "id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "name",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "price_php",
+                                           "type":  "numeric(12,2)"
+                                       },
+                                       {
+                                           "name":  "is_active",
+                                           "type":  "boolean"
+                                       },
+                                       {
+                                           "name":  "created_at",
+                                           "type":  "timestamp with time zone"
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "private.membership_purchases",
+                       "columns":  [
+                                       {
+                                           "name":  "id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "member_id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "plan_id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "price_php",
+                                           "type":  "numeric(12,2)"
+                                       },
+                                       {
+                                           "name":  "purchase_status",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "activation_date",
+                                           "type":  "date"
+                                       },
+                                       {
+                                           "name":  "expiry_date",
+                                           "type":  "date"
+                                       },
+                                       {
+                                           "name":  "created_at",
+                                           "type":  "timestamp with time zone"
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "private.owner_access",
+                       "columns":  [
+                                       {
+                                           "name":  "user_id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "is_active",
+                                           "type":  "boolean"
+                                       },
+                                       {
+                                           "name":  "created_at",
+                                           "type":  "timestamp with time zone"
+                                       },
+                                       {
+                                           "name":  "deactivated_at",
+                                           "type":  "timestamp with time zone"
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "private.payment_allocations",
+                       "columns":  [
+                                       {
+                                           "name":  "id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "payment_id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "membership_purchase_id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "walkin_request_id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "allocated_by",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "allocated_at",
+                                           "type":  "timestamp with time zone"
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "private.payment_corrections",
+                       "columns":  [
+                                       {
+                                           "name":  "id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "payment_id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "proposed_amount_php",
+                                           "type":  "numeric(12,2)"
+                                       },
+                                       {
+                                           "name":  "proposed_payment_method",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "reason",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "evidence_reference",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "correction_status",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "proposed_by",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "proposed_at",
+                                           "type":  "timestamp with time zone"
+                                       },
+                                       {
+                                           "name":  "decided_by",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "decided_at",
+                                           "type":  "timestamp with time zone"
+                                       },
+                                       {
+                                           "name":  "decision_reason",
+                                           "type":  "text"
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "private.payment_events",
+                       "columns":  [
+                                       {
+                                           "name":  "id",
+                                           "type":  "bigint"
+                                       },
+                                       {
+                                           "name":  "payment_id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "event_type",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "reason",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "actor_user_id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "created_at",
+                                           "type":  "timestamp with time zone"
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "private.payment_records",
+                       "columns":  [
+                                       {
+                                           "name":  "id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "amount_php",
+                                           "type":  "numeric(12,2)"
+                                       },
+                                       {
+                                           "name":  "payment_method",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "received_at",
+                                           "type":  "timestamp with time zone"
+                                       },
+                                       {
+                                           "name":  "verification_status",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "external_reference",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "evidence_reference",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "recorded_by",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "created_at",
+                                           "type":  "timestamp with time zone"
+                                       },
+                                       {
+                                           "name":  "operation_id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "target_membership_purchase_id",
+                                           "type":  "uuid"
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "private.pin_attempt_buckets",
+                       "columns":  [
+                                       {
+                                           "name":  "id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "bucket_type",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "identifier_digest",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "window_started_at",
+                                           "type":  "timestamp with time zone"
+                                       },
+                                       {
+                                           "name":  "failed_attempts",
+                                           "type":  "integer"
+                                       },
+                                       {
+                                           "name":  "blocked_until",
+                                           "type":  "timestamp with time zone"
+                                       },
+                                       {
+                                           "name":  "updated_at",
+                                           "type":  "timestamp with time zone"
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "private.pin_enrollment_global_rate_limit_events",
+                       "columns":  [
+                                       {
+                                           "name":  "id",
+                                           "type":  "bigint"
+                                       },
+                                       {
+                                           "name":  "requested_at",
+                                           "type":  "timestamp with time zone"
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "private.walkin_fee_versions",
+                       "columns":  [
+                                       {
+                                           "name":  "id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "fee_php",
+                                           "type":  "numeric(12,2)"
+                                       },
+                                       {
+                                           "name":  "currency",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "effective_from",
+                                           "type":  "timestamp with time zone"
+                                       },
+                                       {
+                                           "name":  "created_by",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "created_at",
+                                           "type":  "timestamp with time zone"
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "private.walkin_requests",
+                       "columns":  [
+                                       {
+                                           "name":  "id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "fee_version_id",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "fee_php",
+                                           "type":  "numeric(12,2)"
+                                       },
+                                       {
+                                           "name":  "currency",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "request_status",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "created_at",
+                                           "type":  "timestamp with time zone"
+                                       },
+                                       {
+                                           "name":  "expires_at",
+                                           "type":  "timestamp with time zone"
+                                       },
+                                       {
+                                           "name":  "confirmed_by",
+                                           "type":  "uuid"
+                                       },
+                                       {
+                                           "name":  "confirmed_at",
+                                           "type":  "timestamp with time zone"
+                                       }
+                                   ]
+                   },
+                   {
+                       "name":  "public.gym_settings",
+                       "columns":  [
+                                       {
+                                           "name":  "setting_key",
+                                           "type":  "text"
+                                       },
+                                       {
+                                           "name":  "setting_value",
+                                           "type":  "jsonb"
+                                       },
+                                       {
+                                           "name":  "updated_at",
+                                           "type":  "timestamp with time zone"
+                                       }
+                                   ]
+                   }
+               ],
+    "routines":  [
+                     {
+                         "signature":  "api.append_audit_event(text, uuid, text, text, text, jsonb)",
+                         "body_md5":  "7a05ca54592137c75b9adda7023516a8",
+                         "prosecdef":  true,
+                         "owner":  "gym_owner_executor",
+                         "definer":  true,
+                         "callers":  [
+                                         "service_role",
+                                         "gym_public_executor"
+                                     ]
+                     },
+                     {
+                         "signature":  "api.is_active_owner_for_user(uuid)",
+                         "body_md5":  "830f29066e37d9f2593c3cd99878ae93",
+                         "prosecdef":  true,
+                         "owner":  "gym_owner_executor",
+                         "definer":  true,
+                         "callers":  [
+                                         "service_role"
+                                     ]
+                     },
+                     {
+                         "signature":  "api.member_enroll_pin(text, text)",
+                         "body_md5":  "6bf1d4a963b2b853ba9cdc7cb582c342",
+                         "prosecdef":  true,
+                         "owner":  "gym_public_executor",
+                         "definer":  true,
+                         "callers":  [
+                                         "service_role"
+                                     ]
+                     },
+                     {
+                         "signature":  "api.owner_confirm_membership_payment(uuid, uuid, boolean)",
+                         "body_md5":  "ce58f4473d75469ef2676f232794dce0",
+                         "prosecdef":  true,
+                         "owner":  "gym_owner_executor",
+                         "definer":  true,
+                         "callers":  [
+                                         "service_role"
+                                     ]
+                     },
+                     {
+                         "signature":  "api.owner_create_membership_purchase(uuid, uuid, uuid)",
+                         "body_md5":  "f8f310bd5576274401706c5213c6746d",
+                         "prosecdef":  true,
+                         "owner":  "gym_owner_executor",
+                         "definer":  true,
+                         "callers":  [
+                                         "service_role"
+                                     ]
+                     },
+                     {
+                         "signature":  "api.owner_create_pin_enrollment_token(uuid, uuid, text, timestamp with time zone)",
+                         "body_md5":  "7a226978d83e191643a436c829f9dd07",
+                         "prosecdef":  true,
+                         "owner":  "gym_owner_executor",
+                         "definer":  true,
+                         "callers":  [
+                                         "service_role"
+                                     ]
+                     },
+                     {
+                         "signature":  "api.owner_list_members(uuid, text, text, integer, integer)",
+                         "body_md5":  "342dd9a2131e068c1a849694b053ebdf",
+                         "prosecdef":  true,
+                         "owner":  "gym_owner_executor",
+                         "definer":  true,
+                         "callers":  [
+                                         "service_role"
+                                     ]
+                     },
+                     {
+                         "signature":  "api.owner_list_membership_payments(uuid, text, text, integer, integer)",
+                         "body_md5":  "6ac0d61dfc24c15123812ec788294197",
+                         "prosecdef":  true,
+                         "owner":  "gym_owner_executor",
+                         "definer":  true,
+                         "callers":  [
+                                         "service_role"
+                                     ]
+                     },
+                     {
+                         "signature":  "api.owner_list_membership_plans(uuid)",
+                         "body_md5":  "fc3ed2be2834b6458f2835bfc18d9b4e",
+                         "prosecdef":  true,
+                         "owner":  "gym_owner_executor",
+                         "definer":  true,
+                         "callers":  [
+                                         "service_role"
+                                     ]
+                     },
+                     {
+                         "signature":  "api.owner_list_membership_purchases(uuid, text, text, integer, integer)",
+                         "body_md5":  "d6fd6f1ba099afe317dcf1606d49d64f",
+                         "prosecdef":  true,
+                         "owner":  "gym_owner_executor",
+                         "definer":  true,
+                         "callers":  [
+                                         "service_role"
+                                     ]
+                     },
+                     {
+                         "signature":  "api.owner_record_membership_payment(uuid, uuid, uuid, numeric, text, text)",
+                         "body_md5":  "c21766acb601a8b92dc26d59f73be2a3",
+                         "prosecdef":  true,
+                         "owner":  "gym_owner_executor",
+                         "definer":  true,
+                         "callers":  [
+                                         "service_role"
+                                     ]
+                     },
+                     {
+                         "signature":  "api.owner_register_member(uuid, text, bytea, bytea)",
+                         "body_md5":  "e56b20e809c8dfcebd782d4e8aa5fbb5",
+                         "prosecdef":  true,
+                         "owner":  "gym_owner_executor",
+                         "definer":  true,
+                         "callers":  [
+                                         "service_role"
+                                     ]
+                     },
+                     {
+                         "signature":  "api.owner_reject_membership_payment(uuid, uuid, text)",
+                         "body_md5":  "b55e7879cbae6d9074264826ed75eac0",
+                         "prosecdef":  true,
+                         "owner":  "gym_owner_executor",
+                         "definer":  true,
+                         "callers":  [
+                                         "service_role"
+                                     ]
+                     },
+                     {
+                         "signature":  "api.owner_save_membership_plan(uuid, uuid, text, numeric, boolean)",
+                         "body_md5":  "c128144cda372362b26ec91dc64fd6fa",
+                         "prosecdef":  true,
+                         "owner":  "gym_owner_executor",
+                         "definer":  true,
+                         "callers":  [
+                                         "service_role"
+                                     ]
+                     },
+                     {
+                         "signature":  "api.reserve_pin_enrollment_request()",
+                         "body_md5":  "ed1a67d4a3cd30fed31a0ee36222eb5b",
+                         "prosecdef":  true,
+                         "owner":  "gym_public_executor",
+                         "definer":  true,
+                         "callers":  [
+                                         "service_role"
+                                     ]
+                     },
+                     {
+                         "signature":  "api.verify_audit_stream(text)",
+                         "body_md5":  "f7c5cdb53ec4cf2d845e38f404df5fb9",
+                         "prosecdef":  true,
+                         "owner":  "gym_owner_executor",
+                         "definer":  true,
+                         "callers":  [
+                                         "service_role"
+                                     ]
+                     },
+                     {
+                         "signature":  "private.audit_events_chain_insert()",
+                         "body_md5":  "6fa6a434395de93250213752513ffb34",
+                         "prosecdef":  true,
+                         "owner":  "gym_data_owner",
+                         "definer":  false,
+                         "callers":  [
+                                         "gym_owner_executor"
+                                     ]
+                     },
+                     {
+                         "signature":  "private.compute_audit_event_hash(bigint, text, text, uuid, text, text, text, jsonb, timestamp with time zone)",
+                         "body_md5":  "a0635caf0c329b24571bd68df684f69f",
+                         "prosecdef":  false,
+                         "owner":  "gym_data_owner",
+                         "definer":  false,
+                         "callers":  [
+                                         "gym_owner_executor"
+                                     ]
+                     },
+                     {
+                         "signature":  "private.guard_membership_payment_allocation()",
+                         "body_md5":  "4836529309d8c518d42d24b9d191d6d5",
+                         "prosecdef":  true,
+                         "owner":  "gym_data_owner",
+                         "definer":  false,
+                         "callers":  [
+                                         "gym_owner_executor"
+                                     ]
+                     },
+                     {
+                         "signature":  "private.guard_membership_payment_record_insert()",
+                         "body_md5":  "edaae9f3a89330d4e55ce37d7d16d074",
+                         "prosecdef":  true,
+                         "owner":  "gym_data_owner",
+                         "definer":  false,
+                         "callers":  [
+                                         "gym_owner_executor"
+                                     ]
+                     },
+                     {
+                         "signature":  "private.guard_membership_payment_record_update()",
+                         "body_md5":  "9386192bae0b7aec6e34fce2e2aadbda",
+                         "prosecdef":  true,
+                         "owner":  "gym_data_owner",
+                         "definer":  false,
+                         "callers":  [
+                                         "gym_owner_executor"
+                                     ]
+                     },
+                     {
+                         "signature":  "private.guard_purchase_pending_activation()",
+                         "body_md5":  "c3467a65c399cf75243d4e3e9e31b36c",
+                         "prosecdef":  true,
+                         "owner":  "gym_data_owner",
+                         "definer":  false,
+                         "callers":  [
+                                         "gym_owner_executor"
+                                     ]
+                     },
+                     {
+                         "signature":  "private.is_active_owner()",
+                         "body_md5":  "76af3203b0fe03c30e1eb6d8264a04e6",
+                         "prosecdef":  false,
+                         "owner":  "gym_data_owner",
+                         "definer":  false,
+                         "callers":  [
+
+                                     ]
+                     },
+                     {
+                         "signature":  "private.prevent_audit_event_mutation()",
+                         "body_md5":  "d835b9b2db211d2439e03ec9d8a6337d",
+                         "prosecdef":  true,
+                         "owner":  "gym_data_owner",
+                         "definer":  false,
+                         "callers":  [
+                                         "gym_owner_executor"
+                                     ]
+                     },
+                     {
+                         "signature":  "private.prevent_payment_history_mutation()",
+                         "body_md5":  "0ad4feeac81403c334c6665ff018485e",
+                         "prosecdef":  true,
+                         "owner":  "gym_data_owner",
+                         "definer":  false,
+                         "callers":  [
+                                         "gym_owner_executor"
+                                     ]
+                     }
+                 ],
+    "sequences":  [
+                      {
+                          "name":  "private.audit_events_id_seq",
+                          "runtime_privileges":  [],
+                          "parent":  "private.audit_events"
+                      },
+                      {
+                          "name":  "private.payment_events_id_seq",
+                          "runtime_privileges":  [],
+                          "parent":  "private.payment_events"
+                      },
+                      {
+                          "name":  "private.pin_enrollment_global_rate_limit_events_id_seq",
+                          "runtime_privileges":  [],
+                          "parent":  "private.pin_enrollment_global_rate_limit_events"
+                      }
+                  ],
+    "permissions":  [
+                        {
+                            "table":  "private.owner_access",
+                            "role":  "gym_owner_executor",
+                            "command":  "SELECT",
+                            "columns":  [
+                                            "user_id",
+                                            "is_active",
+                                            "created_at",
+                                            "deactivated_at"
+                                        ],
+                            "policy":  "gf_owner_select"
+                        },
+                        {
+                            "table":  "private.members",
+                            "role":  "gym_owner_executor",
+                            "command":  "SELECT",
+                            "columns":  [
+                                            "id",
+                                            "member_code",
+                                            "full_name",
+                                            "mobile_lookup_hash",
+                                            "mobile_encrypted",
+                                            "status",
+                                            "created_at",
+                                            "updated_at",
+                                            "approved_at"
+                                        ],
+                            "policy":  "gf_owner_select"
+                        },
+                        {
+                            "table":  "private.members",
+                            "role":  "gym_owner_executor",
+                            "command":  "INSERT",
+                            "columns":  [
+                                            "member_code",
+                                            "full_name",
+                                            "mobile_lookup_hash",
+                                            "mobile_encrypted",
+                                            "status"
+                                        ],
+                            "policy":  "gf_owner_insert"
+                        },
+                        {
+                            "table":  "private.members",
+                            "role":  "gym_owner_executor",
+                            "command":  "UPDATE",
+                            "columns":  [
+                                            "updated_at"
+                                        ],
+                            "policy":  "gf_owner_update"
+                        },
+                        {
+                            "table":  "private.membership_plans",
+                            "role":  "gym_owner_executor",
+                            "command":  "SELECT",
+                            "columns":  [
+                                            "id",
+                                            "name",
+                                            "price_php",
+                                            "is_active",
+                                            "created_at"
+                                        ],
+                            "policy":  "gf_owner_select"
+                        },
+                        {
+                            "table":  "private.membership_plans",
+                            "role":  "gym_owner_executor",
+                            "command":  "INSERT",
+                            "columns":  [
+                                            "name",
+                                            "price_php",
+                                            "is_active"
+                                        ],
+                            "policy":  "gf_owner_insert"
+                        },
+                        {
+                            "table":  "private.membership_plans",
+                            "role":  "gym_owner_executor",
+                            "command":  "UPDATE",
+                            "columns":  [
+                                            "name",
+                                            "price_php",
+                                            "is_active"
+                                        ],
+                            "policy":  "gf_owner_update"
+                        },
+                        {
+                            "table":  "private.membership_purchases",
+                            "role":  "gym_owner_executor",
+                            "command":  "SELECT",
+                            "columns":  [
+                                            "id",
+                                            "member_id",
+                                            "plan_id",
+                                            "price_php",
+                                            "purchase_status",
+                                            "activation_date",
+                                            "expiry_date",
+                                            "created_at"
+                                        ],
+                            "policy":  "gf_owner_select"
+                        },
+                        {
+                            "table":  "private.membership_purchases",
+                            "role":  "gym_owner_executor",
+                            "command":  "INSERT",
+                            "columns":  [
+                                            "member_id",
+                                            "plan_id",
+                                            "price_php",
+                                            "purchase_status"
+                                        ],
+                            "policy":  "gf_owner_insert"
+                        },
+                        {
+                            "table":  "private.membership_purchases",
+                            "role":  "gym_owner_executor",
+                            "command":  "UPDATE",
+                            "columns":  [
+                                            "purchase_status"
+                                        ],
+                            "policy":  "gf_owner_update"
+                        },
+                        {
+                            "table":  "private.payment_records",
+                            "role":  "gym_owner_executor",
+                            "command":  "SELECT",
+                            "columns":  [
+                                            "id",
+                                            "amount_php",
+                                            "payment_method",
+                                            "received_at",
+                                            "verification_status",
+                                            "external_reference",
+                                            "evidence_reference",
+                                            "recorded_by",
+                                            "created_at",
+                                            "operation_id",
+                                            "target_membership_purchase_id"
+                                        ],
+                            "policy":  "gf_owner_select"
+                        },
+                        {
+                            "table":  "private.payment_records",
+                            "role":  "gym_owner_executor",
+                            "command":  "INSERT",
+                            "columns":  [
+                                            "amount_php",
+                                            "payment_method",
+                                            "verification_status",
+                                            "external_reference",
+                                            "recorded_by",
+                                            "operation_id",
+                                            "target_membership_purchase_id"
+                                        ],
+                            "policy":  "gf_owner_insert"
+                        },
+                        {
+                            "table":  "private.payment_records",
+                            "role":  "gym_owner_executor",
+                            "command":  "UPDATE",
+                            "columns":  [
+                                            "verification_status"
+                                        ],
+                            "policy":  "gf_owner_update"
+                        },
+                        {
+                            "table":  "private.payment_allocations",
+                            "role":  "gym_owner_executor",
+                            "command":  "SELECT",
+                            "columns":  [
+                                            "id",
+                                            "payment_id",
+                                            "membership_purchase_id",
+                                            "walkin_request_id",
+                                            "allocated_by",
+                                            "allocated_at"
+                                        ],
+                            "policy":  "gf_owner_select"
+                        },
+                        {
+                            "table":  "private.payment_allocations",
+                            "role":  "gym_owner_executor",
+                            "command":  "INSERT",
+                            "columns":  [
+                                            "payment_id",
+                                            "membership_purchase_id",
+                                            "allocated_by"
+                                        ],
+                            "policy":  "gf_owner_insert"
+                        },
+                        {
+                            "table":  "private.payment_events",
+                            "role":  "gym_owner_executor",
+                            "command":  "SELECT",
+                            "columns":  [
+                                            "id",
+                                            "payment_id",
+                                            "event_type",
+                                            "reason",
+                                            "actor_user_id",
+                                            "created_at"
+                                        ],
+                            "policy":  "gf_owner_select"
+                        },
+                        {
+                            "table":  "private.payment_events",
+                            "role":  "gym_owner_executor",
+                            "command":  "INSERT",
+                            "columns":  [
+                                            "payment_id",
+                                            "event_type",
+                                            "reason",
+                                            "actor_user_id"
+                                        ],
+                            "policy":  "gf_owner_insert"
+                        },
+                        {
+                            "table":  "private.audit_events",
+                            "role":  "gym_owner_executor",
+                            "command":  "SELECT",
+                            "columns":  [
+                                            "id",
+                                            "actor_user_id",
+                                            "event_type",
+                                            "subject_type",
+                                            "subject_id",
+                                            "details",
+                                            "created_at",
+                                            "stream_key",
+                                            "previous_event_hash",
+                                            "event_hash"
+                                        ],
+                            "policy":  "gf_owner_select"
+                        },
+                        {
+                            "table":  "private.audit_events",
+                            "role":  "gym_owner_executor",
+                            "command":  "INSERT",
+                            "columns":  [
+                                            "stream_key",
+                                            "actor_user_id",
+                                            "event_type",
+                                            "subject_type",
+                                            "subject_id",
+                                            "details"
+                                        ],
+                            "policy":  "gf_owner_insert"
+                        },
+                        {
+                            "table":  "private.audit_chain_heads",
+                            "role":  "gym_owner_executor",
+                            "command":  "SELECT",
+                            "columns":  [
+                                            "stream_key",
+                                            "last_event_id",
+                                            "last_event_hash",
+                                            "updated_at"
+                                        ],
+                            "policy":  "gf_owner_select"
+                        },
+                        {
+                            "table":  "private.audit_chain_heads",
+                            "role":  "gym_owner_executor",
+                            "command":  "INSERT",
+                            "columns":  [
+                                            "stream_key",
+                                            "last_event_id",
+                                            "last_event_hash"
+                                        ],
+                            "policy":  "gf_owner_insert"
+                        },
+                        {
+                            "table":  "private.audit_chain_heads",
+                            "role":  "gym_owner_executor",
+                            "command":  "UPDATE",
+                            "columns":  [
+                                            "last_event_id",
+                                            "last_event_hash",
+                                            "updated_at"
+                                        ],
+                            "policy":  "gf_owner_update"
+                        },
+                        {
+                            "table":  "private.member_pin_setup_tokens",
+                            "role":  "gym_owner_executor",
+                            "command":  "SELECT",
+                            "columns":  [
+                                            "id",
+                                            "member_id",
+                                            "token_hash",
+                                            "token_purpose",
+                                            "expires_at",
+                                            "consumed_at",
+                                            "created_at"
+                                        ],
+                            "policy":  "gf_owner_select"
+                        },
+                        {
+                            "table":  "private.member_pin_setup_tokens",
+                            "role":  "gym_owner_executor",
+                            "command":  "INSERT",
+                            "columns":  [
+                                            "member_id",
+                                            "token_hash",
+                                            "token_purpose",
+                                            "expires_at"
+                                        ],
+                            "policy":  "gf_owner_insert"
+                        },
+                        {
+                            "table":  "private.member_pin_setup_tokens",
+                            "role":  "gym_owner_executor",
+                            "command":  "UPDATE",
+                            "columns":  [
+                                            "consumed_at"
+                                        ],
+                            "policy":  "gf_owner_update"
+                        },
+                        {
+                            "table":  "private.members",
+                            "role":  "gym_public_executor",
+                            "command":  "SELECT",
+                            "columns":  [
+                                            "id",
+                                            "status"
+                                        ],
+                            "policy":  "gf_public_select"
+                        },
+                        {
+                            "table":  "private.members",
+                            "role":  "gym_public_executor",
+                            "command":  "UPDATE",
+                            "columns":  [
+                                            "updated_at"
+                                        ],
+                            "policy":  "gf_public_update"
+                        },
+                        {
+                            "table":  "private.member_pin_setup_tokens",
+                            "role":  "gym_public_executor",
+                            "command":  "SELECT",
+                            "columns":  [
+                                            "id",
+                                            "member_id",
+                                            "token_hash",
+                                            "token_purpose",
+                                            "expires_at",
+                                            "consumed_at"
+                                        ],
+                            "policy":  "gf_public_select"
+                        },
+                        {
+                            "table":  "private.member_pin_setup_tokens",
+                            "role":  "gym_public_executor",
+                            "command":  "UPDATE",
+                            "columns":  [
+                                            "consumed_at"
+                                        ],
+                            "policy":  "gf_public_update"
+                        },
+                        {
+                            "table":  "private.member_pin_credentials",
+                            "role":  "gym_public_executor",
+                            "command":  "SELECT",
+                            "columns":  [
+                                            "member_id"
+                                        ],
+                            "policy":  "gf_public_select"
+                        },
+                        {
+                            "table":  "private.member_pin_credentials",
+                            "role":  "gym_public_executor",
+                            "command":  "INSERT",
+                            "columns":  [
+                                            "member_id",
+                                            "password_hash",
+                                            "credential_version",
+                                            "created_at",
+                                            "updated_at"
+                                        ],
+                            "policy":  "gf_public_insert"
+                        },
+                        {
+                            "table":  "private.pin_enrollment_global_rate_limit_events",
+                            "role":  "gym_public_executor",
+                            "command":  "SELECT",
+                            "columns":  [
+                                            "requested_at"
+                                        ],
+                            "policy":  "gf_public_select"
+                        },
+                        {
+                            "table":  "private.pin_enrollment_global_rate_limit_events",
+                            "role":  "gym_public_executor",
+                            "command":  "INSERT",
+                            "columns":  [
+                                            "requested_at"
+                                        ],
+                            "policy":  "gf_public_insert"
+                        },
+                        {
+                            "table":  "private.pin_enrollment_global_rate_limit_events",
+                            "role":  "gym_public_executor",
+                            "command":  "DELETE",
+                            "columns":  [
+
+                                        ],
+                            "policy":  "gf_public_delete"
+                        }
+                    ],
+    "triggers":  [
+                     {
+                         "table_name":  "private.audit_events",
+                         "name":  "audit_events_chain_insert_trigger",
+                         "definition":  "CREATE TRIGGER audit_events_chain_insert_trigger BEFORE INSERT ON private.audit_events FOR EACH ROW EXECUTE FUNCTION private.audit_events_chain_insert()"
+                     },
+                     {
+                         "table_name":  "private.audit_events",
+                         "name":  "audit_events_no_truncate",
+                         "definition":  "CREATE TRIGGER audit_events_no_truncate BEFORE TRUNCATE ON private.audit_events FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_audit_event_mutation()"
+                     },
+                     {
+                         "table_name":  "private.audit_events",
+                         "name":  "audit_events_no_update_delete",
+                         "definition":  "CREATE TRIGGER audit_events_no_update_delete BEFORE DELETE OR UPDATE ON private.audit_events FOR EACH ROW EXECUTE FUNCTION private.prevent_audit_event_mutation()"
+                     },
+                     {
+                         "table_name":  "private.membership_purchases",
+                         "name":  "membership_purchase_requires_confirmed_payment",
+                         "definition":  "CREATE TRIGGER membership_purchase_requires_confirmed_payment BEFORE INSERT OR UPDATE ON private.membership_purchases FOR EACH ROW EXECUTE FUNCTION private.guard_purchase_pending_activation()"
+                     },
+                     {
+                         "table_name":  "private.payment_allocations",
+                         "name":  "payment_allocations_no_truncate",
+                         "definition":  "CREATE TRIGGER payment_allocations_no_truncate BEFORE TRUNCATE ON private.payment_allocations FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_payment_history_mutation()"
+                     },
+                     {
+                         "table_name":  "private.payment_allocations",
+                         "name":  "payment_allocations_no_update_delete",
+                         "definition":  "CREATE TRIGGER payment_allocations_no_update_delete BEFORE DELETE OR UPDATE ON private.payment_allocations FOR EACH ROW EXECUTE FUNCTION private.prevent_payment_history_mutation()"
+                     },
+                     {
+                         "table_name":  "private.payment_allocations",
+                         "name":  "payment_allocations_validate_membership",
+                         "definition":  "CREATE TRIGGER payment_allocations_validate_membership BEFORE INSERT ON private.payment_allocations FOR EACH ROW EXECUTE FUNCTION private.guard_membership_payment_allocation()"
+                     },
+                     {
+                         "table_name":  "private.payment_events",
+                         "name":  "payment_events_no_truncate",
+                         "definition":  "CREATE TRIGGER payment_events_no_truncate BEFORE TRUNCATE ON private.payment_events FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_payment_history_mutation()"
+                     },
+                     {
+                         "table_name":  "private.payment_events",
+                         "name":  "payment_events_no_update_delete",
+                         "definition":  "CREATE TRIGGER payment_events_no_update_delete BEFORE DELETE OR UPDATE ON private.payment_events FOR EACH ROW EXECUTE FUNCTION private.prevent_payment_history_mutation()"
+                     },
+                     {
+                         "table_name":  "private.payment_records",
+                         "name":  "payment_records_guard_update",
+                         "definition":  "CREATE TRIGGER payment_records_guard_update BEFORE UPDATE ON private.payment_records FOR EACH ROW EXECUTE FUNCTION private.guard_membership_payment_record_update()"
+                     },
+                     {
+                         "table_name":  "private.payment_records",
+                         "name":  "payment_records_no_delete",
+                         "definition":  "CREATE TRIGGER payment_records_no_delete BEFORE DELETE ON private.payment_records FOR EACH ROW EXECUTE FUNCTION private.prevent_payment_history_mutation()"
+                     },
+                     {
+                         "table_name":  "private.payment_records",
+                         "name":  "payment_records_no_truncate",
+                         "definition":  "CREATE TRIGGER payment_records_no_truncate BEFORE TRUNCATE ON private.payment_records FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_payment_history_mutation()"
+                     },
+                     {
+                         "table_name":  "private.payment_records",
+                         "name":  "payment_records_validate_membership_insert",
+                         "definition":  "CREATE TRIGGER payment_records_validate_membership_insert BEFORE INSERT ON private.payment_records FOR EACH ROW EXECUTE FUNCTION private.guard_membership_payment_record_insert()"
+                     }
+                 ],
+    "external_acl":  [
+                         {
+                             "object":  "extensions.digest(bytea,text)",
+                             "privilege":  "EXECUTE",
+                             "role":  "gym_owner_executor"
+                         }
+                     ],
+    "baseline_migrations":  [
+                                {
+                                    "name":  "20261028061728_initial_schema.sql",
+                                    "sha256":  "b781d85f6dec406129d49b0e7698f4a8553075e8782127e6233ff46d88b0ddd2"
+                                },
+                                {
+                                    "name":  "20261028062516_membership_core.sql",
+                                    "sha256":  "0148a2f1b2e3aed5bb6eddb0b9590e3a951e548b9f05a53995fee664f37acfd1"
+                                },
+                                {
+                                    "name":  "20261028062602_payment_ledger.sql",
+                                    "sha256":  "cfb22c3d99229e7bbbda54e4033b8111d3e816fd7fce4d30c542315ed03aa90e"
+                                },
+                                {
+                                    "name":  "20261028062706_walkin_attendance.sql",
+                                    "sha256":  "9028872e5e43b90d966678b8efa4074b5323c424db93a88a4e4ce3b463840cb4"
+                                },
+                                {
+                                    "name":  "20261028062757_owner_security.sql",
+                                    "sha256":  "bfd7dec297b57183fc868c17a4f1a8243cfd533e4591aac036c11174869f7731"
+                                },
+                                {
+                                    "name":  "20261028062853_member_pin_security.sql",
+                                    "sha256":  "5677859e6272c2f279adaf31982762cc867b47108d8e06e973cd8f238cb4713a"
+                                },
+                                {
+                                    "name":  "20261028062935_cash_reconciliation.sql",
+                                    "sha256":  "32d136869b0a4860a77dbde91c98e81116b009c7168d877ce8e926ef6ab3694f"
+                                },
+                                {
+                                    "name":  "20261028063027_audit_integrity.sql",
+                                    "sha256":  "25ace6ef8465fcb5e01d3863623306c3018d32dec0d114c7ae6b3e92dbf8966f"
+                                },
+                                {
+                                    "name":  "20261028063404_integrity_fixes.sql",
+                                    "sha256":  "2d7beb28540785850e555e6f30bcee83dcc10ec1667ae1f4bbb277a31a2c5ec1"
+                                },
+                                {
+                                    "name":  "20261028063446_membership_overlap_guard.sql",
+                                    "sha256":  "521f66b6bf3baa6e7a7a34fe0f5e81c84073dc5ecc2d157236e22119ad1ced32"
+                                },
+                                {
+                                    "name":  "20261028063638_payment_integrity_guard.sql",
+                                    "sha256":  "315f9fa3cb4d8e14f6b1f333611751bf0f80bfcde90f20311c2e85a6ecc8a68e"
+                                },
+                                {
+                                    "name":  "20261028064100_database_security_foundation.sql",
+                                    "sha256":  "2286fe92b9075d1101b370fc70a560dd845972927c9a399f3699572745c05a35"
+                                },
+                                {
+                                    "name":  "20261029100000_owner_authorization_rpc.sql",
+                                    "sha256":  "2a1df410fb8413f360ac0d3c936855cfd8620f1b6d227a6dac935a54a9ea6328"
+                                },
+                                {
+                                    "name":  "20261030120000_audit_chain_enforcement.sql",
+                                    "sha256":  "843fbfea2e0ea5ce3762fcbb8f25d048e80ad23532a8729dc71518b1823ef475"
+                                },
+                                {
+                                    "name":  "20261030130000_owner_register_member.sql",
+                                    "sha256":  "15d45542fcb82fd4f949716a60c4325a6f5fb28fc3b251667b6bf783a1f73c93"
+                                },
+                                {
+                                    "name":  "20261030140000_owner_create_pin_enrollment_token.sql",
+                                    "sha256":  "e93cea9afd0eab52f3bcfbcb6f1ea491a406fa59fabdb8f20a5ed5a093166c5f"
+                                },
+                                {
+                                    "name":  "20261030150000_member_pin_enrollment.sql",
+                                    "sha256":  "c91e7ad9225a12787664f4d8a34c0135c1007551028b48163ab0000e69b9c67f"
+                                },
+                                {
+                                    "name":  "20261030160000_global_pin_enrollment_rate_limit.sql",
+                                    "sha256":  "133c77f06a80dc4248cad7c4e1ece9e92378459d0be668360c4e4e9b74eaf00f"
+                                },
+                                {
+                                    "name":  "20261030170000_rolling_pin_enrollment_rate_limit.sql",
+                                    "sha256":  "8e6c88bf97a6c4e01047534bdd7f1ac907e95b544ed68e4c4c94d72beb5bacf3"
+                                },
+                                {
+                                    "name":  "20261030180000_owner_list_members.sql",
+                                    "sha256":  "5edbe55267dba6a4681f01fa12edbd3ec4cd58f9fe9d72ac209b44ac894140af"
+                                },
+                                {
+                                    "name":  "20261103080000_owner_membership_plans.sql",
+                                    "sha256":  "8129ad8b38744ab6ff0180f246cc2107da9a8abb1c03494e8a426691230b1196"
+                                },
+                                {
+                                    "name":  "20261103100000_owner_create_membership_purchase.sql",
+                                    "sha256":  "7c8d0d18b1b4a8d2c475b3fa193764a7ece282abec33ad39a7d0b3fb23739fc6"
+                                },
+                                {
+                                    "name":  "20261103110000_owner_list_membership_purchases.sql",
+                                    "sha256":  "4e921477e040aa652a5943d7886f75c441395003674d72e36a1e84250933d0d5"
+                                },
+                                {
+                                    "name":  "20261103120000_owner_membership_payments.sql",
+                                    "sha256":  "62ff9ec172e04f901bcec4d7b9f4d4718b8590dfb92ba13f2456fcd402635240"
+                                }
+                            ],
+    "protected_files":  [
+                            {
+                                "path":  "docs/local-testing/bootstrap.sql",
+                                "sha256":  "41eda9282c3ca985ed3c701e2db9be14d4962ea1a5bc500a6d9ea9f867aaa880"
+                            },
+                            {
+                                "path":  "supabase/tests/database_security_foundation_assertions.sql",
+                                "sha256":  "f092c103ec193fd67e97dde5ecfda1456e236d7834c976498bda0e82a41637c7"
+                            },
+                            {
+                                "path":  "supabase/tests/membership_payment_security_assertions.sql",
+                                "sha256":  "d13aee66d8f12c46c1193475ce3a88bd53b2fd6077247f337227cb6540942199"
+                            },
+                            {
+                                "path":  "docs/local-testing/apply-migrations.ps1",
+                                "sha256":  "a33e97e110e9874683b295b7dd25b299ce2bde57c346a3fd436960a933c15ac8"
+                            }
+                        ]
+}

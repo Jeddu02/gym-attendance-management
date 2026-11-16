@@ -5,6 +5,7 @@ import { operationWasRejected } from '../lib/operation-error';
 type Drawer = { id: string; businessDate: string; status: string; openingFloatPhp: string;
   expectedCashPhp: string | null; countedCashPhp: string | null; variancePhp: string | null; reason: string | null; evidenceReference: string | null };
 export function CashDrawerPage() {
+  const [loadError, setLoadError] = useState('');
   const [rows, setRows] = useState<Drawer[]>([]);
   const [page, setPage] = useState(0);
   const [refresh, setRefresh] = useState(0);
@@ -22,13 +23,13 @@ export function CashDrawerPage() {
     let active = true;
     void (async () => {
       await Promise.resolve(); if (!active) return;
-      setLoading(true); setRows([]);
+      setLoading(true); setRows([]); setLoadError('');
       try {
         const { data, error } = await getSupabaseClient().functions.invoke('owner-cash', { body: { action: 'list', limit: 50, offset: page * 50 } });
         if (!active) return;
         if (error || data?.success !== true || !Array.isArray(data.result)) throw Error();
         setRows(data.result);
-      } catch { if (active) setMessage('Cash history could not be loaded.'); }
+      } catch { if (active) setLoadError('Cash history could not be loaded.'); }
       finally { if (active) setLoading(false); }
     })();
     return () => { active = false; };
@@ -68,7 +69,7 @@ export function CashDrawerPage() {
         <label><input type="checkbox" required checked={attested} onChange={(event) => setAttested(event.target.checked)} />I physically counted this amount and reviewed the evidence. Variance never changes confirmed income.</label>
       </fieldset><button className="primary-button" disabled={busy || (!attempt && !attested)}>{busy ? 'Recording…' : attempt ? 'Retry the same operation' : openDrawer ? 'Close with evidence' : 'Attest and open'}</button>
     </form>}
-    <div className="members-table-wrap"><table className="members-table"><thead><tr><th>Manila date</th><th>Status</th><th>Float PHP</th><th>Expected PHP</th><th>Counted PHP</th><th>Variance PHP</th><th>Reason / evidence</th></tr></thead><tbody>{loading ? <tr><td colSpan={7}>Loading…</td></tr> : rows.length === 0 ? <tr><td colSpan={7}>No drawers recorded.</td></tr> : rows.map((row) => <tr key={row.id}><td>{row.businessDate}</td><td>{row.status}</td><td>{row.openingFloatPhp}</td><td>{row.expectedCashPhp ?? 'Open'}</td><td>{row.countedCashPhp ?? 'Open'}</td><td>{row.variancePhp ?? 'Open'}</td><td>{row.reason} {row.evidenceReference}</td></tr>)}</tbody></table></div>
+    <div className="members-table-wrap"><table className="members-table"><thead><tr><th>Manila date</th><th>Status</th><th>Float PHP</th><th>Expected PHP</th><th>Counted PHP</th><th>Variance PHP</th><th>Reason / evidence</th></tr></thead><tbody>{loading ? <tr><td colSpan={7}>Loading…</td></tr> : loadError ? <tr><td colSpan={7} role="alert">Cash history unavailable. Refresh to retry.</td></tr> : rows.length === 0 ? <tr><td colSpan={7}>No drawers recorded.</td></tr> : rows.map((row) => <tr key={row.id}><td>{row.businessDate}</td><td>{row.status}</td><td>{row.openingFloatPhp}</td><td>{row.expectedCashPhp ?? 'Open'}</td><td>{row.countedCashPhp ?? 'Open'}</td><td>{row.variancePhp ?? 'Open'}</td><td>{row.reason} {row.evidenceReference}</td></tr>)}</tbody></table></div>
     <div className="purchase-history-pagination"><button disabled={loading || page === 0} onClick={() => setPage((value) => value - 1)}>Previous</button><span>Page {page + 1}</span><button disabled={loading || rows.length < 50 || (page + 1) * 50 > 100000} onClick={() => setPage((value) => value + 1)}>Next</button></div>
     <p className="members-footnote">Close each Manila business day. Closed snapshots preserve the receipt IDs and amounts counted at closing. Later receipt verification or correction does not rewrite the snapshot. A stale open drawer requires Owner review.</p>
   </section>;

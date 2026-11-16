@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { getSupabaseClient } from '../lib/supabase';
+import { functionErrorMessage } from '../lib/function-error';
 
 type PaymentMethod = 'cash' | 'gcash' | 'bank_transfer';
 type WalkinRequest = {
@@ -47,6 +48,7 @@ export function WalkinsPage() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [loadError, setLoadError] = useState('');
   const [feePhp, setFeePhp] = useState('');
   const [feeReason, setFeeReason] = useState('');
   const [selected, setSelected] = useState<WalkinRequest | null>(null);
@@ -66,15 +68,18 @@ export function WalkinsPage() {
     async function load() {
       setLoading(true);
       setRequests([]);
+      setLoadError('');
       try {
         const { data, error } = await getSupabaseClient().functions.invoke('owner-walkins', {
           method: 'POST', body: { action: 'list', limit: pageSize, offset: page * pageSize },
         });
         if (!active || ticket !== requestGeneration.current) return;
-        if (error || data?.success !== true || !Array.isArray(data.requests)) throw new Error('Invalid walk-in list response');
+        if (error) throw error;
+        if (data?.success !== true || !Array.isArray(data.requests)) throw new Error('Invalid walk-in list response');
         setRequests(data.requests as WalkinRequest[]);
-      } catch {
-        if (active && ticket === requestGeneration.current) setErrorMessage('Could not load walk-in requests. Please try again.');
+      } catch (error) {
+        const message = await functionErrorMessage(error, 'Could not load walk-in requests. Check your connection and retry.');
+        if (active && ticket === requestGeneration.current) setLoadError(message);
       } finally {
         if (active && ticket === requestGeneration.current) setLoading(false);
       }
@@ -177,6 +182,7 @@ export function WalkinsPage() {
     <section className="plans-module">
       <div className="plans-toolbar"><div><strong>Walk-in requests</strong><p>Only actual money received may be confirmed. Eligibility and expiry are checked by the server.</p></div><button type="button" className="secondary-button" disabled={loading || busy || retryPending} onClick={() => { setErrorMessage(''); reload(); }}>Refresh requests</button></div>
       {notice && <p className="members-notice" role="status">{notice}</p>}
+      {loadError && <p className="members-error" role="alert">{loadError}</p>}
       {errorMessage && !selected && <p className="members-error" role="alert">{errorMessage}</p>}
       <div className="members-table-card purchase-form-card">
         <div className="members-table-heading"><div><h2>Set walk-in fee</h2><p>Applies to new requests only. Existing request amounts cannot be changed.</p></div></div>
@@ -187,9 +193,9 @@ export function WalkinsPage() {
         </form>
       </div>
       <div className="members-table-card">
-        <div className="members-table-heading"><div><h2>Request history</h2><p>{loading ? 'Loading requests...' : `${requests.length} requests on this page`}</p></div></div>
+        <div className="members-table-heading"><div><h2>Request history</h2><p>{loading ? 'Loading requests...' : loadError ? 'Requests unavailable' : `${requests.length} requests on this page`}</p></div></div>
         <div className="members-table-wrap"><table className="members-table"><thead><tr><th>Reference</th><th>Fee snapshot</th><th>Requested method</th><th>Created (Manila)</th><th>Server expiry (Manila)</th><th>Status</th><th>Action</th></tr></thead><tbody>
-          {loading ? <tr><td colSpan={7} className="members-empty">Loading walk-in requests...</td></tr> : requests.length === 0 ? <tr><td colSpan={7} className="members-empty">No requests on this page.</td></tr> : requests.map((request) => <tr key={request.id}>
+          {loading ? <tr><td colSpan={7} className="members-empty">Loading walk-in requests...</td></tr> : loadError ? <tr><td colSpan={7} className="members-empty">Walk-in history unavailable. Refresh requests to retry.</td></tr> : requests.length === 0 ? <tr><td colSpan={7} className="members-empty">No requests on this page.</td></tr> : requests.map((request) => <tr key={request.id}>
             <td className="payment-reference">{request.id}</td><td>{php(request.feePhp)}</td><td>{methodLabels[request.paymentMethod]}</td><td>{gymTime(request.createdAt)}</td><td>{gymTime(request.expiresAt)}</td><td>{request.status}</td>
             <td>{!['confirmed', 'receipt_review'].includes(request.status) && <button type="button" className="secondary-button" disabled={busy || retryPending} onClick={() => openReceipt(request)}>Record actual receipt</button>}</td>
           </tr>)}

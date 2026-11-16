@@ -30,6 +30,8 @@ const server = spawn(process.execPath, ['node_modules/vite/bin/vite.js', ...(pro
 });
 let browser; let socket; let sequence = 0;
 const pending = new Map(); const errors = []; const observed = []; let externalAttempts = 0;
+let paymentFailure = true; let walkinFailure = true; let publicUnavailable = true;
+const unavailableRoutes = new Set(['owner-list-members', 'owner-list-membership-plans', 'owner-list-membership-purchases', 'owner-attendance', 'owner-receipt-review', 'owner-cash', 'owner-attendance-claims']);
 async function until(check, description, timeout = 15000) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) { if (await check()) return; await delay(100); }
@@ -73,6 +75,7 @@ try {
     const url = new URL(request.url);
     if (url.origin !== origin) { externalAttempts++; await cdp('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' }); return; }
     const respond = async (status, body) => cdp('Fetch.fulfillRequest', { requestId, responseCode: status, responseHeaders: [{ name: 'Content-Type', value: 'application/json' }, { name: 'Cache-Control', value: 'no-store' }], body: Buffer.from(JSON.stringify(body)).toString('base64') });
+    if (url.pathname.startsWith('/functions/v1/') && unavailableRoutes.has(url.pathname.split('/').at(-1))) { await respond(503, { error: 'SERVICE_UNAVAILABLE' }); return; }
     if (url.pathname === '/auth/v1/token') {
       const user = { id: '91000000-0000-4000-8000-000000000002', aud: 'authenticated', role: 'authenticated', email: 'owner@example.test', app_metadata: {}, user_metadata: {}, created_at: new Date().toISOString() };
       const payload = { sub: user.id, aud: 'authenticated', role: 'authenticated', exp: Math.floor(Date.now()/1000)+3600, iat: Math.floor(Date.now()/1000) };
@@ -81,15 +84,21 @@ try {
     } else if (url.pathname === '/functions/v1/owner-status') await respond(200, { authenticated: true, isActiveOwner: true, authorizationReady: true });
     else if (url.pathname === '/functions/v1/owner-reporting') {
       const { action } = JSON.parse(request.postData);
+      if (action === 'audit') { await respond(200, { success: true, events: [] }); return; }
       await respond(200, action === 'income' ? { success: true, income: [] } : action === 'expiry' ? { success: true, expiries: [] } : { success: true, summary: { totalMembers: 0, approvedMembers: 0, currentEntitlements: 0, todayValidCheckins: 0, confirmedMembershipIncomePhp: '0.00', confirmedWalkinIncomePhp: '0.00' } });
     } else if (url.pathname === '/functions/v1/owner-membership-payments') {
       const input = JSON.parse(request.postData);
+      if (paymentFailure) { await respond(503, { error: 'SERVICE_UNAVAILABLE' }); return; }
       if (input.action === 'payable') {
         assert.equal(input.limit, 50);
         const purchases = Array.from({length: input.offset === 0 ? 50 : 2}, (_, index) => ({id:`91000000-0000-4000-8000-${(input.offset+index+1).toString(16).padStart(12,'0')}`,memberName:'Synthetic payable member',memberCode:'MBR-ABCDEF123456',planName:'Synthetic monthly',pricePhp:'350.00'}));
         await respond(200, { success: true, purchases });
       } else { assert.equal(input.action, 'list'); await respond(200, { success: true, result: {payments:[],payablePurchases:[]} }); }
     }
+    else if (url.pathname === '/functions/v1/owner-list-members') await respond(200, { success: true, members: [] });
+    else if (url.pathname === '/functions/v1/owner-list-membership-plans') await respond(200, { success: true, plans: [] });
+    else if (url.pathname === '/functions/v1/owner-list-membership-purchases') await respond(200, { success: true, purchases: [] });
+    else if (url.pathname === '/functions/v1/owner-walkins') await respond(walkinFailure ? 403 : 200, walkinFailure ? { error: 'OWNER_ACCESS_REQUIRED' } : { success: true, requests: [] });
     else if (url.pathname === '/functions/v1/owner-attendance') await respond(200, { success: true, attendance: [] });
     else if (['/functions/v1/owner-receipt-review','/functions/v1/owner-cash','/functions/v1/owner-attendance-claims'].includes(url.pathname)) await respond(200, { success: true, result: [] });
     else if (url.pathname === '/functions/v1/member-checkin') {
@@ -98,6 +107,7 @@ try {
       await respond(400, { success: false, message: 'CHECKIN_UNAVAILABLE' });
     } else if (url.pathname === '/functions/v1/public-walkin-request') {
       assert.deepEqual(JSON.parse(request.postData), { paymentMethod: 'cash' });
+      if (publicUnavailable) { await respond(503, { error: 'REQUEST_UNAVAILABLE' }); return; }
       await respond(200, { success: true, request: { id: '91000000-0000-4000-8000-000000000001', feePhp: '100.00', currency: 'PHP', paymentMethod: 'cash', createdAt: new Date().toISOString(), expiresAt: new Date(Date.now()+900000).toISOString() } });
     } else if (url.pathname === '/functions/v1/member-enroll-pin') await respond(503, { error: 'SERVICE_UNAVAILABLE' });
     else if (url.pathname.startsWith('/functions/') || url.pathname.startsWith('/auth/')) await respond(503, { error: 'SYNTHETIC_UNAVAILABLE' });
@@ -108,6 +118,22 @@ try {
   await cdp('Emulation.setDeviceMetricsOverride', { width: 375, height: 812, deviceScaleFactor: 1, mobile: true });
   await navigate('/entrance');
   await until(() => textIncludes('Member ID or registered mobile number'), 'entrance form');
+  if (production) {
+    // Prompt-mode workers do not claim the first document. Await activation,
+    // then navigate once to become controlled before testing subsequent routes.
+    // Final checks still independently verify control and cache contents.
+    try {
+      await until(() => evaluate(`(async () => (await navigator.serviceWorker.getRegistrations()).some(registration => registration.active?.state === 'activated'))()`), 'initial production shell activation', 45000);
+      if (!await evaluate('navigator.serviceWorker.controller !== null')) {
+        await navigate('/entrance');
+        await until(() => textIncludes('Member ID or registered mobile number'), 'controlled entrance form');
+      }
+      await until(() => evaluate('navigator.serviceWorker.controller !== null'), 'initial production shell worker');
+    } catch (error) {
+      console.log('Synthetic worker diagnostic:', await evaluate(`(async () => ({ controlled: !!navigator.serviceWorker.controller, registrations: (await navigator.serviceWorker.getRegistrations()).map(registration => ({ scope: new URL(registration.scope).pathname, installing: registration.installing?.state, waiting: registration.waiting?.state, active: registration.active?.state })) }))()`));
+      throw error;
+    }
+  }
   assert.equal(await evaluate('document.documentElement.scrollWidth <= window.innerWidth'), true);
   assert.equal(await evaluate('document.querySelector("#checkin-pin").type'), 'password');
   await evaluate(`(() => { const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; for (const [id,value] of [['checkin-identifier','MBR-ABCDEF123456'],['checkin-pin','123456']]) { const el=document.getElementById(id); set.call(el,value); el.dispatchEvent(new Event('input',{bubbles:true})); } })()`);
@@ -115,6 +141,10 @@ try {
   await until(() => evaluate('document.querySelector("#checkin-pin").value === ""'), 'PIN cleared after denial');
   await evaluate('document.getElementById("entrance-walkin-tab").click()');
   await until(() => textIncludes('Request a walk-in visit'), 'walk-in tab');
+  await evaluate('document.querySelector("#entrance-walkin-panel form").requestSubmit()');
+  await until(() => textIncludes('Walk-in requests are unavailable'), 'disabled public service feedback');
+  assert.equal(await textIncludes('Awaiting Owner confirmation'), false);
+  publicUnavailable = false;
   await evaluate('document.querySelector("#entrance-walkin-panel form").requestSubmit()');
   await until(() => textIncludes('Awaiting Owner confirmation'), 'provisional request');
   assert.equal(await textIncludes('This request does not confirm payment or attendance.'), true);
@@ -128,14 +158,46 @@ try {
   await evaluate(`(() => { const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; for (const [id,value] of [['email','owner@example.test'],['password','synthetic-ui-only']]) { const el=document.getElementById(id); set.call(el,value); el.dispatchEvent(new Event('input',{bubbles:true})); } })()`);
   await evaluate('document.querySelector("form").requestSubmit()');
   await until(() => textIncludes('Owner access verified'), 'synthetic Owner UI session');
-  for (const [label, heading] of [['Payments','Payment details'],['Receipt review','Actual receipts and corrections'],['Cash drawer','Physical cash drawer'],['Presence review','Provisional presence claims'],['Attendance','Recorded check-ins'],['Reports','Confirmed income by day and method'],['Settings','Permanent entrance QR']]) {
+  const recoveries = {
+    Members: [['Member directory unavailable.'], ['No members found'], ['owner-list-members']],
+    Memberships: [['Plan directory unavailable.', 'Purchase history unavailable.'], ['No membership plans yet', 'No purchases found'], ['owner-list-membership-plans', 'owner-list-membership-purchases']],
+    'Receipt review': [['Receipt history unavailable.'], ['No receipts on this page.'], ['owner-receipt-review']],
+    'Cash drawer': [['Cash history unavailable.'], ['No drawers recorded.'], ['owner-cash']],
+    'Presence review': [['Presence review unavailable.'], ['No claims on this page.'], ['owner-attendance-claims']],
+    Attendance: [['Attendance history unavailable.'], ['No check-ins found'], ['owner-attendance']],
+  };
+  for (const [label, heading] of [['Members','Member directory'],['Memberships','Plan directory'],['Payments','Payment details'],['Walk-ins','Request history'],['Receipt review','Actual receipts and corrections'],['Cash drawer','Physical cash drawer'],['Presence review','Provisional presence claims'],['Attendance','Recorded check-ins'],['Audit history','Recorded events'],['Reports','Confirmed income by day and method'],['Settings','Permanent entrance QR']]) {
     await evaluate(`Array.from(document.querySelectorAll('nav button')).find(button => button.innerText.trim().endsWith(${JSON.stringify(label)})).click()`);
     await until(() => textIncludes(heading), `Owner ${label} rendering`);
     assert.equal(await evaluate('document.documentElement.scrollWidth <= window.innerWidth'), true, `mobile overflow: ${label}`);
+    if (recoveries[label]) {
+      const [failures, emptyMessages, routes] = recoveries[label];
+      for (const failure of failures) await until(() => textIncludes(failure), `${label}: load failure`);
+      for (const empty of emptyMessages) assert.equal(await textIncludes(empty), false, `${label}: failure must not imply empty data`);
+      routes.forEach((route) => unavailableRoutes.delete(route));
+      await evaluate(`Array.from(document.querySelectorAll('button')).filter(button => button.innerText.trim().startsWith('Refresh') && !button.disabled).forEach(button => button.click())`);
+      for (const empty of emptyMessages) await until(() => textIncludes(empty), `${label}: empty after recovery`);
+      for (const failure of failures) assert.equal(await textIncludes(failure), false, `${label}: previous failure cleared`);
+    }
     if (label === 'Payments') {
+      await until(() => textIncludes('Use Refresh payments to retry.'), 'payable purchase failure');
+      await until(() => textIncludes('Payment history unavailable. Refresh history to retry.'), 'history failure');
+      assert.equal(await textIncludes('No payment records found'), false);
+      paymentFailure = false;
+      await evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.innerText === 'Refresh payments').click()`);
       await until(() => evaluate('document.querySelector(".purchase-form select")?.options.length === 50'), 'first payable purchase page');
+      await until(() => textIncludes('No payment records found'), 'successful empty history');
+      assert.equal(await textIncludes('backend service is unavailable'), false, 'retry clears both independent load errors');
       await evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.innerText === 'Next purchases').click()`);
       await until(() => evaluate('document.querySelector(".purchase-form select")?.options.length === 2'), 'next payable purchase page');
+    }
+    if (label === 'Walk-ins') {
+      await until(() => textIncludes('Access was denied'), 'Owner walk-in authorization feedback');
+      assert.equal(await textIncludes('No requests on this page.'), false);
+      walkinFailure = false;
+      await evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.innerText === 'Refresh requests').click()`);
+      await until(() => textIncludes('No requests on this page.'), 'successful empty walk-in history');
+      assert.equal(await textIncludes('Access was denied'), false);
     }
   }
   await evaluate(`(() => { const el=document.querySelector('input[type=url]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,'https://gym.example.test'); el.dispatchEvent(new Event('input',{bubbles:true})); })()`);
@@ -156,7 +218,7 @@ try {
   }
   assert.equal(errors.length, 0, errors.join('; '));
   assert.equal(externalAttempts, 0, 'All app network must remain on the synthetic loopback origin');
-  console.log('PASS: mobile entrance/Owner modules without overflow, PIN clearing, provisional walk-in, setup fragment removal, signed-out screen, synthetic Owner navigation, exact local QR preview and no external app requests. Synthetic API/Auth fixtures only; no Auth/RLS certification.');
+  console.log('PASS: mobile entrance/all Owner navigation without overflow, failed-list recovery and empty-state distinctions, public unavailability/retry, payable pagination, PIN clearing, provisional walk-in, setup fragment removal, signed-out screen, exact local QR preview and no external app requests. Synthetic API/Auth fixtures only; no Auth/RLS certification.');
   console.log(`Synthetic screenshot retained in .cache/${run.split(/[\\/]/).at(-1)}/entrance-mobile.png`);
 } finally {
   if (socket?.readyState === WebSocket.OPEN) { try { await cdp('Browser.close'); } catch { /* closing terminates its socket */ } socket.close(); }

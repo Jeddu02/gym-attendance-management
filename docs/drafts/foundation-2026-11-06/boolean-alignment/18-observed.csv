@@ -1,0 +1,15 @@
+﻿category,object_name,identity_exists,approved_text_cast_matches
+column,private.attendance_checkins.attendance_status,t,t
+column,private.cash_drawer_sessions.session_status,t,t
+column,private.members.status,t,t
+column,private.membership_purchases.purchase_status,t,t
+column,private.payment_corrections.correction_status,t,t
+column,private.payment_records.verification_status,t,t
+column,private.walkin_fee_versions.currency,t,t
+column,private.walkin_requests.currency,t,t
+column,private.walkin_requests.request_status,t,t
+routine,api.append_audit_event,t,t
+routine,api.owner_list_members,t,t
+routine,api.owner_list_membership_payments,t,t
+routine,api.owner_list_membership_purchases,t,t
+routine,api.owner_record_membership_payment,t,t

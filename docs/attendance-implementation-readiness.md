@@ -1,5 +1,13 @@
 # GYMFORCE Attendance Implementation Readiness
 
+**Current checkpoint (2026-11-06):** See
+[development-checkpoint-2026-11-06.md](development-checkpoint-2026-11-06.md)
+for fresh build/unit-test results, Docker-free PostgreSQL preservation evidence,
+unresolved ownership/security findings, deployment gates, and the next-phase
+implementation plan. Attendance remains unimplemented and is not approved for
+release. The source audit below is the historical 2026-11-04 snapshot; its
+deployment and tooling observations must not be treated as current results.
+
 **Audit date:** 2026-11-04
 **Scope:** Source/configuration review and security contract design only. No
 database connection, migration, function deployment, credential use, or live
@@ -244,15 +252,15 @@ Repository timestamp order (not an applied/deployed status):
   version 17, Edge Runtime Deno 2, migrations enabled, and no enabled seed
   file. This is local configuration only.
 
-**Synthetic tests were not run.** The immediate prerequisite is a running
-Docker Engine. Start/enable Docker Desktop and verify `docker info` succeeds.
-Then invoke the already-installed project CLI in a normal developer terminal
-where its `.supabase` telemetry/config directory is writable. Keep all CLI use
-local and unlinked. Use a unique disposable project/config and synthetic seed
-records. A native PostgreSQL
-client is optional if SQL assertions run through the local Supabase database
-container; install no extra tools unless a test specifically requires them.
-Do not link this workspace to a hosted project.
+**Superseded by the Docker-free checkpoint:** Docker is prohibited. The existing
+PostgreSQL 18 cluster at `%LOCALAPPDATA%\GYMFORCE-PG18-TEST\data` is the only
+approved native test target, on `127.0.0.1:55432`, database
+`gymforce_pg18_test`. Its 24 migrations previously completed. Do not initialize,
+reset, recreate, reapply migrations, or run `cleanup.sql` during preservation
+checks. The 2026-11-06 checkpoint records fresh preflight and read-only
+preservation results, plus 38 passing Deno unit tests. Native PostgreSQL testing
+does not validate Supabase Auth, HTTP ingress, Edge Runtime, or PostgreSQL 17
+compatibility. Keep hosted verification Owner-controlled and separately approved.
 
 ### Current Free-plan constraints (checked 2026-11-04)
 

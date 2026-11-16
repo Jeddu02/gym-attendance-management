@@ -1,0 +1,14 @@
+﻿category,schema_name,table_name,object_name,enabled
+trigger,private,audit_events,audit_events_chain_insert_trigger,O
+trigger,private,audit_events,audit_events_no_truncate,O
+trigger,private,audit_events,audit_events_no_update_delete,O
+trigger,private,membership_purchases,membership_purchase_requires_confirmed_payment,O
+trigger,private,payment_allocations,payment_allocations_no_truncate,O
+trigger,private,payment_allocations,payment_allocations_no_update_delete,O
+trigger,private,payment_allocations,payment_allocations_validate_membership,O
+trigger,private,payment_events,payment_events_no_truncate,O
+trigger,private,payment_events,payment_events_no_update_delete,O
+trigger,private,payment_records,payment_records_guard_update,O
+trigger,private,payment_records,payment_records_no_delete,O
+trigger,private,payment_records,payment_records_no_truncate,O
+trigger,private,payment_records,payment_records_validate_membership_insert,O

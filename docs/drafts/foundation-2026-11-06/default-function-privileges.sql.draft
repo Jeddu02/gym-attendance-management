@@ -1,0 +1,56 @@
+-- NON-EXECUTABLE PROPOSAL ONLY. Separate local approval required.
+-- Current-database defaults for five creators; no cluster-wide role changes.
+-- Do not pass to psql. A future client must independently enforce ON_ERROR_STOP=1.
+BEGIN;
+DO $draft_only$
+BEGIN
+    RAISE EXCEPTION 'DRAFT ONLY: default function privilege proposal is not approved for execution';
+END;
+$draft_only$;
+SET LOCAL search_path=pg_catalog;
+SET LOCAL lock_timeout='5s';
+SET LOCAL statement_timeout='30s';
+DO $default_preconditions$
+DECLARE creator text; creator_oid oid;
+BEGIN
+ IF current_database()<>'gymforce_pg18_test' OR inet_server_addr() IS DISTINCT FROM '127.0.0.1'::inet
+  OR inet_server_port()<>55432 OR current_user<>'postgres' OR session_user<>'postgres'
+  OR NOT (SELECT rolsuper FROM pg_roles WHERE rolname=current_user)
+  OR current_setting('gymforce.test_cluster_marker',true) IS DISTINCT FROM 'f497fabb-a12f-4068-b745-8b0729279276'
+  OR (pg_control_system()).system_identifier::text IS DISTINCT FROM '7704603813616068820'
+  OR lower(rtrim(replace(current_setting('data_directory'),E'\\','/'),'/')) IS DISTINCT FROM 'c:/users/banco-sual/appdata/local/gymforce-pg18-test/data'
+ THEN RAISE EXCEPTION 'Native approved identity mismatch'; END IF;
+ FOREACH creator IN ARRAY ARRAY['postgres','gym_data_owner','gym_owner_executor','gym_public_executor','gym_registration_login'] LOOP
+  SELECT oid INTO creator_oid FROM pg_roles WHERE rolname=creator;
+  IF creator_oid IS NULL THEN RAISE EXCEPTION 'Missing reviewed creator'; END IF;
+  IF creator<>'postgres' AND NOT EXISTS (SELECT 1 FROM pg_roles WHERE oid=creator_oid
+    AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolinherit AND NOT rolreplication
+    AND NOT rolbypassrls AND rolcanlogin=(creator='gym_registration_login')) THEN RAISE EXCEPTION 'Creator role attribute drift'; END IF;
+  IF creator<>'postgres' AND EXISTS (SELECT 1 FROM pg_auth_members WHERE member=creator_oid OR roleid=creator_oid)
+    THEN RAISE EXCEPTION 'Reserved membership drift'; END IF;
+  IF EXISTS (SELECT 1 FROM pg_default_acl WHERE defaclrole=creator_oid AND defaclobjtype IN ('f','T'))
+    THEN RAISE EXCEPTION 'Observed implicit function/type default baseline drifted; stop for review'; END IF;
+ END LOOP;
+END;
+$default_preconditions$;
+-- No IN SCHEMA: per-schema revocation cannot remove global built-in EXECUTE.
+-- These affect future functions/procedures only, in this database, by each creator.
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE gym_data_owner REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE gym_owner_executor REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE gym_public_executor REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE gym_registration_login REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+DO $default_postconditions$
+DECLARE creator text; creator_oid oid;
+BEGIN
+ FOREACH creator IN ARRAY ARRAY['postgres','gym_data_owner','gym_owner_executor','gym_public_executor','gym_registration_login'] LOOP
+  SELECT oid INTO creator_oid FROM pg_roles WHERE rolname=creator;
+  IF EXISTS (SELECT 1 FROM aclexplode(COALESCE((SELECT defaclacl FROM pg_default_acl
+     WHERE defaclrole=creator_oid AND defaclnamespace=0 AND defaclobjtype='f'),acldefault('f',creator_oid))) a
+     WHERE a.grantee<>creator_oid) THEN RAISE EXCEPTION 'Function default hardening did not establish owner-only defaults'; END IF;
+  IF EXISTS (SELECT 1 FROM pg_default_acl WHERE defaclrole=creator_oid AND
+    (defaclobjtype='T' OR (defaclobjtype='f' AND defaclnamespace<>0))) THEN RAISE EXCEPTION 'Type or schema-specific defaults changed unexpectedly'; END IF;
+ END LOOP;
+END;
+$default_postconditions$;
+COMMIT;

@@ -13,7 +13,7 @@ port = 54321
 # Owner-approved 2026-11-10 boundary: api contains RPCs only. Migration grants
 # deny browser execution and direct application data access, including service.
 # This local setting does not change hosted project configuration.
-schemas = ["public", "graphql_public", "api"]
+schemas = ["api"]
 # Extra schemas to add to the search_path of every request.
 extra_search_path = ["public", "extensions"]
 # The maximum number of rows returns from a view, table, or stored procedure. Limits payload size

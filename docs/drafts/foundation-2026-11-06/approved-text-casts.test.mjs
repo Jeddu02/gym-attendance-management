@@ -1,0 +1,11 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {typedTextDefault as align,typedRoutineDefaults} from './approved-text-casts.mjs';
+test('text literal gets explicit target-type cast',()=>assert.equal(align("'PHP'",'text'),"'PHP' :: text"));
+test('typed NULL default gets explicit text cast',()=>assert.equal(align('null','text'),'null :: text'));
+test('absent default is not a NULL expression',()=>assert.equal(align(null,'text'),null));
+test('non-text expression is untouched',()=>assert.equal(align("'PHP'",'jsonb'),"'PHP'"));
+test('existing casts and operators are not erased',()=>assert.equal(align("'PHP' :: text || 'X'",'text'),"'PHP' :: text || 'X'"));
+test('literal case and contents stay intact',()=>assert.equal(align("'Can''t'",'text'),"'Can''t' :: text"));
+test('routine defaults align only last typed arguments',()=>assert.equal(typedRoutineDefaults({default_count:2,input_types:['uuid','text','jsonb'],argument_defaults:"null , '{}' :: jsonb"}),"null :: text , '{}' :: jsonb"));
+test('wrong default counts refuse',()=>assert.throws(()=>typedRoutineDefaults({default_count:2,input_types:['text','text'],argument_defaults:'null'}),/DEFAULT_COUNT_MISMATCH/));

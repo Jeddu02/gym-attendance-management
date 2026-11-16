@@ -1,0 +1,13 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {classifyDefaultObservation as classify} from './default-privilege-classification.mjs';
+const builtin={kind:'T',explicit_global_entry:'f',schema_entry_count:'0',equals_builtin_acl:'t',public_builtin_privilege:'t',explicit_browser_grant:'f',other_or_escalated_grant:'f'};
+test('exact implicit type usage is accepted without changing ACLs',()=>assert.equal(classify(builtin),'acceptable_implicit_public_type_usage'));
+test('implicit function EXECUTE still requires hardening',()=>assert.equal(classify({...builtin,kind:'f'}),'future_function_execution_hardening_required'));
+test('explicit PUBLIC type usage is not the implicit exception',()=>assert.equal(classify({...builtin,explicit_global_entry:'t'}),'requires_explicit_privilege_review'));
+test('explicit browser grant refuses',()=>assert.equal(classify({...builtin,explicit_browser_grant:'t'}),'requires_explicit_privilege_review'));
+test('grant option or any other grant refuses',()=>assert.equal(classify({...builtin,other_or_escalated_grant:'t'}),'requires_explicit_privilege_review'));
+test('schema additions cannot hide behind global builtin defaults',()=>assert.equal(classify({...builtin,schema_entry_count:'1'}),'requires_explicit_privilege_review'));
+test('non-builtin PUBLIC type grant refuses',()=>assert.equal(classify({...builtin,equals_builtin_acl:'f'}),'requires_explicit_privilege_review'));
+test('owner-only future function defaults accepted',()=>assert.equal(classify({...builtin,kind:'f',explicit_global_entry:'t',equals_builtin_acl:'f',public_builtin_privilege:'f'}),'owner_only_non_owner_defaults_absent'));
+test('missing/invalid flags fail closed',()=>assert.throws(()=>classify({...builtin,explicit_browser_grant:''}),/INVALID_DEFAULT_OBSERVATION/));

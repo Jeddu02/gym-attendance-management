@@ -1,0 +1,25 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {spawnSync} from 'node:child_process';
+import {createRequire} from 'node:module';
+import path from 'node:path';
+import {root,canonical} from './source-contract.mjs';
+import {checkCandidate,indexCandidate,renderExpression} from './deparser-candidates.mjs';
+const require=createRequire(import.meta.url),p=require(path.join(root,'.cache/foundation-parser/node_modules/pg18'));await p.loadModule();
+const cols={status:'text',amount:'numeric ( 12 , 2 )',reason:'text',a:'boolean',b:'boolean',c:'boolean'};
+test('IN preserves each text constant and gains typed ANY array',()=>assert.equal(checkCandidate(p.parseSync,"check ( status in ( 'open' , 'closed' ) )",cols),canonical("CHECK ((status = ANY (ARRAY['open'::text, 'closed'::text])))")));
+test('numeric comparison casts integer constant only for numeric column',()=>assert.equal(checkCandidate(p.parseSync,'check ( amount > 0 )',cols),canonical('CHECK ((amount > (0)::numeric))')));
+test('TRIM follows PostgreSQL grammar alias; functions not erased',()=>assert.equal(checkCandidate(p.parseSync,'check ( length ( trim ( reason ) ) > 0 )',cols),canonical('CHECK ((length(TRIM(BOTH FROM reason)) > 0))')));
+test('boolean grouping changes remain distinct',()=>assert.notEqual(checkCandidate(p.parseSync,'check ( ( a or b ) and c )',cols),checkCandidate(p.parseSync,'check ( a or ( b and c ) )',cols)));
+test('operator and literals remain distinct',()=>{assert.notEqual(checkCandidate(p.parseSync,'check ( amount > 0 )',cols),checkCandidate(p.parseSync,'check ( amount >= 0 )',cols));assert.notEqual(checkCandidate(p.parseSync,"check ( status = 'open' )",cols),checkCandidate(p.parseSync,"check ( status = 'closed' )",cols));});
+test('unknown AST and non-text IN fail closed',()=>{assert.throws(()=>renderExpression({Dangerous:{}},cols));assert.throws(()=>checkCandidate(p.parseSync,"check ( amount in ( '0' , '1' ) )",cols));});
+test('unknown function schema/options fail closed',()=>{assert.throws(()=>checkCandidate(p.parseSync,'check ( attacker.length ( reason ) > 0 )',cols));assert.throws(()=>checkCandidate(p.parseSync,'check ( length ( distinct reason ) > 0 )',cols));});
+test('index expression qualification and parenthesized simple key',()=>assert.equal(indexCandidate(p.parseSync,"create index x on private.t using btree ((status)) where status='open'",cols),canonical("CREATE INDEX x ON private.t USING btree (status) WHERE (status='open'::text)")));
+test('explicit index collation/opclass and changed null semantics refused',()=>{for(const sql of ['create index x on private.t using btree (status collate "C")','create index x on private.t using btree (status text_pattern_ops)','create unique index x on private.t using btree (status) nulls not distinct'])assert.throws(()=>indexCandidate(p.parseSync,sql,cols));});
+const expected=[{table_name:'private.t',object_name:'c'}],flags=['identity_exists','structural_flags_match','approved_candidate_matches'],valid={...expected[0],identity_exists:'t',structural_flags_match:'t',approved_candidate_matches:'t'};
+const cases=[['missing definition',[]],['duplicate definition',[valid,valid]],['wrong object',[{...valid,object_name:'other'}]],...flags.map(f=>['false '+f,[{...valid,[f]:'f'}]])];
+for(const [name,rows] of [['positive',[valid]],...cases])test('native evidence exit: '+name,()=>{
+ const code="import {verifyRows} from './docs/drafts/foundation-2026-11-06/review-semantic-alignment.mjs';try{const x=JSON.parse(process.argv[1]);verifyRows(x.rows,x.expected,['table_name','object_name'],x.flags);}catch{process.exitCode=2;}";
+ const child=spawnSync(process.execPath,['--input-type=module','-e',code,JSON.stringify({rows,expected,flags})],{cwd:root,encoding:'utf8'});
+ assert.equal(child.status,name==='positive'?0:2,child.stderr);
+});

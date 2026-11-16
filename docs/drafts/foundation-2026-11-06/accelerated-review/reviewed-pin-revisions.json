@@ -1,0 +1,8 @@
+[
+  {
+    "file": "parse-drafts-offline.mjs",
+    "before": "7924c4e3efd99a794e6d907c8234bd6c55144a380f904fb695f6f5e8ea463f60",
+    "after": "8483caea370cc1b8e161155e24b486c66fb606da3fe0b21b132b4c153a2f1fa9",
+    "reason": "Authorized draft parser correction; new results written separately; historical observations unchanged"
+  }
+]

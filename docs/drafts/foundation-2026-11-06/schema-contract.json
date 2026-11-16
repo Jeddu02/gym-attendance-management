@@ -1,0 +1,3886 @@
+{
+  "format": 1,
+  "origin": "Pinned migration source; strict lexical definitions, NOT a server catalog export",
+  "native_exposed_routines": [],
+  "hosted": {
+    "supported": false,
+    "reason": "Provider metadata/version/ACL inventory not approved",
+    "documented_candidate": "graphql_public.graphql(text,text,jsonb,jsonb); pg_graphql-owned SECURITY INVOKER; NOT an allowed exception"
+  },
+  "creators": [
+    "postgres",
+    "gym_data_owner",
+    "gym_owner_executor",
+    "gym_public_executor",
+    "gym_registration_login"
+  ],
+  "default_privileges": {
+    "scopes": [
+      "global",
+      "private",
+      "api",
+      "public",
+      "graphql_public"
+    ],
+    "kinds": [
+      "r",
+      "S",
+      "f",
+      "T"
+    ],
+    "non_owner_grants": [],
+    "implicit_public_type_usage": "allow_only_unmodified_builtin_without_explicit_global_entry"
+  },
+  "tables": [
+    {
+      "name": "private.attendance_checkins",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "not_null": true,
+          "default": "gen_random_uuid ( )",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "member_id",
+          "type": "uuid",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "walkin_request_id",
+          "type": "uuid",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "gym_local_date",
+          "type": "date",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "checked_in_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now ( )",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "attendance_status",
+          "type": "text",
+          "not_null": true,
+          "default": "'valid'",
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "attendance_checkins_pkey",
+          "kind": "p",
+          "definition": "primary key ( id )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "attendance_checkins_member_id_fkey",
+          "kind": "f",
+          "definition": "foreign key ( member_id ) references private . members ( id ) on delete restrict",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "attendance_checkins_walkin_request_id_fkey",
+          "kind": "f",
+          "definition": "foreign key ( walkin_request_id ) references private . walkin_requests ( id ) on delete restrict",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "attendance_exactly_one_subject",
+          "kind": "c",
+          "definition": "check ( ( member_id is not null ) <> ( walkin_request_id is not null ) )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "attendance_status_valid",
+          "kind": "c",
+          "definition": "check ( attendance_status in ( 'valid' , 'invalidated_payment' , 'invalidated_correction' , 'review' ) )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        }
+      ]
+    },
+    {
+      "name": "private.attendance_validity_resolutions",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "not_null": true,
+          "default": "gen_random_uuid ( )",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "attendance_id",
+          "type": "uuid",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "prior_status",
+          "type": "text",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "new_status",
+          "type": "text",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "reason",
+          "type": "text",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "resolved_by",
+          "type": "uuid",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "resolved_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now ( )",
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "attendance_validity_resolutions_pkey",
+          "kind": "p",
+          "definition": "primary key ( id )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "attendance_validity_resolutions_attendance_id_fkey",
+          "kind": "f",
+          "definition": "foreign key ( attendance_id ) references private . attendance_checkins ( id ) on delete restrict",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "attendance_validity_resolutions_resolved_by_fkey",
+          "kind": "f",
+          "definition": "foreign key ( resolved_by ) references auth . users ( id ) on delete restrict",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "attendance_resolution_reason_not_blank",
+          "kind": "c",
+          "definition": "check ( length ( trim ( reason ) ) > 0 )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "attendance_resolution_status_valid",
+          "kind": "c",
+          "definition": "check ( prior_status in ( 'valid' , 'invalidated_payment' , 'invalidated_correction' , 'review' ) and new_status in ( 'valid' , 'invalidated_payment' , 'invalidated_correction' , 'review' ) )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        }
+      ]
+    },
+    {
+      "name": "private.audit_chain_heads",
+      "columns": [
+        {
+          "name": "stream_key",
+          "type": "text",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "last_event_id",
+          "type": "bigint",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "last_event_hash",
+          "type": "text",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now ( )",
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "audit_chain_heads_pkey",
+          "kind": "p",
+          "definition": "primary key ( stream_key )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "audit_chain_stream_not_blank",
+          "kind": "c",
+          "definition": "check ( length ( trim ( stream_key ) ) > 0 )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "audit_chain_head_consistent",
+          "kind": "c",
+          "definition": "check ( ( last_event_id is null and last_event_hash is null ) or ( last_event_id is not null and last_event_hash is not null ) )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        }
+      ]
+    },
+    {
+      "name": "private.audit_events",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "not_null": true,
+          "default": null,
+          "identity": "a",
+          "generated": ""
+        },
+        {
+          "name": "actor_user_id",
+          "type": "uuid",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "event_type",
+          "type": "text",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "subject_type",
+          "type": "text",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "subject_id",
+          "type": "text",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "details",
+          "type": "jsonb",
+          "not_null": true,
+          "default": "'{}' :: jsonb",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now ( )",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "stream_key",
+          "type": "text",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "previous_event_hash",
+          "type": "text",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "event_hash",
+          "type": "text",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "audit_events_pkey",
+          "kind": "p",
+          "definition": "primary key ( id )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "audit_events_actor_user_id_fkey",
+          "kind": "f",
+          "definition": "foreign key ( actor_user_id ) references auth . users ( id ) on delete restrict",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "audit_event_type_not_blank",
+          "kind": "c",
+          "definition": "check ( length ( trim ( event_type ) ) > 0 )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "audit_subject_type_not_blank",
+          "kind": "c",
+          "definition": "check ( length ( trim ( subject_type ) ) > 0 )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        }
+      ]
+    },
+    {
+      "name": "private.cash_drawer_sessions",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "not_null": true,
+          "default": "gen_random_uuid ( )",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "opened_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now ( )",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "opened_by",
+          "type": "uuid",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "opening_float_php",
+          "type": "numeric ( 12 , 2 )",
+          "not_null": true,
+          "default": "0",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "session_status",
+          "type": "text",
+          "not_null": true,
+          "default": "'open'",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "closed_at",
+          "type": "timestamp with time zone",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "closed_by",
+          "type": "uuid",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "cash_drawer_sessions_pkey",
+          "kind": "p",
+          "definition": "primary key ( id )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "cash_drawer_sessions_opened_by_fkey",
+          "kind": "f",
+          "definition": "foreign key ( opened_by ) references auth . users ( id ) on delete restrict",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "cash_drawer_sessions_closed_by_fkey",
+          "kind": "f",
+          "definition": "foreign key ( closed_by ) references auth . users ( id ) on delete restrict",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "cash_opening_float_nonnegative",
+          "kind": "c",
+          "definition": "check ( opening_float_php >= 0 )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "cash_drawer_status_valid",
+          "kind": "c",
+          "definition": "check ( session_status in ( 'open' , 'closed' ) )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "cash_drawer_close_consistent",
+          "kind": "c",
+          "definition": "check ( ( session_status = 'open' and closed_at is null and closed_by is null ) or ( session_status = 'closed' and closed_at is not null and closed_by is not null ) )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        }
+      ]
+    },
+    {
+      "name": "private.cash_reconciliation_adjustments",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "not_null": true,
+          "default": "gen_random_uuid ( )",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "reconciliation_id",
+          "type": "uuid",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "amount_delta_php",
+          "type": "numeric ( 12 , 2 )",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "reason",
+          "type": "text",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "evidence_reference",
+          "type": "text",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "recorded_by",
+          "type": "uuid",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now ( )",
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "cash_reconciliation_adjustments_pkey",
+          "kind": "p",
+          "definition": "primary key ( id )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "cash_reconciliation_adjustments_reconciliation_id_fkey",
+          "kind": "f",
+          "definition": "foreign key ( reconciliation_id ) references private . cash_reconciliations ( id ) on delete restrict",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "cash_reconciliation_adjustments_recorded_by_fkey",
+          "kind": "f",
+          "definition": "foreign key ( recorded_by ) references auth . users ( id ) on delete restrict",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "cash_adjustment_nonzero",
+          "kind": "c",
+          "definition": "check ( amount_delta_php <> 0 )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "cash_adjustment_reason_not_blank",
+          "kind": "c",
+          "definition": "check ( length ( trim ( reason ) ) > 0 )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        }
+      ]
+    },
+    {
+      "name": "private.cash_reconciliations",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "not_null": true,
+          "default": "gen_random_uuid ( )",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "drawer_session_id",
+          "type": "uuid",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "expected_cash_php",
+          "type": "numeric ( 12 , 2 )",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "counted_cash_php",
+          "type": "numeric ( 12 , 2 )",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "variance_php",
+          "type": "numeric ( 12 , 2 )",
+          "not_null": false,
+          "default": "( counted_cash_php - expected_cash_php )",
+          "identity": "",
+          "generated": "s"
+        },
+        {
+          "name": "reconciled_by",
+          "type": "uuid",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "reconciled_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now ( )",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "cash_reconciliations_pkey",
+          "kind": "p",
+          "definition": "primary key ( id )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "cash_reconciliations_drawer_session_id_key",
+          "kind": "u",
+          "definition": "unique ( drawer_session_id )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "cash_reconciliations_drawer_session_id_fkey",
+          "kind": "f",
+          "definition": "foreign key ( drawer_session_id ) references private . cash_drawer_sessions ( id ) on delete restrict",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "cash_reconciliations_reconciled_by_fkey",
+          "kind": "f",
+          "definition": "foreign key ( reconciled_by ) references auth . users ( id ) on delete restrict",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "reconciliation_expected_cash_nonnegative",
+          "kind": "c",
+          "definition": "check ( expected_cash_php >= 0 )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "reconciliation_counted_cash_nonnegative",
+          "kind": "c",
+          "definition": "check ( counted_cash_php >= 0 )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        }
+      ]
+    },
+    {
+      "name": "private.member_pin_credentials",
+      "columns": [
+        {
+          "name": "member_id",
+          "type": "uuid",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "password_hash",
+          "type": "text",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "credential_version",
+          "type": "integer",
+          "not_null": true,
+          "default": "1",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now ( )",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now ( )",
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "member_pin_credentials_pkey",
+          "kind": "p",
+          "definition": "primary key ( member_id )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "member_pin_credentials_member_id_fkey",
+          "kind": "f",
+          "definition": "foreign key ( member_id ) references private . members ( id ) on delete restrict",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "member_pin_hash_not_blank",
+          "kind": "c",
+          "definition": "check ( length ( trim ( password_hash ) ) > 0 )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "member_pin_version_positive",
+          "kind": "c",
+          "definition": "check ( credential_version > 0 )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        }
+      ]
+    },
+    {
+      "name": "private.member_pin_setup_tokens",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "not_null": true,
+          "default": "gen_random_uuid ( )",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "member_id",
+          "type": "uuid",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "token_hash",
+          "type": "text",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "token_purpose",
+          "type": "text",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "consumed_at",
+          "type": "timestamp with time zone",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now ( )",
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "member_pin_setup_tokens_pkey",
+          "kind": "p",
+          "definition": "primary key ( id )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "member_pin_setup_tokens_member_id_fkey",
+          "kind": "f",
+          "definition": "foreign key ( member_id ) references private . members ( id ) on delete restrict",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "member_pin_setup_tokens_token_hash_key",
+          "kind": "u",
+          "definition": "unique ( token_hash )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "pin_token_hash_not_blank",
+          "kind": "c",
+          "definition": "check ( length ( trim ( token_hash ) ) > 0 )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "pin_token_purpose_valid",
+          "kind": "c",
+          "definition": "check ( token_purpose in ( 'enrollment' , 'reset' ) )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "pin_token_expiry_after_creation",
+          "kind": "c",
+          "definition": "check ( expires_at > created_at )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        }
+      ]
+    },
+    {
+      "name": "private.members",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "not_null": true,
+          "default": "gen_random_uuid ( )",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "member_code",
+          "type": "text",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "full_name",
+          "type": "text",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "mobile_lookup_hash",
+          "type": "bytea",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "mobile_encrypted",
+          "type": "bytea",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "status",
+          "type": "text",
+          "not_null": true,
+          "default": "'pending'",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now ( )",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now ( )",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "approved_at",
+          "type": "timestamp with time zone",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "members_pkey",
+          "kind": "p",
+          "definition": "primary key ( id )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "members_member_code_key",
+          "kind": "u",
+          "definition": "unique ( member_code )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "members_mobile_lookup_hash_key",
+          "kind": "u",
+          "definition": "unique ( mobile_lookup_hash )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "members_code_not_blank",
+          "kind": "c",
+          "definition": "check ( length ( trim ( member_code ) ) > 0 )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "members_name_not_blank",
+          "kind": "c",
+          "definition": "check ( length ( trim ( full_name ) ) > 0 )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "members_mobile_lookup_hash_not_empty",
+          "kind": "c",
+          "definition": "check ( octet_length ( mobile_lookup_hash ) > 0 )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "members_mobile_encrypted_not_empty",
+          "kind": "c",
+          "definition": "check ( octet_length ( mobile_encrypted ) > 0 )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "members_status_valid",
+          "kind": "c",
+          "definition": "check ( status in ( 'pending' , 'active' , 'suspended' ) )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        }
+      ]
+    },
+    {
+      "name": "private.membership_plans",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "not_null": true,
+          "default": "gen_random_uuid ( )",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "price_php",
+          "type": "numeric ( 12 , 2 )",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "is_active",
+          "type": "boolean",
+          "not_null": true,
+          "default": "true",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now ( )",
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "membership_plans_pkey",
+          "kind": "p",
+          "definition": "primary key ( id )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "membership_plan_name_not_blank",
+          "kind": "c",
+          "definition": "check ( length ( trim ( name ) ) > 0 )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "membership_plan_price_positive",
+          "kind": "c",
+          "definition": "check ( price_php > 0 )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        }
+      ]
+    },
+    {
+      "name": "private.membership_purchases",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "not_null": true,
+          "default": "gen_random_uuid ( )",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "member_id",
+          "type": "uuid",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "plan_id",
+          "type": "uuid",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "price_php",
+          "type": "numeric ( 12 , 2 )",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "purchase_status",
+          "type": "text",
+          "not_null": true,
+          "default": "'pending_payment'",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "activation_date",
+          "type": "date",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "expiry_date",
+          "type": "date",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now ( )",
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "membership_purchases_pkey",
+          "kind": "p",
+          "definition": "primary key ( id )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "membership_purchases_member_id_fkey",
+          "kind": "f",
+          "definition": "foreign key ( member_id ) references private . members ( id ) on delete restrict",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "membership_purchases_plan_id_fkey",
+          "kind": "f",
+          "definition": "foreign key ( plan_id ) references private . membership_plans ( id ) on delete restrict",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "membership_purchase_price_positive",
+          "kind": "c",
+          "definition": "check ( price_php > 0 )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "membership_purchase_status_valid",
+          "kind": "c",
+          "definition": "check ( purchase_status in ( 'pending_payment' , 'pending_activation' , 'active' , 'expired' , 'payment_review' ) )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "membership_purchase_dates_consistent",
+          "kind": "c",
+          "definition": "check ( ( activation_date is null and expiry_date is null ) or ( activation_date is not null and expiry_date is not null and expiry_date >= activation_date ) )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "membership_purchases_no_overlapping_periods",
+          "kind": "x",
+          "definition": "exclude using gist ( member_id extensions . gist_uuid_ops with = , daterange ( activation_date , expiry_date , '[]' ) with && ) where ( activation_date is not null and expiry_date is not null )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        }
+      ]
+    },
+    {
+      "name": "private.owner_access",
+      "columns": [
+        {
+          "name": "user_id",
+          "type": "uuid",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "is_active",
+          "type": "boolean",
+          "not_null": true,
+          "default": "false",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now ( )",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "deactivated_at",
+          "type": "timestamp with time zone",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "owner_access_pkey",
+          "kind": "p",
+          "definition": "primary key ( user_id )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "owner_access_user_id_fkey",
+          "kind": "f",
+          "definition": "foreign key ( user_id ) references auth . users ( id ) on delete restrict",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "owner_access_deactivation_consistent",
+          "kind": "c",
+          "definition": "check ( ( is_active and deactivated_at is null ) or ( not is_active ) )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        }
+      ]
+    },
+    {
+      "name": "private.payment_allocations",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "not_null": true,
+          "default": "gen_random_uuid ( )",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "payment_id",
+          "type": "uuid",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "membership_purchase_id",
+          "type": "uuid",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "walkin_request_id",
+          "type": "uuid",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "allocated_by",
+          "type": "uuid",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "allocated_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now ( )",
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "payment_allocations_pkey",
+          "kind": "p",
+          "definition": "primary key ( id )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "payment_allocations_payment_id_key",
+          "kind": "u",
+          "definition": "unique ( payment_id )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "payment_allocations_payment_id_fkey",
+          "kind": "f",
+          "definition": "foreign key ( payment_id ) references private . payment_records ( id ) on delete restrict",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "payment_allocations_membership_purchase_id_fkey",
+          "kind": "f",
+          "definition": "foreign key ( membership_purchase_id ) references private . membership_purchases ( id ) on delete restrict",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "payment_allocations_allocated_by_fkey",
+          "kind": "f",
+          "definition": "foreign key ( allocated_by ) references auth . users ( id ) on delete restrict",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "payment_allocation_exactly_one_target",
+          "kind": "c",
+          "definition": "check ( ( membership_purchase_id is not null ) <> ( walkin_request_id is not null ) )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "payment_allocations_walkin_request_fk",
+          "kind": "f",
+          "definition": "foreign key ( walkin_request_id ) references private . walkin_requests ( id ) on delete restrict",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        }
+      ]
+    },
+    {
+      "name": "private.payment_corrections",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "not_null": true,
+          "default": "gen_random_uuid ( )",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "payment_id",
+          "type": "uuid",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "proposed_amount_php",
+          "type": "numeric ( 12 , 2 )",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "proposed_payment_method",
+          "type": "text",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "reason",
+          "type": "text",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "evidence_reference",
+          "type": "text",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "correction_status",
+          "type": "text",
+          "not_null": true,
+          "default": "'proposed'",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "proposed_by",
+          "type": "uuid",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "proposed_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now ( )",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "decided_by",
+          "type": "uuid",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "decided_at",
+          "type": "timestamp with time zone",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "decision_reason",
+          "type": "text",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "payment_corrections_pkey",
+          "kind": "p",
+          "definition": "primary key ( id )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "payment_corrections_payment_id_fkey",
+          "kind": "f",
+          "definition": "foreign key ( payment_id ) references private . payment_records ( id ) on delete restrict",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "payment_corrections_proposed_by_fkey",
+          "kind": "f",
+          "definition": "foreign key ( proposed_by ) references auth . users ( id ) on delete restrict",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "payment_corrections_decided_by_fkey",
+          "kind": "f",
+          "definition": "foreign key ( decided_by ) references auth . users ( id ) on delete restrict",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "payment_correction_reason_not_blank",
+          "kind": "c",
+          "definition": "check ( length ( trim ( reason ) ) > 0 )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "payment_correction_amount_valid",
+          "kind": "c",
+          "definition": "check ( proposed_amount_php is null or proposed_amount_php > 0 )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "payment_correction_method_valid",
+          "kind": "c",
+          "definition": "check ( proposed_payment_method is null or proposed_payment_method in ( 'cash' , 'gcash' , 'bank_transfer' ) )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "payment_correction_status_valid",
+          "kind": "c",
+          "definition": "check ( correction_status in ( 'proposed' , 'approved' , 'rejected' , 'withdrawn' ) )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        }
+      ]
+    },
+    {
+      "name": "private.payment_events",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "not_null": true,
+          "default": null,
+          "identity": "a",
+          "generated": ""
+        },
+        {
+          "name": "payment_id",
+          "type": "uuid",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "event_type",
+          "type": "text",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "reason",
+          "type": "text",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "actor_user_id",
+          "type": "uuid",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now ( )",
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "payment_events_pkey",
+          "kind": "p",
+          "definition": "primary key ( id )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "payment_events_payment_id_fkey",
+          "kind": "f",
+          "definition": "foreign key ( payment_id ) references private . payment_records ( id ) on delete restrict",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "payment_events_actor_user_id_fkey",
+          "kind": "f",
+          "definition": "foreign key ( actor_user_id ) references auth . users ( id ) on delete restrict",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "payment_event_type_not_blank",
+          "kind": "c",
+          "definition": "check ( length ( trim ( event_type ) ) > 0 )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        }
+      ]
+    },
+    {
+      "name": "private.payment_records",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "not_null": true,
+          "default": "gen_random_uuid ( )",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "amount_php",
+          "type": "numeric ( 12 , 2 )",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "payment_method",
+          "type": "text",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "received_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now ( )",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "verification_status",
+          "type": "text",
+          "not_null": true,
+          "default": "'recorded'",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "external_reference",
+          "type": "text",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "evidence_reference",
+          "type": "text",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "recorded_by",
+          "type": "uuid",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now ( )",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "operation_id",
+          "type": "uuid",
+          "not_null": true,
+          "default": "gen_random_uuid ( )",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "target_membership_purchase_id",
+          "type": "uuid",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "payment_records_pkey",
+          "kind": "p",
+          "definition": "primary key ( id )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "payment_records_recorded_by_fkey",
+          "kind": "f",
+          "definition": "foreign key ( recorded_by ) references auth . users ( id ) on delete restrict",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "payment_amount_positive",
+          "kind": "c",
+          "definition": "check ( amount_php > 0 )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "payment_method_valid",
+          "kind": "c",
+          "definition": "check ( payment_method in ( 'cash' , 'gcash' , 'bank_transfer' ) )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "payment_verification_status_valid",
+          "kind": "c",
+          "definition": "check ( verification_status in ( 'recorded' , 'confirmed' , 'rejected' , 'confirmation_voided_in_error' ) )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "payment_records_target_membership_purchase_id_fkey",
+          "kind": "f",
+          "definition": "foreign key ( target_membership_purchase_id ) references private . membership_purchases ( id ) on delete restrict",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        }
+      ]
+    },
+    {
+      "name": "private.pin_attempt_buckets",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "not_null": true,
+          "default": "gen_random_uuid ( )",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "bucket_type",
+          "type": "text",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "identifier_digest",
+          "type": "text",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "window_started_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "failed_attempts",
+          "type": "integer",
+          "not_null": true,
+          "default": "0",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "blocked_until",
+          "type": "timestamp with time zone",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now ( )",
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "pin_attempt_buckets_pkey",
+          "kind": "p",
+          "definition": "primary key ( id )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "pin_bucket_type_valid",
+          "kind": "c",
+          "definition": "check ( bucket_type in ( 'member_identifier' , 'trusted_network' ) )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "pin_identifier_digest_not_blank",
+          "kind": "c",
+          "definition": "check ( length ( trim ( identifier_digest ) ) > 0 )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "pin_failed_attempts_nonnegative",
+          "kind": "c",
+          "definition": "check ( failed_attempts >= 0 )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "pin_bucket_unique_window",
+          "kind": "u",
+          "definition": "unique ( bucket_type , identifier_digest , window_started_at )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        }
+      ]
+    },
+    {
+      "name": "private.pin_enrollment_global_rate_limit_events",
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "not_null": true,
+          "default": null,
+          "identity": "a",
+          "generated": ""
+        },
+        {
+          "name": "requested_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "clock_timestamp ( )",
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "pin_enrollment_global_rate_limit_events_pkey",
+          "kind": "p",
+          "definition": "primary key ( id )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        }
+      ]
+    },
+    {
+      "name": "private.walkin_fee_versions",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "not_null": true,
+          "default": "gen_random_uuid ( )",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "fee_php",
+          "type": "numeric ( 12 , 2 )",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "currency",
+          "type": "text",
+          "not_null": true,
+          "default": "'PHP'",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "effective_from",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now ( )",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_by",
+          "type": "uuid",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now ( )",
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "walkin_fee_versions_pkey",
+          "kind": "p",
+          "definition": "primary key ( id )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "walkin_fee_versions_created_by_fkey",
+          "kind": "f",
+          "definition": "foreign key ( created_by ) references auth . users ( id ) on delete restrict",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "walkin_fee_positive",
+          "kind": "c",
+          "definition": "check ( fee_php > 0 )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "walkin_fee_currency_php",
+          "kind": "c",
+          "definition": "check ( currency = 'PHP' )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        }
+      ]
+    },
+    {
+      "name": "private.walkin_requests",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "not_null": true,
+          "default": "gen_random_uuid ( )",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "fee_version_id",
+          "type": "uuid",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "fee_php",
+          "type": "numeric ( 12 , 2 )",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "currency",
+          "type": "text",
+          "not_null": true,
+          "default": "'PHP'",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "request_status",
+          "type": "text",
+          "not_null": true,
+          "default": "'pending'",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now ( )",
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "confirmed_by",
+          "type": "uuid",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "confirmed_at",
+          "type": "timestamp with time zone",
+          "not_null": false,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "walkin_requests_pkey",
+          "kind": "p",
+          "definition": "primary key ( id )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "walkin_requests_fee_version_id_fkey",
+          "kind": "f",
+          "definition": "foreign key ( fee_version_id ) references private . walkin_fee_versions ( id ) on delete restrict",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "walkin_requests_confirmed_by_fkey",
+          "kind": "f",
+          "definition": "foreign key ( confirmed_by ) references auth . users ( id ) on delete restrict",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "walkin_request_fee_positive",
+          "kind": "c",
+          "definition": "check ( fee_php > 0 )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "walkin_request_currency_php",
+          "kind": "c",
+          "definition": "check ( currency = 'PHP' )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "walkin_request_expiry_after_creation",
+          "kind": "c",
+          "definition": "check ( expires_at > created_at )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "walkin_request_status_valid",
+          "kind": "c",
+          "definition": "check ( request_status in ( 'pending' , 'confirmed' , 'expired' , 'payment_review' , 'rejected' ) )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "walkin_confirmation_consistent",
+          "kind": "c",
+          "definition": "check ( ( request_status = 'confirmed' and confirmed_by is not null and confirmed_at is not null ) or ( request_status <> 'confirmed' ) )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        }
+      ]
+    },
+    {
+      "name": "public.gym_settings",
+      "columns": [
+        {
+          "name": "setting_key",
+          "type": "text",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "setting_value",
+          "type": "jsonb",
+          "not_null": true,
+          "default": null,
+          "identity": "",
+          "generated": ""
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "not_null": true,
+          "default": "now ( )",
+          "identity": "",
+          "generated": ""
+        }
+      ],
+      "constraints": [
+        {
+          "name": "gym_settings_pkey",
+          "kind": "p",
+          "definition": "primary key ( setting_key )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        },
+        {
+          "name": "gym_settings_key_not_blank",
+          "kind": "c",
+          "definition": "check ( length ( trim ( setting_key ) ) > 0 )",
+          "validated": true,
+          "deferrable": false,
+          "deferred": false
+        }
+      ]
+    }
+  ],
+  "indexes": [
+    {
+      "name": "private.members_status_idx",
+      "parent": "private.members",
+      "unique": false,
+      "definition": "create index members_status_idx on private . members using btree ( status )",
+      "valid": true,
+      "ready": true
+    },
+    {
+      "name": "private.audit_events_created_at_idx",
+      "parent": "private.audit_events",
+      "unique": false,
+      "definition": "create index audit_events_created_at_idx on private . audit_events using btree ( created_at desc )",
+      "valid": true,
+      "ready": true
+    },
+    {
+      "name": "private.audit_events_actor_created_idx",
+      "parent": "private.audit_events",
+      "unique": false,
+      "definition": "create index audit_events_actor_created_idx on private . audit_events using btree ( actor_user_id , created_at desc )",
+      "valid": true,
+      "ready": true
+    },
+    {
+      "name": "private.membership_purchases_member_idx",
+      "parent": "private.membership_purchases",
+      "unique": false,
+      "definition": "create index membership_purchases_member_idx on private . membership_purchases using btree ( member_id , created_at desc )",
+      "valid": true,
+      "ready": true
+    },
+    {
+      "name": "private.membership_purchases_plan_idx",
+      "parent": "private.membership_purchases",
+      "unique": false,
+      "definition": "create index membership_purchases_plan_idx on private . membership_purchases using btree ( plan_id )",
+      "valid": true,
+      "ready": true
+    },
+    {
+      "name": "private.payment_allocations_membership_idx",
+      "parent": "private.payment_allocations",
+      "unique": false,
+      "definition": "create index payment_allocations_membership_idx on private . payment_allocations using btree ( membership_purchase_id ) where membership_purchase_id is not null",
+      "valid": true,
+      "ready": true
+    },
+    {
+      "name": "private.payment_allocations_walkin_idx",
+      "parent": "private.payment_allocations",
+      "unique": false,
+      "definition": "create index payment_allocations_walkin_idx on private . payment_allocations using btree ( walkin_request_id ) where walkin_request_id is not null",
+      "valid": true,
+      "ready": true
+    },
+    {
+      "name": "private.payment_events_payment_created_idx",
+      "parent": "private.payment_events",
+      "unique": false,
+      "definition": "create index payment_events_payment_created_idx on private . payment_events using btree ( payment_id , created_at )",
+      "valid": true,
+      "ready": true
+    },
+    {
+      "name": "private.payment_corrections_payment_idx",
+      "parent": "private.payment_corrections",
+      "unique": false,
+      "definition": "create index payment_corrections_payment_idx on private . payment_corrections using btree ( payment_id , proposed_at desc )",
+      "valid": true,
+      "ready": true
+    },
+    {
+      "name": "private.attendance_one_member_valid_checkin_per_day",
+      "parent": "private.attendance_checkins",
+      "unique": true,
+      "definition": "create unique index attendance_one_member_valid_checkin_per_day on private . attendance_checkins using btree ( member_id , gym_local_date ) where member_id is not null and attendance_status = 'valid'",
+      "valid": true,
+      "ready": true
+    },
+    {
+      "name": "private.attendance_one_checkin_per_walkin",
+      "parent": "private.attendance_checkins",
+      "unique": true,
+      "definition": "create unique index attendance_one_checkin_per_walkin on private . attendance_checkins using btree ( walkin_request_id ) where walkin_request_id is not null",
+      "valid": true,
+      "ready": true
+    },
+    {
+      "name": "private.attendance_date_idx",
+      "parent": "private.attendance_checkins",
+      "unique": false,
+      "definition": "create index attendance_date_idx on private . attendance_checkins using btree ( gym_local_date desc )",
+      "valid": true,
+      "ready": true
+    },
+    {
+      "name": "private.attendance_member_date_idx",
+      "parent": "private.attendance_checkins",
+      "unique": false,
+      "definition": "create index attendance_member_date_idx on private . attendance_checkins using btree ( member_id , gym_local_date desc ) where member_id is not null",
+      "valid": true,
+      "ready": true
+    },
+    {
+      "name": "private.member_pin_setup_tokens_member_idx",
+      "parent": "private.member_pin_setup_tokens",
+      "unique": false,
+      "definition": "create index member_pin_setup_tokens_member_idx on private . member_pin_setup_tokens using btree ( member_id , created_at desc )",
+      "valid": true,
+      "ready": true
+    },
+    {
+      "name": "private.member_pin_setup_tokens_expiry_idx",
+      "parent": "private.member_pin_setup_tokens",
+      "unique": false,
+      "definition": "create index member_pin_setup_tokens_expiry_idx on private . member_pin_setup_tokens using btree ( expires_at ) where consumed_at is null",
+      "valid": true,
+      "ready": true
+    },
+    {
+      "name": "private.pin_attempt_buckets_blocked_idx",
+      "parent": "private.pin_attempt_buckets",
+      "unique": false,
+      "definition": "create index pin_attempt_buckets_blocked_idx on private . pin_attempt_buckets using btree ( blocked_until ) where blocked_until is not null",
+      "valid": true,
+      "ready": true
+    },
+    {
+      "name": "private.cash_drawer_only_one_open_session",
+      "parent": "private.cash_drawer_sessions",
+      "unique": true,
+      "definition": "create unique index cash_drawer_only_one_open_session on private . cash_drawer_sessions using btree ( ( session_status ) ) where session_status = 'open'",
+      "valid": true,
+      "ready": true
+    },
+    {
+      "name": "private.cash_reconciliations_date_idx",
+      "parent": "private.cash_reconciliations",
+      "unique": false,
+      "definition": "create index cash_reconciliations_date_idx on private . cash_reconciliations using btree ( reconciled_at desc )",
+      "valid": true,
+      "ready": true
+    },
+    {
+      "name": "private.cash_adjustments_reconciliation_idx",
+      "parent": "private.cash_reconciliation_adjustments",
+      "unique": false,
+      "definition": "create index cash_adjustments_reconciliation_idx on private . cash_reconciliation_adjustments using btree ( reconciliation_id , created_at )",
+      "valid": true,
+      "ready": true
+    },
+    {
+      "name": "private.audit_events_stream_created_idx",
+      "parent": "private.audit_events",
+      "unique": false,
+      "definition": "create index audit_events_stream_created_idx on private . audit_events using btree ( stream_key , created_at , id )",
+      "valid": true,
+      "ready": true
+    },
+    {
+      "name": "private.member_pin_setup_tokens_active_enrollment_idx",
+      "parent": "private.member_pin_setup_tokens",
+      "unique": false,
+      "definition": "create index member_pin_setup_tokens_active_enrollment_idx on private . member_pin_setup_tokens using btree ( member_id ) where token_purpose = 'enrollment' and consumed_at is null",
+      "valid": true,
+      "ready": true
+    },
+    {
+      "name": "private.pin_enrollment_global_rate_limit_events_requested_at_idx",
+      "parent": "private.pin_enrollment_global_rate_limit_events",
+      "unique": false,
+      "definition": "create index pin_enrollment_global_rate_limit_events_requested_at_idx on private . pin_enrollment_global_rate_limit_events using btree ( requested_at )",
+      "valid": true,
+      "ready": true
+    },
+    {
+      "name": "private.membership_plans_normalized_name_uidx",
+      "parent": "private.membership_plans",
+      "unique": true,
+      "definition": "create unique index membership_plans_normalized_name_uidx on private . membership_plans using btree ( pg_catalog . lower ( pg_catalog . btrim ( pg_catalog . regexp_replace ( name , '\\s+' , ' ' , 'g' ) ) ) )",
+      "valid": true,
+      "ready": true
+    },
+    {
+      "name": "private.payment_records_operation_id_uidx",
+      "parent": "private.payment_records",
+      "unique": true,
+      "definition": "create unique index payment_records_operation_id_uidx on private . payment_records using btree ( operation_id )",
+      "valid": true,
+      "ready": true
+    },
+    {
+      "name": "private.payment_records_membership_idx",
+      "parent": "private.payment_records",
+      "unique": false,
+      "definition": "create index payment_records_membership_idx on private . payment_records using btree ( target_membership_purchase_id , created_at desc ) where target_membership_purchase_id is not null",
+      "valid": true,
+      "ready": true
+    },
+    {
+      "name": "private.payment_records_membership_external_reference_uidx",
+      "parent": "private.payment_records",
+      "unique": true,
+      "definition": "create unique index payment_records_membership_external_reference_uidx on private . payment_records using btree ( payment_method , pg_catalog . lower ( pg_catalog . btrim ( external_reference ) ) ) where target_membership_purchase_id is not null and nullif ( pg_catalog . btrim ( external_reference ) , '' ) is not null",
+      "valid": true,
+      "ready": true
+    },
+    {
+      "name": "private.payment_records_pending_membership_uidx",
+      "parent": "private.payment_records",
+      "unique": true,
+      "definition": "create unique index payment_records_pending_membership_uidx on private . payment_records using btree ( target_membership_purchase_id ) where target_membership_purchase_id is not null and verification_status = 'recorded'",
+      "valid": true,
+      "ready": true
+    },
+    {
+      "name": "private.payment_allocations_membership_purchase_uidx",
+      "parent": "private.payment_allocations",
+      "unique": true,
+      "definition": "create unique index payment_allocations_membership_purchase_uidx on private . payment_allocations using btree ( membership_purchase_id ) where membership_purchase_id is not null",
+      "valid": true,
+      "ready": true
+    }
+  ],
+  "routines": [
+    {
+      "name": "api.append_audit_event",
+      "kind": "f",
+      "language": "plpgsql",
+      "argument_names": [
+        "p_stream_key",
+        "p_actor_user_id",
+        "p_event_type",
+        "p_subject_type",
+        "p_subject_id",
+        "p_details"
+      ],
+      "input_types": [
+        "text",
+        "uuid",
+        "text",
+        "text",
+        "text",
+        "jsonb"
+      ],
+      "output_types": [],
+      "argument_defaults": "null , '{}' :: jsonb",
+      "default_count": 2,
+      "result": "bigint",
+      "returns_set": false,
+      "strict": false,
+      "volatility": "v",
+      "parallel": "u",
+      "leakproof": false,
+      "support": "-",
+      "variadic": "-",
+      "transforms": [],
+      "cost": 100,
+      "rows": 0,
+      "body_md5": "7a05ca54592137c75b9adda7023516a8",
+      "extension": null,
+      "signature": "api.append_audit_event(text, uuid, text, text, text, jsonb)",
+      "proposed_owner": "gym_owner_executor",
+      "proposed_definer": true,
+      "callers": [
+        "service_role",
+        "gym_public_executor"
+      ],
+      "search_path": ""
+    },
+    {
+      "name": "api.is_active_owner_for_user",
+      "kind": "f",
+      "language": "sql",
+      "argument_names": [
+        "p_user_id"
+      ],
+      "input_types": [
+        "uuid"
+      ],
+      "output_types": [],
+      "argument_defaults": "",
+      "default_count": 0,
+      "result": "boolean",
+      "returns_set": false,
+      "strict": false,
+      "volatility": "s",
+      "parallel": "u",
+      "leakproof": false,
+      "support": "-",
+      "variadic": "-",
+      "transforms": [],
+      "cost": 100,
+      "rows": 0,
+      "body_md5": "830f29066e37d9f2593c3cd99878ae93",
+      "extension": null,
+      "signature": "api.is_active_owner_for_user(uuid)",
+      "proposed_owner": "gym_owner_executor",
+      "proposed_definer": true,
+      "callers": [
+        "service_role"
+      ],
+      "search_path": ""
+    },
+    {
+      "name": "api.member_enroll_pin",
+      "kind": "f",
+      "language": "plpgsql",
+      "argument_names": [
+        "p_token_hash",
+        "p_password_hash"
+      ],
+      "input_types": [
+        "text",
+        "text"
+      ],
+      "output_types": [],
+      "argument_defaults": "",
+      "default_count": 0,
+      "result": "jsonb",
+      "returns_set": false,
+      "strict": false,
+      "volatility": "v",
+      "parallel": "u",
+      "leakproof": false,
+      "support": "-",
+      "variadic": "-",
+      "transforms": [],
+      "cost": 100,
+      "rows": 0,
+      "body_md5": "6bf1d4a963b2b853ba9cdc7cb582c342",
+      "extension": null,
+      "signature": "api.member_enroll_pin(text, text)",
+      "proposed_owner": "gym_public_executor",
+      "proposed_definer": true,
+      "callers": [
+        "service_role"
+      ],
+      "search_path": ""
+    },
+    {
+      "name": "api.owner_confirm_membership_payment",
+      "kind": "f",
+      "language": "plpgsql",
+      "argument_names": [
+        "p_actor_user_id",
+        "p_payment_id",
+        "p_evidence_reviewed"
+      ],
+      "input_types": [
+        "uuid",
+        "uuid",
+        "boolean"
+      ],
+      "output_types": [],
+      "argument_defaults": "",
+      "default_count": 0,
+      "result": "jsonb",
+      "returns_set": false,
+      "strict": false,
+      "volatility": "v",
+      "parallel": "u",
+      "leakproof": false,
+      "support": "-",
+      "variadic": "-",
+      "transforms": [],
+      "cost": 100,
+      "rows": 0,
+      "body_md5": "ce58f4473d75469ef2676f232794dce0",
+      "extension": null,
+      "signature": "api.owner_confirm_membership_payment(uuid, uuid, boolean)",
+      "proposed_owner": "gym_owner_executor",
+      "proposed_definer": true,
+      "callers": [
+        "service_role"
+      ],
+      "search_path": ""
+    },
+    {
+      "name": "api.owner_create_membership_purchase",
+      "kind": "f",
+      "language": "plpgsql",
+      "argument_names": [
+        "p_actor_user_id",
+        "p_member_id",
+        "p_plan_id"
+      ],
+      "input_types": [
+        "uuid",
+        "uuid",
+        "uuid"
+      ],
+      "output_types": [],
+      "argument_defaults": "",
+      "default_count": 0,
+      "result": "jsonb",
+      "returns_set": false,
+      "strict": false,
+      "volatility": "v",
+      "parallel": "u",
+      "leakproof": false,
+      "support": "-",
+      "variadic": "-",
+      "transforms": [],
+      "cost": 100,
+      "rows": 0,
+      "body_md5": "f8f310bd5576274401706c5213c6746d",
+      "extension": null,
+      "signature": "api.owner_create_membership_purchase(uuid, uuid, uuid)",
+      "proposed_owner": "gym_owner_executor",
+      "proposed_definer": true,
+      "callers": [
+        "service_role"
+      ],
+      "search_path": ""
+    },
+    {
+      "name": "api.owner_create_pin_enrollment_token",
+      "kind": "f",
+      "language": "plpgsql",
+      "argument_names": [
+        "p_actor_user_id",
+        "p_member_id",
+        "p_token_hash",
+        "p_expires_at"
+      ],
+      "input_types": [
+        "uuid",
+        "uuid",
+        "text",
+        "timestamp with time zone"
+      ],
+      "output_types": [],
+      "argument_defaults": "",
+      "default_count": 0,
+      "result": "jsonb",
+      "returns_set": false,
+      "strict": false,
+      "volatility": "v",
+      "parallel": "u",
+      "leakproof": false,
+      "support": "-",
+      "variadic": "-",
+      "transforms": [],
+      "cost": 100,
+      "rows": 0,
+      "body_md5": "7a226978d83e191643a436c829f9dd07",
+      "extension": null,
+      "signature": "api.owner_create_pin_enrollment_token(uuid, uuid, text, timestamp with time zone)",
+      "proposed_owner": "gym_owner_executor",
+      "proposed_definer": true,
+      "callers": [
+        "service_role"
+      ],
+      "search_path": ""
+    },
+    {
+      "name": "api.owner_list_members",
+      "kind": "f",
+      "language": "plpgsql",
+      "argument_names": [
+        "p_actor_user_id",
+        "p_search",
+        "p_status",
+        "p_limit",
+        "p_offset"
+      ],
+      "input_types": [
+        "uuid",
+        "text",
+        "text",
+        "integer",
+        "integer"
+      ],
+      "output_types": [],
+      "argument_defaults": "null , 'all' , 50 , 0",
+      "default_count": 4,
+      "result": "jsonb",
+      "returns_set": false,
+      "strict": false,
+      "volatility": "v",
+      "parallel": "u",
+      "leakproof": false,
+      "support": "-",
+      "variadic": "-",
+      "transforms": [],
+      "cost": 100,
+      "rows": 0,
+      "body_md5": "342dd9a2131e068c1a849694b053ebdf",
+      "extension": null,
+      "signature": "api.owner_list_members(uuid, text, text, integer, integer)",
+      "proposed_owner": "gym_owner_executor",
+      "proposed_definer": true,
+      "callers": [
+        "service_role"
+      ],
+      "search_path": ""
+    },
+    {
+      "name": "api.owner_list_membership_payments",
+      "kind": "f",
+      "language": "plpgsql",
+      "argument_names": [
+        "p_actor_user_id",
+        "p_search",
+        "p_status",
+        "p_limit",
+        "p_offset"
+      ],
+      "input_types": [
+        "uuid",
+        "text",
+        "text",
+        "integer",
+        "integer"
+      ],
+      "output_types": [],
+      "argument_defaults": "null , 'all' , 50 , 0",
+      "default_count": 4,
+      "result": "jsonb",
+      "returns_set": false,
+      "strict": false,
+      "volatility": "v",
+      "parallel": "u",
+      "leakproof": false,
+      "support": "-",
+      "variadic": "-",
+      "transforms": [],
+      "cost": 100,
+      "rows": 0,
+      "body_md5": "6ac0d61dfc24c15123812ec788294197",
+      "extension": null,
+      "signature": "api.owner_list_membership_payments(uuid, text, text, integer, integer)",
+      "proposed_owner": "gym_owner_executor",
+      "proposed_definer": true,
+      "callers": [
+        "service_role"
+      ],
+      "search_path": ""
+    },
+    {
+      "name": "api.owner_list_membership_plans",
+      "kind": "f",
+      "language": "plpgsql",
+      "argument_names": [
+        "p_actor_user_id"
+      ],
+      "input_types": [
+        "uuid"
+      ],
+      "output_types": [],
+      "argument_defaults": "",
+      "default_count": 0,
+      "result": "jsonb",
+      "returns_set": false,
+      "strict": false,
+      "volatility": "v",
+      "parallel": "u",
+      "leakproof": false,
+      "support": "-",
+      "variadic": "-",
+      "transforms": [],
+      "cost": 100,
+      "rows": 0,
+      "body_md5": "fc3ed2be2834b6458f2835bfc18d9b4e",
+      "extension": null,
+      "signature": "api.owner_list_membership_plans(uuid)",
+      "proposed_owner": "gym_owner_executor",
+      "proposed_definer": true,
+      "callers": [
+        "service_role"
+      ],
+      "search_path": ""
+    },
+    {
+      "name": "api.owner_list_membership_purchases",
+      "kind": "f",
+      "language": "plpgsql",
+      "argument_names": [
+        "p_actor_user_id",
+        "p_search",
+        "p_status",
+        "p_limit",
+        "p_offset"
+      ],
+      "input_types": [
+        "uuid",
+        "text",
+        "text",
+        "integer",
+        "integer"
+      ],
+      "output_types": [],
+      "argument_defaults": "null , 'all' , 50 , 0",
+      "default_count": 4,
+      "result": "jsonb",
+      "returns_set": false,
+      "strict": false,
+      "volatility": "v",
+      "parallel": "u",
+      "leakproof": false,
+      "support": "-",
+      "variadic": "-",
+      "transforms": [],
+      "cost": 100,
+      "rows": 0,
+      "body_md5": "d6fd6f1ba099afe317dcf1606d49d64f",
+      "extension": null,
+      "signature": "api.owner_list_membership_purchases(uuid, text, text, integer, integer)",
+      "proposed_owner": "gym_owner_executor",
+      "proposed_definer": true,
+      "callers": [
+        "service_role"
+      ],
+      "search_path": ""
+    },
+    {
+      "name": "api.owner_record_membership_payment",
+      "kind": "f",
+      "language": "plpgsql",
+      "argument_names": [
+        "p_actor_user_id",
+        "p_operation_id",
+        "p_membership_purchase_id",
+        "p_amount_php",
+        "p_payment_method",
+        "p_external_reference"
+      ],
+      "input_types": [
+        "uuid",
+        "uuid",
+        "uuid",
+        "numeric",
+        "text",
+        "text"
+      ],
+      "output_types": [],
+      "argument_defaults": "null",
+      "default_count": 1,
+      "result": "jsonb",
+      "returns_set": false,
+      "strict": false,
+      "volatility": "v",
+      "parallel": "u",
+      "leakproof": false,
+      "support": "-",
+      "variadic": "-",
+      "transforms": [],
+      "cost": 100,
+      "rows": 0,
+      "body_md5": "c21766acb601a8b92dc26d59f73be2a3",
+      "extension": null,
+      "signature": "api.owner_record_membership_payment(uuid, uuid, uuid, numeric, text, text)",
+      "proposed_owner": "gym_owner_executor",
+      "proposed_definer": true,
+      "callers": [
+        "service_role"
+      ],
+      "search_path": ""
+    },
+    {
+      "name": "api.owner_register_member",
+      "kind": "f",
+      "language": "plpgsql",
+      "argument_names": [
+        "p_actor_user_id",
+        "p_full_name",
+        "p_mobile_lookup_hash",
+        "p_mobile_encrypted"
+      ],
+      "input_types": [
+        "uuid",
+        "text",
+        "bytea",
+        "bytea"
+      ],
+      "output_types": [],
+      "argument_defaults": "",
+      "default_count": 0,
+      "result": "jsonb",
+      "returns_set": false,
+      "strict": false,
+      "volatility": "v",
+      "parallel": "u",
+      "leakproof": false,
+      "support": "-",
+      "variadic": "-",
+      "transforms": [],
+      "cost": 100,
+      "rows": 0,
+      "body_md5": "e56b20e809c8dfcebd782d4e8aa5fbb5",
+      "extension": null,
+      "signature": "api.owner_register_member(uuid, text, bytea, bytea)",
+      "proposed_owner": "gym_owner_executor",
+      "proposed_definer": true,
+      "callers": [
+        "service_role"
+      ],
+      "search_path": ""
+    },
+    {
+      "name": "api.owner_reject_membership_payment",
+      "kind": "f",
+      "language": "plpgsql",
+      "argument_names": [
+        "p_actor_user_id",
+        "p_payment_id",
+        "p_reason"
+      ],
+      "input_types": [
+        "uuid",
+        "uuid",
+        "text"
+      ],
+      "output_types": [],
+      "argument_defaults": "",
+      "default_count": 0,
+      "result": "jsonb",
+      "returns_set": false,
+      "strict": false,
+      "volatility": "v",
+      "parallel": "u",
+      "leakproof": false,
+      "support": "-",
+      "variadic": "-",
+      "transforms": [],
+      "cost": 100,
+      "rows": 0,
+      "body_md5": "b55e7879cbae6d9074264826ed75eac0",
+      "extension": null,
+      "signature": "api.owner_reject_membership_payment(uuid, uuid, text)",
+      "proposed_owner": "gym_owner_executor",
+      "proposed_definer": true,
+      "callers": [
+        "service_role"
+      ],
+      "search_path": ""
+    },
+    {
+      "name": "api.owner_save_membership_plan",
+      "kind": "f",
+      "language": "plpgsql",
+      "argument_names": [
+        "p_actor_user_id",
+        "p_plan_id",
+        "p_name",
+        "p_price_php",
+        "p_is_active"
+      ],
+      "input_types": [
+        "uuid",
+        "uuid",
+        "text",
+        "numeric",
+        "boolean"
+      ],
+      "output_types": [],
+      "argument_defaults": "",
+      "default_count": 0,
+      "result": "jsonb",
+      "returns_set": false,
+      "strict": false,
+      "volatility": "v",
+      "parallel": "u",
+      "leakproof": false,
+      "support": "-",
+      "variadic": "-",
+      "transforms": [],
+      "cost": 100,
+      "rows": 0,
+      "body_md5": "c128144cda372362b26ec91dc64fd6fa",
+      "extension": null,
+      "signature": "api.owner_save_membership_plan(uuid, uuid, text, numeric, boolean)",
+      "proposed_owner": "gym_owner_executor",
+      "proposed_definer": true,
+      "callers": [
+        "service_role"
+      ],
+      "search_path": ""
+    },
+    {
+      "name": "api.reserve_pin_enrollment_request",
+      "kind": "f",
+      "language": "plpgsql",
+      "argument_names": [],
+      "input_types": [],
+      "output_types": [],
+      "argument_defaults": "",
+      "default_count": 0,
+      "result": "jsonb",
+      "returns_set": false,
+      "strict": false,
+      "volatility": "v",
+      "parallel": "u",
+      "leakproof": false,
+      "support": "-",
+      "variadic": "-",
+      "transforms": [],
+      "cost": 100,
+      "rows": 0,
+      "body_md5": "ed1a67d4a3cd30fed31a0ee36222eb5b",
+      "extension": null,
+      "signature": "api.reserve_pin_enrollment_request()",
+      "proposed_owner": "gym_public_executor",
+      "proposed_definer": true,
+      "callers": [
+        "service_role"
+      ],
+      "search_path": ""
+    },
+    {
+      "name": "api.verify_audit_stream",
+      "kind": "f",
+      "language": "plpgsql",
+      "argument_names": [
+        "p_stream_key",
+        "is_valid",
+        "checked_events",
+        "failure_event_id",
+        "reason"
+      ],
+      "input_types": [
+        "text"
+      ],
+      "output_types": [
+        "boolean",
+        "bigint",
+        "bigint",
+        "text"
+      ],
+      "argument_defaults": "",
+      "default_count": 0,
+      "result": "table ( is_valid boolean , checked_events bigint , failure_event_id bigint , reason text )",
+      "returns_set": true,
+      "strict": false,
+      "volatility": "v",
+      "parallel": "u",
+      "leakproof": false,
+      "support": "-",
+      "variadic": "-",
+      "transforms": [],
+      "cost": 100,
+      "rows": 1000,
+      "body_md5": "f7c5cdb53ec4cf2d845e38f404df5fb9",
+      "extension": null,
+      "signature": "api.verify_audit_stream(text)",
+      "proposed_owner": "gym_owner_executor",
+      "proposed_definer": true,
+      "callers": [
+        "service_role"
+      ],
+      "search_path": ""
+    },
+    {
+      "name": "private.audit_events_chain_insert",
+      "kind": "f",
+      "language": "plpgsql",
+      "argument_names": [],
+      "input_types": [],
+      "output_types": [],
+      "argument_defaults": "",
+      "default_count": 0,
+      "result": "trigger",
+      "returns_set": false,
+      "strict": false,
+      "volatility": "v",
+      "parallel": "u",
+      "leakproof": false,
+      "support": "-",
+      "variadic": "-",
+      "transforms": [],
+      "cost": 100,
+      "rows": 0,
+      "body_md5": "6fa6a434395de93250213752513ffb34",
+      "extension": null,
+      "signature": "private.audit_events_chain_insert()",
+      "proposed_owner": "gym_data_owner",
+      "proposed_definer": false,
+      "callers": [
+        "gym_owner_executor"
+      ],
+      "search_path": ""
+    },
+    {
+      "name": "private.compute_audit_event_hash",
+      "kind": "f",
+      "language": "sql",
+      "argument_names": [
+        "p_id",
+        "p_stream_key",
+        "p_previous_event_hash",
+        "p_actor_user_id",
+        "p_event_type",
+        "p_subject_type",
+        "p_subject_id",
+        "p_details",
+        "p_created_at"
+      ],
+      "input_types": [
+        "bigint",
+        "text",
+        "text",
+        "uuid",
+        "text",
+        "text",
+        "text",
+        "jsonb",
+        "timestamp with time zone"
+      ],
+      "output_types": [],
+      "argument_defaults": "",
+      "default_count": 0,
+      "result": "text",
+      "returns_set": false,
+      "strict": false,
+      "volatility": "i",
+      "parallel": "u",
+      "leakproof": false,
+      "support": "-",
+      "variadic": "-",
+      "transforms": [],
+      "cost": 100,
+      "rows": 0,
+      "body_md5": "a0635caf0c329b24571bd68df684f69f",
+      "extension": null,
+      "signature": "private.compute_audit_event_hash(bigint, text, text, uuid, text, text, text, jsonb, timestamp with time zone)",
+      "proposed_owner": "gym_data_owner",
+      "proposed_definer": false,
+      "callers": [
+        "gym_owner_executor"
+      ],
+      "search_path": ""
+    },
+    {
+      "name": "private.guard_membership_payment_allocation",
+      "kind": "f",
+      "language": "plpgsql",
+      "argument_names": [],
+      "input_types": [],
+      "output_types": [],
+      "argument_defaults": "",
+      "default_count": 0,
+      "result": "trigger",
+      "returns_set": false,
+      "strict": false,
+      "volatility": "v",
+      "parallel": "u",
+      "leakproof": false,
+      "support": "-",
+      "variadic": "-",
+      "transforms": [],
+      "cost": 100,
+      "rows": 0,
+      "body_md5": "4836529309d8c518d42d24b9d191d6d5",
+      "extension": null,
+      "signature": "private.guard_membership_payment_allocation()",
+      "proposed_owner": "gym_data_owner",
+      "proposed_definer": false,
+      "callers": [
+        "gym_owner_executor"
+      ],
+      "search_path": ""
+    },
+    {
+      "name": "private.guard_membership_payment_record_insert",
+      "kind": "f",
+      "language": "plpgsql",
+      "argument_names": [],
+      "input_types": [],
+      "output_types": [],
+      "argument_defaults": "",
+      "default_count": 0,
+      "result": "trigger",
+      "returns_set": false,
+      "strict": false,
+      "volatility": "v",
+      "parallel": "u",
+      "leakproof": false,
+      "support": "-",
+      "variadic": "-",
+      "transforms": [],
+      "cost": 100,
+      "rows": 0,
+      "body_md5": "edaae9f3a89330d4e55ce37d7d16d074",
+      "extension": null,
+      "signature": "private.guard_membership_payment_record_insert()",
+      "proposed_owner": "gym_data_owner",
+      "proposed_definer": false,
+      "callers": [
+        "gym_owner_executor"
+      ],
+      "search_path": ""
+    },
+    {
+      "name": "private.guard_membership_payment_record_update",
+      "kind": "f",
+      "language": "plpgsql",
+      "argument_names": [],
+      "input_types": [],
+      "output_types": [],
+      "argument_defaults": "",
+      "default_count": 0,
+      "result": "trigger",
+      "returns_set": false,
+      "strict": false,
+      "volatility": "v",
+      "parallel": "u",
+      "leakproof": false,
+      "support": "-",
+      "variadic": "-",
+      "transforms": [],
+      "cost": 100,
+      "rows": 0,
+      "body_md5": "9386192bae0b7aec6e34fce2e2aadbda",
+      "extension": null,
+      "signature": "private.guard_membership_payment_record_update()",
+      "proposed_owner": "gym_data_owner",
+      "proposed_definer": false,
+      "callers": [
+        "gym_owner_executor"
+      ],
+      "search_path": ""
+    },
+    {
+      "name": "private.guard_purchase_pending_activation",
+      "kind": "f",
+      "language": "plpgsql",
+      "argument_names": [],
+      "input_types": [],
+      "output_types": [],
+      "argument_defaults": "",
+      "default_count": 0,
+      "result": "trigger",
+      "returns_set": false,
+      "strict": false,
+      "volatility": "v",
+      "parallel": "u",
+      "leakproof": false,
+      "support": "-",
+      "variadic": "-",
+      "transforms": [],
+      "cost": 100,
+      "rows": 0,
+      "body_md5": "c3467a65c399cf75243d4e3e9e31b36c",
+      "extension": null,
+      "signature": "private.guard_purchase_pending_activation()",
+      "proposed_owner": "gym_data_owner",
+      "proposed_definer": false,
+      "callers": [
+        "gym_owner_executor"
+      ],
+      "search_path": ""
+    },
+    {
+      "name": "private.is_active_owner",
+      "kind": "f",
+      "language": "sql",
+      "argument_names": [],
+      "input_types": [],
+      "output_types": [],
+      "argument_defaults": "",
+      "default_count": 0,
+      "result": "boolean",
+      "returns_set": false,
+      "strict": false,
+      "volatility": "s",
+      "parallel": "u",
+      "leakproof": false,
+      "support": "-",
+      "variadic": "-",
+      "transforms": [],
+      "cost": 100,
+      "rows": 0,
+      "body_md5": "76af3203b0fe03c30e1eb6d8264a04e6",
+      "extension": null,
+      "signature": "private.is_active_owner()",
+      "proposed_owner": "gym_data_owner",
+      "proposed_definer": false,
+      "callers": [],
+      "search_path": ""
+    },
+    {
+      "name": "private.prevent_audit_event_mutation",
+      "kind": "f",
+      "language": "plpgsql",
+      "argument_names": [],
+      "input_types": [],
+      "output_types": [],
+      "argument_defaults": "",
+      "default_count": 0,
+      "result": "trigger",
+      "returns_set": false,
+      "strict": false,
+      "volatility": "v",
+      "parallel": "u",
+      "leakproof": false,
+      "support": "-",
+      "variadic": "-",
+      "transforms": [],
+      "cost": 100,
+      "rows": 0,
+      "body_md5": "d835b9b2db211d2439e03ec9d8a6337d",
+      "extension": null,
+      "signature": "private.prevent_audit_event_mutation()",
+      "proposed_owner": "gym_data_owner",
+      "proposed_definer": false,
+      "callers": [
+        "gym_owner_executor"
+      ],
+      "search_path": ""
+    },
+    {
+      "name": "private.prevent_payment_history_mutation",
+      "kind": "f",
+      "language": "plpgsql",
+      "argument_names": [],
+      "input_types": [],
+      "output_types": [],
+      "argument_defaults": "",
+      "default_count": 0,
+      "result": "trigger",
+      "returns_set": false,
+      "strict": false,
+      "volatility": "v",
+      "parallel": "u",
+      "leakproof": false,
+      "support": "-",
+      "variadic": "-",
+      "transforms": [],
+      "cost": 100,
+      "rows": 0,
+      "body_md5": "0ad4feeac81403c334c6665ff018485e",
+      "extension": null,
+      "signature": "private.prevent_payment_history_mutation()",
+      "proposed_owner": "gym_data_owner",
+      "proposed_definer": false,
+      "callers": [
+        "gym_owner_executor"
+      ],
+      "search_path": ""
+    }
+  ],
+  "triggers": [
+    {
+      "table_name": "private.audit_events",
+      "name": "audit_events_chain_insert_trigger",
+      "definition": "CREATE TRIGGER audit_events_chain_insert_trigger BEFORE INSERT ON private.audit_events FOR EACH ROW EXECUTE FUNCTION private.audit_events_chain_insert()"
+    },
+    {
+      "table_name": "private.audit_events",
+      "name": "audit_events_no_truncate",
+      "definition": "CREATE TRIGGER audit_events_no_truncate BEFORE TRUNCATE ON private.audit_events FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_audit_event_mutation()"
+    },
+    {
+      "table_name": "private.audit_events",
+      "name": "audit_events_no_update_delete",
+      "definition": "CREATE TRIGGER audit_events_no_update_delete BEFORE DELETE OR UPDATE ON private.audit_events FOR EACH ROW EXECUTE FUNCTION private.prevent_audit_event_mutation()"
+    },
+    {
+      "table_name": "private.membership_purchases",
+      "name": "membership_purchase_requires_confirmed_payment",
+      "definition": "CREATE TRIGGER membership_purchase_requires_confirmed_payment BEFORE INSERT OR UPDATE ON private.membership_purchases FOR EACH ROW EXECUTE FUNCTION private.guard_purchase_pending_activation()"
+    },
+    {
+      "table_name": "private.payment_allocations",
+      "name": "payment_allocations_no_truncate",
+      "definition": "CREATE TRIGGER payment_allocations_no_truncate BEFORE TRUNCATE ON private.payment_allocations FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_payment_history_mutation()"
+    },
+    {
+      "table_name": "private.payment_allocations",
+      "name": "payment_allocations_no_update_delete",
+      "definition": "CREATE TRIGGER payment_allocations_no_update_delete BEFORE DELETE OR UPDATE ON private.payment_allocations FOR EACH ROW EXECUTE FUNCTION private.prevent_payment_history_mutation()"
+    },
+    {
+      "table_name": "private.payment_allocations",
+      "name": "payment_allocations_validate_membership",
+      "definition": "CREATE TRIGGER payment_allocations_validate_membership BEFORE INSERT ON private.payment_allocations FOR EACH ROW EXECUTE FUNCTION private.guard_membership_payment_allocation()"
+    },
+    {
+      "table_name": "private.payment_events",
+      "name": "payment_events_no_truncate",
+      "definition": "CREATE TRIGGER payment_events_no_truncate BEFORE TRUNCATE ON private.payment_events FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_payment_history_mutation()"
+    },
+    {
+      "table_name": "private.payment_events",
+      "name": "payment_events_no_update_delete",
+      "definition": "CREATE TRIGGER payment_events_no_update_delete BEFORE DELETE OR UPDATE ON private.payment_events FOR EACH ROW EXECUTE FUNCTION private.prevent_payment_history_mutation()"
+    },
+    {
+      "table_name": "private.payment_records",
+      "name": "payment_records_guard_update",
+      "definition": "CREATE TRIGGER payment_records_guard_update BEFORE UPDATE ON private.payment_records FOR EACH ROW EXECUTE FUNCTION private.guard_membership_payment_record_update()"
+    },
+    {
+      "table_name": "private.payment_records",
+      "name": "payment_records_no_delete",
+      "definition": "CREATE TRIGGER payment_records_no_delete BEFORE DELETE ON private.payment_records FOR EACH ROW EXECUTE FUNCTION private.prevent_payment_history_mutation()"
+    },
+    {
+      "table_name": "private.payment_records",
+      "name": "payment_records_no_truncate",
+      "definition": "CREATE TRIGGER payment_records_no_truncate BEFORE TRUNCATE ON private.payment_records FOR EACH STATEMENT EXECUTE FUNCTION private.prevent_payment_history_mutation()"
+    },
+    {
+      "table_name": "private.payment_records",
+      "name": "payment_records_validate_membership_insert",
+      "definition": "CREATE TRIGGER payment_records_validate_membership_insert BEFORE INSERT ON private.payment_records FOR EACH ROW EXECUTE FUNCTION private.guard_membership_payment_record_insert()"
+    }
+  ],
+  "permissions": [
+    {
+      "table": "private.owner_access",
+      "role": "gym_owner_executor",
+      "command": "SELECT",
+      "columns": [
+        "user_id",
+        "is_active",
+        "created_at",
+        "deactivated_at"
+      ],
+      "policy": "gf_owner_select"
+    },
+    {
+      "table": "private.members",
+      "role": "gym_owner_executor",
+      "command": "SELECT",
+      "columns": [
+        "id",
+        "member_code",
+        "full_name",
+        "mobile_lookup_hash",
+        "mobile_encrypted",
+        "status",
+        "created_at",
+        "updated_at",
+        "approved_at"
+      ],
+      "policy": "gf_owner_select"
+    },
+    {
+      "table": "private.members",
+      "role": "gym_owner_executor",
+      "command": "INSERT",
+      "columns": [
+        "member_code",
+        "full_name",
+        "mobile_lookup_hash",
+        "mobile_encrypted",
+        "status"
+      ],
+      "policy": "gf_owner_insert"
+    },
+    {
+      "table": "private.members",
+      "role": "gym_owner_executor",
+      "command": "UPDATE",
+      "columns": [
+        "updated_at"
+      ],
+      "policy": "gf_owner_update"
+    },
+    {
+      "table": "private.membership_plans",
+      "role": "gym_owner_executor",
+      "command": "SELECT",
+      "columns": [
+        "id",
+        "name",
+        "price_php",
+        "is_active",
+        "created_at"
+      ],
+      "policy": "gf_owner_select"
+    },
+    {
+      "table": "private.membership_plans",
+      "role": "gym_owner_executor",
+      "command": "INSERT",
+      "columns": [
+        "name",
+        "price_php",
+        "is_active"
+      ],
+      "policy": "gf_owner_insert"
+    },
+    {
+      "table": "private.membership_plans",
+      "role": "gym_owner_executor",
+      "command": "UPDATE",
+      "columns": [
+        "name",
+        "price_php",
+        "is_active"
+      ],
+      "policy": "gf_owner_update"
+    },
+    {
+      "table": "private.membership_purchases",
+      "role": "gym_owner_executor",
+      "command": "SELECT",
+      "columns": [
+        "id",
+        "member_id",
+        "plan_id",
+        "price_php",
+        "purchase_status",
+        "activation_date",
+        "expiry_date",
+        "created_at"
+      ],
+      "policy": "gf_owner_select"
+    },
+    {
+      "table": "private.membership_purchases",
+      "role": "gym_owner_executor",
+      "command": "INSERT",
+      "columns": [
+        "member_id",
+        "plan_id",
+        "price_php",
+        "purchase_status"
+      ],
+      "policy": "gf_owner_insert"
+    },
+    {
+      "table": "private.membership_purchases",
+      "role": "gym_owner_executor",
+      "command": "UPDATE",
+      "columns": [
+        "purchase_status"
+      ],
+      "policy": "gf_owner_update"
+    },
+    {
+      "table": "private.payment_records",
+      "role": "gym_owner_executor",
+      "command": "SELECT",
+      "columns": [
+        "id",
+        "amount_php",
+        "payment_method",
+        "received_at",
+        "verification_status",
+        "external_reference",
+        "evidence_reference",
+        "recorded_by",
+        "created_at",
+        "operation_id",
+        "target_membership_purchase_id"
+      ],
+      "policy": "gf_owner_select"
+    },
+    {
+      "table": "private.payment_records",
+      "role": "gym_owner_executor",
+      "command": "INSERT",
+      "columns": [
+        "amount_php",
+        "payment_method",
+        "verification_status",
+        "external_reference",
+        "recorded_by",
+        "operation_id",
+        "target_membership_purchase_id"
+      ],
+      "policy": "gf_owner_insert"
+    },
+    {
+      "table": "private.payment_records",
+      "role": "gym_owner_executor",
+      "command": "UPDATE",
+      "columns": [
+        "verification_status"
+      ],
+      "policy": "gf_owner_update"
+    },
+    {
+      "table": "private.payment_allocations",
+      "role": "gym_owner_executor",
+      "command": "SELECT",
+      "columns": [
+        "id",
+        "payment_id",
+        "membership_purchase_id",
+        "walkin_request_id",
+        "allocated_by",
+        "allocated_at"
+      ],
+      "policy": "gf_owner_select"
+    },
+    {
+      "table": "private.payment_allocations",
+      "role": "gym_owner_executor",
+      "command": "INSERT",
+      "columns": [
+        "payment_id",
+        "membership_purchase_id",
+        "allocated_by"
+      ],
+      "policy": "gf_owner_insert"
+    },
+    {
+      "table": "private.payment_events",
+      "role": "gym_owner_executor",
+      "command": "SELECT",
+      "columns": [
+        "id",
+        "payment_id",
+        "event_type",
+        "reason",
+        "actor_user_id",
+        "created_at"
+      ],
+      "policy": "gf_owner_select"
+    },
+    {
+      "table": "private.payment_events",
+      "role": "gym_owner_executor",
+      "command": "INSERT",
+      "columns": [
+        "payment_id",
+        "event_type",
+        "reason",
+        "actor_user_id"
+      ],
+      "policy": "gf_owner_insert"
+    },
+    {
+      "table": "private.audit_events",
+      "role": "gym_owner_executor",
+      "command": "SELECT",
+      "columns": [
+        "id",
+        "actor_user_id",
+        "event_type",
+        "subject_type",
+        "subject_id",
+        "details",
+        "created_at",
+        "stream_key",
+        "previous_event_hash",
+        "event_hash"
+      ],
+      "policy": "gf_owner_select"
+    },
+    {
+      "table": "private.audit_events",
+      "role": "gym_owner_executor",
+      "command": "INSERT",
+      "columns": [
+        "stream_key",
+        "actor_user_id",
+        "event_type",
+        "subject_type",
+        "subject_id",
+        "details"
+      ],
+      "policy": "gf_owner_insert"
+    },
+    {
+      "table": "private.audit_chain_heads",
+      "role": "gym_owner_executor",
+      "command": "SELECT",
+      "columns": [
+        "stream_key",
+        "last_event_id",
+        "last_event_hash",
+        "updated_at"
+      ],
+      "policy": "gf_owner_select"
+    },
+    {
+      "table": "private.audit_chain_heads",
+      "role": "gym_owner_executor",
+      "command": "INSERT",
+      "columns": [
+        "stream_key",
+        "last_event_id",
+        "last_event_hash"
+      ],
+      "policy": "gf_owner_insert"
+    },
+    {
+      "table": "private.audit_chain_heads",
+      "role": "gym_owner_executor",
+      "command": "UPDATE",
+      "columns": [
+        "last_event_id",
+        "last_event_hash",
+        "updated_at"
+      ],
+      "policy": "gf_owner_update"
+    },
+    {
+      "table": "private.member_pin_setup_tokens",
+      "role": "gym_owner_executor",
+      "command": "SELECT",
+      "columns": [
+        "id",
+        "member_id",
+        "token_hash",
+        "token_purpose",
+        "expires_at",
+        "consumed_at",
+        "created_at"
+      ],
+      "policy": "gf_owner_select"
+    },
+    {
+      "table": "private.member_pin_setup_tokens",
+      "role": "gym_owner_executor",
+      "command": "INSERT",
+      "columns": [
+        "member_id",
+        "token_hash",
+        "token_purpose",
+        "expires_at"
+      ],
+      "policy": "gf_owner_insert"
+    },
+    {
+      "table": "private.member_pin_setup_tokens",
+      "role": "gym_owner_executor",
+      "command": "UPDATE",
+      "columns": [
+        "consumed_at"
+      ],
+      "policy": "gf_owner_update"
+    },
+    {
+      "table": "private.members",
+      "role": "gym_public_executor",
+      "command": "SELECT",
+      "columns": [
+        "id",
+        "status"
+      ],
+      "policy": "gf_public_select"
+    },
+    {
+      "table": "private.members",
+      "role": "gym_public_executor",
+      "command": "UPDATE",
+      "columns": [
+        "updated_at"
+      ],
+      "policy": "gf_public_update"
+    },
+    {
+      "table": "private.member_pin_setup_tokens",
+      "role": "gym_public_executor",
+      "command": "SELECT",
+      "columns": [
+        "id",
+        "member_id",
+        "token_hash",
+        "token_purpose",
+        "expires_at",
+        "consumed_at"
+      ],
+      "policy": "gf_public_select"
+    },
+    {
+      "table": "private.member_pin_setup_tokens",
+      "role": "gym_public_executor",
+      "command": "UPDATE",
+      "columns": [
+        "consumed_at"
+      ],
+      "policy": "gf_public_update"
+    },
+    {
+      "table": "private.member_pin_credentials",
+      "role": "gym_public_executor",
+      "command": "SELECT",
+      "columns": [
+        "member_id"
+      ],
+      "policy": "gf_public_select"
+    },
+    {
+      "table": "private.member_pin_credentials",
+      "role": "gym_public_executor",
+      "command": "INSERT",
+      "columns": [
+        "member_id",
+        "password_hash",
+        "credential_version",
+        "created_at",
+        "updated_at"
+      ],
+      "policy": "gf_public_insert"
+    },
+    {
+      "table": "private.pin_enrollment_global_rate_limit_events",
+      "role": "gym_public_executor",
+      "command": "SELECT",
+      "columns": [
+        "requested_at"
+      ],
+      "policy": "gf_public_select"
+    },
+    {
+      "table": "private.pin_enrollment_global_rate_limit_events",
+      "role": "gym_public_executor",
+      "command": "INSERT",
+      "columns": [
+        "requested_at"
+      ],
+      "policy": "gf_public_insert"
+    },
+    {
+      "table": "private.pin_enrollment_global_rate_limit_events",
+      "role": "gym_public_executor",
+      "command": "DELETE",
+      "columns": [],
+      "policy": "gf_public_delete"
+    }
+  ],
+  "sequence_runtime_grants": [],
+  "provider_profile": "native_only",
+  "executor_memberships": []
+}

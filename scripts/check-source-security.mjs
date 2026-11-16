@@ -36,8 +36,7 @@ export function checkConfig(text) {
   // JSON's quoted one-line array is the supported TOML subset for schemas.
   let schemas;
   try { schemas = JSON.parse(api?.get('schemas') ?? 'null'); } catch { /* fail closed below */ }
-  if (!Array.isArray(schemas) || schemas.length !== 3 ||
-      !['public', 'graphql_public', 'api'].every((value) => schemas.includes(value))) {
+  if (!Array.isArray(schemas) || schemas.length !== 1 || schemas[0] !== 'api') {
     issues.push('config-api-schema-allowlist');
   }
   if (api?.get('auto_expose_new_tables') !== 'false') issues.push('config-auto-exposure');

@@ -1,0 +1,11 @@
+﻿creator,kind,explicit_global_entry,schema_entry_count,equals_builtin_acl,public_builtin_privilege,explicit_browser_grant,other_or_escalated_grant
+gym_data_owner,f,f,0,t,t,f,f
+gym_data_owner,T,f,0,t,t,f,f
+gym_owner_executor,f,f,0,t,t,f,f
+gym_owner_executor,T,f,0,t,t,f,f
+gym_public_executor,f,f,0,t,t,f,f
+gym_public_executor,T,f,0,t,t,f,f
+gym_registration_login,f,f,0,t,t,f,f
+gym_registration_login,T,f,0,t,t,f,f
+postgres,f,f,0,t,t,f,f
+postgres,T,f,0,t,t,f,f

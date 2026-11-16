@@ -1,3 +1,4 @@
+import { withBrowserCors } from "../_shared/browser-cors.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 import {
@@ -81,7 +82,7 @@ async function readLimitedBody(
     text: new TextDecoder().decode(combined),
   };
 }
-Deno.serve(async (request) => {
+Deno.serve(withBrowserCors(appOrigin, async (request) => {
   if (!appOrigin) {
     return new Response(
       JSON.stringify({ error: "SERVER_CONFIGURATION_ERROR" }),
@@ -241,4 +242,4 @@ Deno.serve(async (request) => {
   } catch {
     return respond(500, { error: "INTERNAL_SERVER_ERROR" });
   }
-});
+}));

@@ -1,3 +1,4 @@
+import { withBrowserCors } from "../_shared/browser-cors.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 import { hashMemberPin } from "../_shared/pin-password.ts";
 import {
@@ -30,7 +31,7 @@ const respond = (
     headers: { ...headers, ...extra },
   });
 
-Deno.serve(async (request: Request): Promise<Response> => {
+Deno.serve(withBrowserCors(appOrigin, async (request: Request): Promise<Response> => {
   if (!appOrigin) {
     return respond(503, { error: "SERVICE_UNAVAILABLE" });
   }
@@ -100,4 +101,4 @@ Deno.serve(async (request: Request): Promise<Response> => {
   } catch {
     return respond(503, { error: "SERVICE_UNAVAILABLE" });
   }
-});
+}));

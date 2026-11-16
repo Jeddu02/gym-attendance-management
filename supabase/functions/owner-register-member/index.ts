@@ -1,3 +1,4 @@
+import { withBrowserCors } from "../_shared/browser-cors.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 import {
@@ -32,7 +33,7 @@ function respond(status: number, body: Record<string, unknown>) {
   });
 }
 
-Deno.serve(async (request) => {
+Deno.serve(withBrowserCors(appOrigin, async (request) => {
   if (!appOrigin) {
     return respond(503, { error: "SERVER_CONFIGURATION_ERROR" });
   }
@@ -133,4 +134,4 @@ Deno.serve(async (request) => {
   } catch {
     return respond(500, { error: "INTERNAL_SERVER_ERROR" });
   }
-});
+}));

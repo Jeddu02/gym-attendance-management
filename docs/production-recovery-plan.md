@@ -2,11 +2,18 @@
 
 Prepared 2026-11-16, Asia/Manila. Target: `alxhytivwybjbkjjdsyn`.
 
-**Decision: HOLD production changes.** This is a local source review and an
+**Decision: NO-GO / HOLD production changes.** Review branch verified locally:
+`review/production-recovery`, HEAD `38fdf66` (matching the requested baseline),
+with a clean working tree at audit start. No checkout, merge, fetch or push was
+performed. Sections 11–14 record this baseline audit, exact source references,
+integration findings and fresh local test results. This is a local source review and an
 approval-gated recovery plan, not an executable migration runbook. No production
 SQL, migrations, history repair, permissions changes, endpoint deployment or
 application deployment was performed in preparing it. No credentials were
-requested or inspected. Only this report is added in this task.
+requested or inspected. Only this existing report is updated in this audit.
+Local synthetic tests may create isolated ignored cache/build outputs; they do
+not change application behavior or access production. Findings identified here
+remain unfixed because behavior changes are outside this audit's authorization.
 
 ## 1. Evidence and conclusions
 
@@ -79,7 +86,7 @@ The first 20 are recorded according to supplied history. **Do not replay them.**
 | 17 | `20261030150000_member_pin_enrollment.sql` | Original one-use enrollment routine; later replaced by stricter eligibility/locking implementation. |
 | 18 | `20261030160000_global_pin_enrollment_rate_limit.sql` | Initial aggregate enrollment limiter. Superseded by next recorded migration. |
 | 19 | `20261030170000_rolling_pin_enrollment_rate_limit.sql` | Drops original limiter function/table and installs rolling event table/routine. Do not recreate the superseded table as a repair. |
-| 20 | `20261030180000_owner_list_members.sql` | Scoped Owner member directory, encrypted mobile returned only to trusted server for authorized decryption. |
+| 20 | `20261030180000_owner_list_members.sql` | Scoped Owner member directory returning id, memberCode, fullName, status and createdAt. No mobile ciphertext/hash or decryption is part of this list contract. |
 
 ### Pending migration compatibility matrix and execution order
 
@@ -90,6 +97,8 @@ until the named checks pass; all 17 versions are unrecorded in supplied history.
 Dependencies shown are principal predecessors in addition to the recorded
 baseline. Use the complete ascending order, not a subset inferred from missing
 frontend pages.
+Section 12 distinguishes direct source prerequisites from conservative release
+sequencing and governs any minimal-dependency interpretation of this matrix.
 
 | Order / filename | Principal dependencies | Intended objects / effects | Markers | Conflict, validation and recovery gate |
 | --- | --- | --- | --- | --- |
@@ -272,7 +281,7 @@ successful OPTIONS alone proves neither current code nor POST authorization.
 | --- | --- | --- |
 | owner-status | Present preflight | Baseline is_active_owner_for_user; final hardened ownership/ACL. |
 | owner-register-member | Present preflight | Baseline Owner lookup/register; final registration trigger/P07, Owner audit and mobile encryption/keyed lookup. |
-| owner-list-members | Present preflight | Baseline owner_list_members; final ACL and server-side mobile decryption. |
+| owner-list-members | Present preflight | Baseline owner_list_members; final ACL. Source returns no mobile material and performs no directory decryption. |
 | owner-list-membership-plans | Present preflight | P01 owner_list_membership_plans; P05 boundary. Endpoint presence does not establish RPC presence. |
 | owner-save-membership-plan | Present preflight | P01 owner_save_membership_plan and normalized unique index; P05. |
 | owner-create-membership-purchase | Missing, HTTP 404 | P02 purchase RPC plus P07 lifecycle guards and final P13/P16 finance semantics. |
@@ -310,8 +319,8 @@ against one accepted source snapshot, not just the 14 absent URLs.
   Do not assume a publishable-only server configuration supports every handler.
   Verify privately by configuration presence/type/project match, never values.
 - `MEMBER_MOBILE_HMAC_KEY_B64` supports normalized mobile lookup; registration
-  encryption and authorized directory decryption require
-  `MEMBER_MOBILE_ENCRYPTION_KEY_B64`. Preserve existing key identity and Owner
+  encryption requires `MEMBER_MOBILE_ENCRYPTION_KEY_B64`. Current directory
+  listing does not return/decrypt mobile data. Preserve existing key identity and Owner
   custody: changing them can break lookups/decryption and is not a migration fix.
 - Check-in also requires `PUBLIC_CHECKIN_LOOKUP_HMAC_KEY_B64`, `DUMMY_PIN_HASH`,
   `CHECKIN_GLOBAL_LIMIT_PER_MINUTE` and `CHECKIN_IDENTIFIER_LIMIT_PER_MINUTE`.
@@ -327,8 +336,9 @@ against one accepted source snapshot, not just the 14 absent URLs.
   token lifetime and runtime CPU/memory/shared-network/DoS acceptance remain
   gated. The approved 15-minute walk-in lifetime does **not** approve a PIN-token
   lifetime by analogy. Do not generate/export verifier hashes or tokens here.
-- Entry source imports the pinned Supabase JS SDK and, through shared PIN code,
-  npm/WASM dependencies. Verify the actual Deno bundling/import maps, dependency
+- Ten entrypoints pin Supabase JS to `2.118.0`; eleven use the broad `@2` import.
+  Shared PIN code also imports npm/WASM dependencies. Verify actual resolved
+  versions, lock/import-map coverage, Deno bundling, dependency
   resolution and runtime limits in isolation. Local cached typecheck is not
   evidence of hosted module/WASM availability or free-tier capacity.
 - Local function configuration sets `verify_jwt=false` for these handlers.
@@ -454,7 +464,7 @@ records. Finish the checklist below before opening operational use.
 | --- | --- | --- |
 | Offline source | All 37 files chronological inventory, dependencies, top-level AST syntax, exact reviewed bytes, 21 handlers/shared dispatch, default ACL and authorization review | This task inspected all 37, parsed 993 top-level statements with cached PostgreSQL 17 parser; five UTF-8 BOMs stripped in parser memory only. No migration files changed. Bodies/DO blocks reviewed from source; parsing is not runtime SQL validation. |
 | Baseline production metadata | Complete history/catalog/markers and exact stage-specific definitions | Owner aggregates only: 20 history, 88 absent/3 present, 22 ENABLE RLS. Identities/defaults/owners/policies/FORCE RLS and most definitions UNKNOWN. |
-| Historical local synthetic suites | Lint/type/build, 37 Node and 103 Deno tests, 21 Edge typechecks, all migrations/nine races and fixture browser tests | Prior PASS recorded in November 16 stabilization report. Not rerun for this report; not hosted certification. |
+| Local synthetic suites | Lint/type/build, 37 Node and 103 Deno tests, 21 Edge typechecks, all migrations/nine races and fixture browser tests | Historical evidence remains separate; fresh baseline-audit reruns and new negative probes are recorded in section 14. Not hosted certification. |
 | Hosted-compatible isolated replay | Same actor/runner/extensions/Postgres, partial-object cases, refusals and cleanup | UNKNOWN; must pass before production approval. |
 | Data blockers / recovery drill | Owner-only aggregate outcomes, actual isolated restore/time/key custody validation | UNKNOWN; no live data read by this task. |
 | Hosted full business and security acceptance | Real Auth/Edge/PostgREST/SQL with synthetic mutations in isolation | UNKNOWN. |
@@ -626,6 +636,352 @@ d852267853d37648c1454941f49341bc1b9c07d1f17974eff8f614a6562c6253  20261110180000
 6a052a9127e3c5ed571ffefe585a4969fefe616e302472f9ebf6bdd0d403463b  20261110190000_receipt_allocation_review.sql
 7a4c471bfb37afcc1346cd5ad87fc7cbb6db2c0a58142974b8411b0175c24ab9  20261110200000_operational_reports.sql
 ```
+
+
+## 11. Baseline security and integration audit findings
+
+Repository: `https://github.com/Jeddu02/gym-attendance-management`; local branch
+`review/production-recovery`, exact baseline `38fdf66`. Findings distinguish
+confirmed source/synthetic behavior from unknown hosted conditions. Severity
+measures operational/security impact; it does not assert that an unobserved
+production vulnerability is exploitable. No production endpoint was probed here.
+
+| ID | Severity | Finding / evidence state | Verified behavior or risk | Exact source evidence | Acceptance / disposition |
+| --- | --- | --- | --- | --- | --- |
+| A01 | HIGH ? release blocker | Supplied schema/HTTP deployment gaps; current per-object state UNKNOWN | 20/37 history and 88 absent markers do not support deploying the final code; 14 earlier gateway 404 endpoints are independent of SQL. Production metadata/HTTP was not refreshed in this task. | `docs/production-preflight/02-unrecorded-object-markers.sql:9`; `docs/STABILIZATION-2026-11-16.md:12` | Obtain complete private observations, verify all final dependencies, then separately approve deployments. |
+| A02 | HIGH ? migration blocker | Ownership-transfer authority not demonstrated | P05 rejects reserved memberships/schema CREATE while assigning objects/default ACLs to those roles. P11 has another reserved-role creation/ownership boundary. Local superuser PASS does not resolve hosted migration-actor compatibility. | `supabase/migrations/20261110100000_executor_hardening.sql:30`; `supabase/migrations/20261110100000_executor_hardening.sql:827`; `supabase/migrations/20261110100000_executor_hardening.sql:655`; `supabase/migrations/20261110150000_member_checkin.sql:11` | Demonstrate exact operator/runner authority and cleanup in a hosted-equivalent isolated test. Review any required source/authority solution separately; never relax final roles/RLS. |
+| A03 | HIGH ? security acceptance blocker | Effective creator defaults and inherited grants UNKNOWN | Reserved-owner default revocations do not harden objects created as postgres/other actor or remove inherited/unexpected existing grants. Inventory query filters creator names and anonymizes others; it cannot certify full effective future access. | `supabase/migrations/20261110100000_executor_hardening.sql:1135`; `docs/production-preflight/sql-editor/01-08-default-acls.sql:20` | Owner-private review of implicit/global/schema additions for actual creators; verify no direct data/API execution grants and least privilege. Any ACL correction needs explicit approval. |
+| A04 | HIGH ? data/recovery blocker | Source-confirmed refusals; affected live data UNKNOWN | Cash refuses every legacy drawer-session row; lifecycle/audit/correction guards can refuse prior history. P04 adds volatile-generated operation IDs to existing finance rows, and P13 replaces exclusion constraints. Missing versions do not make these safe. | `supabase/migrations/20261110170000_cash_operations.sql:10`; `supabase/migrations/20261103120000_owner_membership_payments.sql:6`; `supabase/migrations/20261110103000_audit_timezone.sql:24`; `supabase/migrations/20261110160000_receipt_review_corrections.sql:241` | Owner data-blocker outcomes, measured lock/rewrite plan, original-history preservation and tested recovery before approval; no guessed backfill/delete/rehash. |
+| A05 | MEDIUM ? reproduced integration defect | Malformed successful RPC response is masked as empty data | All three list handlers return HTTP 200 with [] when synthetic RPC JSON is an object. Frontend array checks accept the empty result, so RPC/schema contract drift can look like no records. | `supabase/functions/owner-list-members/index.ts:157`; `supabase/functions/owner-list-membership-plans/index.ts:151`; `supabase/functions/owner-list-membership-purchases/index.ts:129` | Future separately approved behavior fix must reject malformed/non-array data safely; tests must preserve legitimate empty arrays. No fix made in this audit. |
+| A06 | MEDIUM ? reproduced failure-path defect | Configuration-before-OPTIONS remains in older handlers | Five locally loaded handlers returned 503 to trusted-origin OPTIONS when only APP_ORIGIN was configured: member list, plan list/save and purchase create/list. Other paths share this source ordering. This is conditional failure handling, not proof of hosted CORS misconfiguration and not the cause of a gateway 404. | `supabase/functions/owner-list-members/index.ts:60`; `supabase/functions/owner-list-membership-plans/index.ts:28`; `supabase/functions/owner-create-membership-purchase/index.ts:28`; `supabase/functions/owner-attendance/index.ts:25` | Review an approved consistent preflight fix with exact-origin rejection and gated POST tests across all 21 endpoints. Existing eight-handler preflight tests do not cover every remaining path. |
+| A07 | HIGH ? reconciliation blocker | The three present occurrences remain unidentified | Plain CREATE/ADD COLUMN/index/policy/trigger statements can collide; OR REPLACE/IF NOT EXISTS do not prove definition compatibility. Marker count excludes P05/P06 and constraints/indexes/policies. | `supabase/migrations/20261103120000_owner_membership_payments.sql:5`; `supabase/migrations/20261103080000_owner_membership_plans.sql:29`; `docs/production-preflight/02-unrecorded-object-markers.sql:112` | Classify exact signatures/objects privately; preserve old source/history and hold on incompatible or unrecorded partial effects. |
+| A08 | MEDIUM ? integrity/UX limitation | Public creation has no lost-response recovery/idempotency key | Frontend prevents only current in-flight/repeated success in memory. A lost committed response or reload loses the reference; a retry may create a separate provisional request. This does not itself confirm money/attendance, but at-most-once creation is not established. | `src/components/EntrancePage.tsx:86`; `src/components/EntrancePage.tsx:92`; `supabase/migrations/20261110140000_walkin_operations.sql:261` | Owner-approved recovery/duplicate-request decision and isolated lost-response tests before operational release; never auto-confirm or blindly resubmit a paid request. |
+| A09 | MEDIUM ? deployment reproducibility risk | Mixed SDK version specifications | Eleven entrypoints import @supabase/supabase-js@2 while ten pin 2.118.0. Local Node adapter tests use the installed SDK and do not certify every Deno deployment resolved the identical version. | `supabase/functions/owner-register-member/index.ts:1`; `supabase/functions/owner-membership-payments/index.ts:1`; `supabase/functions/owner-walkins/index.ts:1` | Verify actual lock/import-map/bundle resolution and runtime acceptance privately; review any dependency pin changes separately. No known vulnerability is inferred from the version range. |
+| A10 | LOW ? configuration compatibility | Public Auth key fallback is not uniform | Registration reads SUPABASE_ANON_KEY only, while other Owner handlers allow a publishable fallback. A publishable-only server configuration would leave registration unavailable. Actual hosted key configuration is UNKNOWN. | `supabase/functions/owner-register-member/index.ts:13`; `supabase/functions/owner-walkins/index.ts:7` | Verify compatible server key presence/type/project privately; never request values or expose service keys. |
+| A11 | LOW ? invalid-input contract difference | Reset token format is narrower than common UI validation | Shared PIN page accepts 40?128 URL-safe characters, but reset parser requires exactly 43. Current generated tokens use 32 random bytes / 43 base64url characters, so no generated-token happy-path failure was found. | `src/components/PinSetupPage.tsx:10`; `supabase/functions/_shared/pin-recovery.ts:37`; `supabase/functions/_shared/pin-enrollment.ts:7` | Add approved contract tests for generated valid tokens and malformed lengths; retain generic responses and no Owner PIN disclosure. |
+
+Authorization source review found verified-actor forwarding and SQL active-Owner
+checks for the intended privileged paths; it did **not** demonstrate a new
+unauthorized access bypass. Static patterns/fixtures cannot certify every hosted
+JWT, RLS or runtime policy. No Manager/front-desk role or member login/dashboard
+was added. The permanent QR contains only the public entrance URL: Member ID or
+mobile plus PIN is entered privately afterward; no identity-bearing QR redesign
+is proposed.
+
+The three list envelopes intentionally omit success=true; their current clients
+check the arrays, so that inconsistency alone is not a happy-path mismatch.
+Member registration returns member_code and the client accepts it alongside
+memberCode. The earlier report incorrectly described mobile decryption in the
+directory path; the actual RPC returns only id/memberCode/fullName/status/createdAt
+and no mobile material. The baseline/table and Edge sections above are corrected.
+
+## 12. Direct migration dependencies versus conservative release order
+
+This supplements the compatibility matrix in section 2. It distinguishes actual
+object/routine/column/policy requirements from merely earlier version numbers.
+The safe supported order remains P01 through P17; this is not permission to skip
+chronological predecessors. Dependencies include runtime grants/policies, not
+only whether PostgreSQL can create a deferred PL/pgSQL body. Function-body
+creation can succeed even when its first runtime invocation would fail.
+
+| Pending migration | Direct prerequisites and ordering qualification | Required output / evidence |
+| --- | --- | --- |
+| P01 `supabase/migrations/20261103080000_owner_membership_plans.sql` | Recorded plans/Owner/audit; no new routine from another pending migration is called. | Normalized index and plan list/save. `supabase/migrations/20261103080000_owner_membership_plans.sql:29` |
+| P02 `supabase/migrations/20261103100000_owner_create_membership_purchase.sql` | Recorded members/plans/purchases/Owner/audit. P01 is chronological/security-index ordering, not a direct plan-list RPC call. | Purchase creation and price snapshot. `supabase/migrations/20261103100000_owner_create_membership_purchase.sql:3` |
+| P03 `supabase/migrations/20261103110000_owner_list_membership_purchases.sql` | Recorded members/plans/purchases/Owner. P02 is source lineage, not a call dependency. | Original purchase list, later replaced in P04/P16. `supabase/migrations/20261103110000_owner_list_membership_purchases.sql:3` |
+| P04 `supabase/migrations/20261103120000_owner_membership_payments.sql` | Recorded finance tables/audit; supersedes the P03 routine body. Preserve P01?P03 sequence for P05 input/history. | Adds two payment columns, five indexes and ten triggers before hardening. `supabase/migrations/20261103120000_owner_membership_payments.sql:6` |
+| P05 `supabase/migrations/20261110100000_executor_hardening.sql` | Exact P01 plan functions/index, P02 purchase function and P04 payment/list/trigger/index output plus recorded baseline. P03 remains a chronological predecessor. | 25 exact routine signatures/bodies, 22 table inventories, roles/ACL/RLS/sequence/trigger/index/constraint assertions. `supabase/migrations/20261110100000_executor_hardening.sql:588`; `supabase/migrations/20261110100000_executor_hardening.sql:827` |
+| P06 `supabase/migrations/20261110103000_audit_timezone.sql` | P05-owned invoker hash helper; recorded audit verifier under hardened executor and existing events/heads. | UTC source compatibility before altering helper configuration. `supabase/migrations/20261110103000_audit_timezone.sql:11` |
+| P07 `supabase/migrations/20261110110000_membership_lifecycle.sql` | P04 target receipt column/guards, P05 roles/ownership/FORCE RLS; P06 required for safe audited execution. | Lifecycle helpers, approval/activation, dated-state/approval/exact-paid preconditions. `supabase/migrations/20261110110000_membership_lifecycle.sql:12` |
+| P08 `supabase/migrations/20261110120000_owner_reporting.sql` | P05 protected Owner/attendance privileges and explicit P07 activation-routine existence check. | Attendance SELECT policy, dashboard/audit RPCs. `supabase/migrations/20261110120000_owner_reporting.sql:22` |
+| P09 `supabase/migrations/20261110130000_pin_recovery.sql` | P05 Owner/public executors and baseline issuer/token/credential/rolling limiter. P07/P08 retained for approved lifecycle/release order; no call to their report RPCs. | Verified issuer/reset and old raw issuer revocation. `supabase/migrations/20261110130000_pin_recovery.sql:21`; `supabase/migrations/20261110130000_pin_recovery.sql:141` |
+| P10 `supabase/migrations/20261110140000_walkin_operations.sql` | P04 operation-ID/payment integrity, P05 roles/audit; P08 Owner attendance SELECT policy for complete confirmation/read behavior. P07/P09 retained as release predecessors. | Walk-in method/rate/review, guarded confirmation and provisional creation. `supabase/migrations/20261110140000_walkin_operations.sql:33`; `supabase/migrations/20261110140000_walkin_operations.sql:312` |
+| P11 `supabase/migrations/20261110150000_member_checkin.sql` | P04 receipt target/basis columns, P05 private/public/audit boundary. P07 lifecycle and P09 credential-reset semantics retained for complete release; P10 is chronological, not a direct call to walk-in RPCs. | Verifier role, member basis/rate tables and reserve/prepare/commit. `supabase/migrations/20261110150000_member_checkin.sql:11`; `supabase/migrations/20261110150000_member_checkin.sql:40` |
+| P12 `supabase/migrations/20261110153000_owner_attendance.sql` | P11 attendance membership_purchase_id column; P05 Owner and P08 attendance SELECT policy. | Owner history and validity-resolution read policy. `supabase/migrations/20261110153000_owner_attendance.sql:4` |
+| P13 `supabase/migrations/20261110160000_receipt_review_corrections.sql` | P04 immutable/payment guards; P07 lifecycle helpers/guards; P10 receipt_review/walk-in guards; P11 credential/basis and check-in role; P12 resolution read privileges. Baseline named btree_gist overlap constraint required. | Four verification/void/replacement tables, correction guards and overlap replacement. `supabase/migrations/20261110160000_receipt_review_corrections.sql:12`; `supabase/migrations/20261110160000_receipt_review_corrections.sql:241` |
+| P14 `supabase/migrations/20261110170000_cash_operations.sql` | P13 assert_receipt_review_owner/is_receipt_verified; P04 immutable history helper; P05 Owner boundary and recorded cash tables. | Daily cash metadata requires zero legacy sessions. `supabase/migrations/20261110170000_cash_operations.sql:10`; `supabase/migrations/20261110170000_cash_operations.sql:118` |
+| P15 `supabase/migrations/20261110180000_provisional_claims.sql` | P11 member_checkin_eligible_purchase and attendance membership basis; P04 append-only helper; P05 Owner boundary. P13 final void semantics and P14 chronological order retained. | Immutable claim/resolution, current-presence-only path. `supabase/migrations/20261110180000_provisional_claims.sql:5`; `supabase/migrations/20261110180000_provisional_claims.sql:37` |
+| P16 `supabase/migrations/20261110190000_receipt_allocation_review.sql` | P13 verification/void tables/helpers; P10 walk-in review/allocation guards; P11 eligibility; P07 paid/lifecycle helpers; P08 summary; P04/P03 payment/purchase-list lineage. P14/P15 retained chronologically. | Reviewed allocation + eight replacement definitions; no dependency on P14 cash RPCs. `supabase/migrations/20261110190000_receipt_allocation_review.sql:8`; `supabase/migrations/20261110190000_receipt_allocation_review.sql:49` |
+| P17 `supabase/migrations/20261110200000_operational_reports.sql` | P16 receipt_membership_target_matches and final eligibility/paid-date helpers; P11 eligibility and P07 lifecycle facts with P05 Owner policies. | Final income, expiry and payable RPC contracts. `supabase/migrations/20261110200000_operational_reports.sql:25`; `supabase/migrations/20261110200000_operational_reports.sql:58` |
+
+Recorded-source audit covers all 20 files listed in section 2; each path is
+`supabase/migrations/<exact filename>`. All 37 were opened and parsed again at
+38fdf66 (993 statements). DDL, function bodies, role assertions, constraints,
+SQL/RPC dispatch and shared source were reviewed; syntax parsing alone is not
+being represented as database compatibility. No record-level production state
+was available to resolve conflict/data-dependent conditions.
+
+## 13. Exact endpoint RPC edges and marker consumer cross-reference
+
+This section is source-derived from all 21 entrypoints and 16 unique recursively
+imported runtime shared modules (37 runtime source files). It does not execute
+handlers or inspect hosted dependencies. Direct RPC names include action dispatch
+in shared modules. Each database source link points to the **final local** routine
+definition; first-introduction versions and replay requirements remain in section 2.
+
+### 13.1 Direct Edge-to-RPC matrix
+
+All endpoint filenames below use their exact repository paths. Imported
+dispatch modules are included when resolving dynamic rpc/rpcName variables.
+
+| Edge entrypoint | Direct API RPCs ? final local definition |
+| --- | --- |
+| `supabase/functions/member-checkin/index.ts:1` | `api.reserve_member_checkin_request` ? `supabase/migrations/20261110150000_member_checkin.sql:130`; `api.prepare_member_checkin` ? `supabase/migrations/20261110150000_member_checkin.sql:170`; `api.commit_member_checkin` ? `supabase/migrations/20261110150000_member_checkin.sql:188` |
+| `supabase/functions/member-enroll-pin/index.ts:1` | `api.member_enroll_pin` ? `supabase/migrations/20261110130000_pin_recovery.sql:101`; `api.reserve_pin_enrollment_request` ? `supabase/migrations/20261030170000_rolling_pin_enrollment_rate_limit.sql:21` |
+| `supabase/functions/member-reset-pin/index.ts:1` | `api.reserve_pin_enrollment_request` ? `supabase/migrations/20261030170000_rolling_pin_enrollment_rate_limit.sql:21`; `api.member_reset_pin` ? `supabase/migrations/20261110130000_pin_recovery.sql:66` |
+| `supabase/functions/owner-attendance/index.ts:1` | `api.owner_list_attendance` ? `supabase/migrations/20261110153000_owner_attendance.sql:9` |
+| `supabase/functions/owner-attendance-claims/index.ts:1` | `api.owner_submit_attendance_claim` ? `supabase/migrations/20261110180000_provisional_claims.sql:39`; `api.owner_resolve_attendance_claim` ? `supabase/migrations/20261110180000_provisional_claims.sql:62`; `api.owner_list_attendance_claims` ? `supabase/migrations/20261110180000_provisional_claims.sql:102` |
+| `supabase/functions/owner-cash/index.ts:1` | `api.owner_open_cash_drawer` ? `supabase/migrations/20261110170000_cash_operations.sql:69`; `api.owner_close_cash_drawer` ? `supabase/migrations/20261110170000_cash_operations.sql:94`; `api.owner_list_cash_drawers` ? `supabase/migrations/20261110170000_cash_operations.sql:130` |
+| `supabase/functions/owner-create-membership-purchase/index.ts:1` | `api.owner_create_membership_purchase` ? `supabase/migrations/20261103100000_owner_create_membership_purchase.sql:3` |
+| `supabase/functions/owner-create-pin-enrollment-token/index.ts:1` | `api.owner_create_verified_pin_enrollment_token` ? `supabase/migrations/20261110130000_pin_recovery.sql:21` |
+| `supabase/functions/owner-create-pin-recovery-token/index.ts:1` | `api.owner_create_pin_recovery_token` ? `supabase/migrations/20261110130000_pin_recovery.sql:39` |
+| `supabase/functions/owner-list-members/index.ts:1` | `api.owner_list_members` ? `supabase/migrations/20261030180000_owner_list_members.sql:3` |
+| `supabase/functions/owner-list-membership-plans/index.ts:1` | `api.owner_list_membership_plans` ? `supabase/migrations/20261103080000_owner_membership_plans.sql:37` |
+| `supabase/functions/owner-list-membership-purchases/index.ts:1` | `api.owner_list_membership_purchases` ? `supabase/migrations/20261110190000_receipt_allocation_review.sql:403` |
+| `supabase/functions/owner-membership-lifecycle/index.ts:1` | `api.owner_approve_member` ? `supabase/migrations/20261110110000_membership_lifecycle.sql:220`; `api.owner_activate_membership_purchase` ? `supabase/migrations/20261110110000_membership_lifecycle.sql:253` |
+| `supabase/functions/owner-membership-payments/index.ts:1` | `api.owner_record_membership_payment` ? `supabase/migrations/20261103120000_owner_membership_payments.sql:246`; `api.owner_confirm_membership_payment` ? `supabase/migrations/20261103120000_owner_membership_payments.sql:399`; `api.owner_reject_membership_payment` ? `supabase/migrations/20261103120000_owner_membership_payments.sql:498`; `api.owner_list_membership_payments` ? `supabase/migrations/20261110190000_receipt_allocation_review.sql:271`; `api.owner_list_payable_purchases` ? `supabase/migrations/20261110200000_operational_reports.sql:58` |
+| `supabase/functions/owner-receipt-review/index.ts:1` | `api.owner_verify_actual_receipt` ? `supabase/migrations/20261110160000_receipt_review_corrections.sql:90`; `api.owner_record_actual_receipt` ? `supabase/migrations/20261110160000_receipt_review_corrections.sql:118`; `api.owner_list_receipt_review` ? `supabase/migrations/20261110160000_receipt_review_corrections.sql:163`; `api.owner_void_payment_confirmation` ? `supabase/migrations/20261110160000_receipt_review_corrections.sql:278`; `api.owner_allocate_verified_receipt` ? `supabase/migrations/20261110190000_receipt_allocation_review.sql:42` |
+| `supabase/functions/owner-register-member/index.ts:1` | `api.is_active_owner_for_user` ? `supabase/migrations/20261029100000_owner_authorization_rpc.sql:8`; `api.owner_register_member` ? `supabase/migrations/20261030130000_owner_register_member.sql:3` |
+| `supabase/functions/owner-reporting/index.ts:1` | `api.owner_dashboard_summary` ? `supabase/migrations/20261110190000_receipt_allocation_review.sql:210`; `api.owner_list_audit_events` ? `supabase/migrations/20261110120000_owner_reporting.sql:78`; `api.owner_income_report` ? `supabase/migrations/20261110200000_operational_reports.sql:5`; `api.owner_expiry_reminders` ? `supabase/migrations/20261110200000_operational_reports.sql:31` |
+| `supabase/functions/owner-save-membership-plan/index.ts:1` | `api.owner_save_membership_plan` ? `supabase/migrations/20261103080000_owner_membership_plans.sql:75` |
+| `supabase/functions/owner-status/index.ts:1` | `api.is_active_owner_for_user` ? `supabase/migrations/20261029100000_owner_authorization_rpc.sql:8` |
+| `supabase/functions/owner-walkins/index.ts:1` | `api.owner_set_walkin_fee` ? `supabase/migrations/20261110140000_walkin_operations.sql:237`; `api.owner_list_walkin_requests` ? `supabase/migrations/20261110140000_walkin_operations.sql:289`; `api.owner_confirm_walkin` ? `supabase/migrations/20261110140000_walkin_operations.sql:312` |
+| `supabase/functions/public-walkin-request/index.ts:1` | `api.public_create_walkin_request` ? `supabase/migrations/20261110140000_walkin_operations.sql:261` |
+
+### 13.2 All 79 distinct declaration markers and potential consumers
+
+These are candidates covered by the 91-occurrence inventory, **not 79 confirmed
+missing objects**. The supplied aggregate does not identify which occurrences
+are absent/present, so per-object production state is UNKNOWN throughout.
+The source column records every marker version and its declaration line when
+available. Routine replacements intentionally repeat across versions.
+
+Consumer mapping follows direct RPC roots, qualified function/table references
+and statically declared triggers on referenced tables. Column markers inherit
+their relation consumers rather than claiming exact column-level access. Trigger-protection edges
+are conservative structural dependencies, including read-only consumers that
+rely on protected data; they do not assert that a SELECT fires a trigger. Dynamic
+SQL/policy/constraint/extension dependencies require the explicit migration matrix
+and full isolated replay too. All consumers are potential release impact, not
+evidence that a handler directly executes a private helper/table.
+
+| Marker object (kind) | Source declaration(s) | Potential Edge consumers (structural, transitive) |
+| --- | --- | --- |
+| `api.owner_list_membership_plans` (routine_name) | `supabase/migrations/20261103080000_owner_membership_plans.sql:37` | `owner-list-membership-plans` |
+| `api.owner_save_membership_plan` (routine_name) | `supabase/migrations/20261103080000_owner_membership_plans.sql:75` | `owner-save-membership-plan` |
+| `api.owner_create_membership_purchase` (routine_name) | `supabase/migrations/20261103100000_owner_create_membership_purchase.sql:3` | `owner-create-membership-purchase` |
+| `api.owner_list_membership_purchases` (routine_name) | `supabase/migrations/20261103110000_owner_list_membership_purchases.sql:3`; `supabase/migrations/20261103120000_owner_membership_payments.sql:694`; `supabase/migrations/20261110190000_receipt_allocation_review.sql:403` | `owner-list-membership-purchases` |
+| `private.guard_membership_payment_record_insert` (routine_name) | `supabase/migrations/20261103120000_owner_membership_payments.sql:38` | `member-checkin`, `owner-attendance`, `owner-attendance-claims`, `owner-cash`, `owner-create-membership-purchase`, `owner-list-membership-purchases`, `owner-membership-lifecycle`, `owner-membership-payments`, `owner-receipt-review`, `owner-reporting`, `owner-walkins`, `public-walkin-request` |
+| `private.guard_membership_payment_record_update` (routine_name) | `supabase/migrations/20261103120000_owner_membership_payments.sql:84`; `supabase/migrations/20261110160000_receipt_review_corrections.sql:187` | `member-checkin`, `owner-attendance`, `owner-attendance-claims`, `owner-cash`, `owner-create-membership-purchase`, `owner-list-membership-purchases`, `owner-membership-lifecycle`, `owner-membership-payments`, `owner-receipt-review`, `owner-reporting`, `owner-walkins`, `public-walkin-request` |
+| `private.guard_membership_payment_allocation` (routine_name) | `supabase/migrations/20261103120000_owner_membership_payments.sql:121`; `supabase/migrations/20261110190000_receipt_allocation_review.sql:112` | `member-checkin`, `owner-attendance`, `owner-attendance-claims`, `owner-cash`, `owner-create-membership-purchase`, `owner-list-membership-purchases`, `owner-membership-lifecycle`, `owner-membership-payments`, `owner-receipt-review`, `owner-reporting`, `owner-walkins`, `public-walkin-request` |
+| `private.prevent_payment_history_mutation` (routine_name) | `supabase/migrations/20261103120000_owner_membership_payments.sql:163` | `member-checkin`, `owner-attendance`, `owner-attendance-claims`, `owner-cash`, `owner-create-membership-purchase`, `owner-list-membership-purchases`, `owner-membership-lifecycle`, `owner-membership-payments`, `owner-receipt-review`, `owner-reporting`, `owner-walkins`, `public-walkin-request` |
+| `private.guard_purchase_pending_activation` (routine_name) | `supabase/migrations/20261103120000_owner_membership_payments.sql:206`; `supabase/migrations/20261110190000_receipt_allocation_review.sql:149` | `member-checkin`, `owner-attendance`, `owner-attendance-claims`, `owner-cash`, `owner-create-membership-purchase`, `owner-list-membership-purchases`, `owner-membership-lifecycle`, `owner-membership-payments`, `owner-receipt-review`, `owner-reporting`, `owner-walkins`, `public-walkin-request` |
+| `api.owner_record_membership_payment` (routine_name) | `supabase/migrations/20261103120000_owner_membership_payments.sql:246` | `owner-membership-payments` |
+| `api.owner_confirm_membership_payment` (routine_name) | `supabase/migrations/20261103120000_owner_membership_payments.sql:399` | `owner-membership-payments` |
+| `api.owner_reject_membership_payment` (routine_name) | `supabase/migrations/20261103120000_owner_membership_payments.sql:498` | `owner-membership-payments` |
+| `api.owner_list_membership_payments` (routine_name) | `supabase/migrations/20261103120000_owner_membership_payments.sql:559`; `supabase/migrations/20261110190000_receipt_allocation_review.sql:271` | `owner-membership-payments` |
+| `private.payment_records.operation_id` (column) | `supabase/migrations/20261103120000_owner_membership_payments.sql:6` | `member-checkin`, `owner-attendance`, `owner-attendance-claims`, `owner-cash`, `owner-create-membership-purchase`, `owner-list-membership-purchases`, `owner-membership-lifecycle`, `owner-membership-payments`, `owner-receipt-review`, `owner-reporting`, `owner-walkins`, `public-walkin-request` |
+| `private.membership_inclusive_expiry` (routine_name) | `supabase/migrations/20261110110000_membership_lifecycle.sql:63` | `member-checkin`, `owner-attendance`, `owner-attendance-claims`, `owner-cash`, `owner-create-membership-purchase`, `owner-list-membership-purchases`, `owner-membership-lifecycle`, `owner-membership-payments`, `owner-receipt-review`, `owner-reporting`, `owner-walkins`, `public-walkin-request` |
+| `private.membership_payment_confirmed_at` (routine_name) | `supabase/migrations/20261110110000_membership_lifecycle.sql:75`; `supabase/migrations/20261110190000_receipt_allocation_review.sql:184` | `member-checkin`, `owner-attendance`, `owner-attendance-claims`, `owner-cash`, `owner-create-membership-purchase`, `owner-list-membership-purchases`, `owner-membership-lifecycle`, `owner-membership-payments`, `owner-receipt-review`, `owner-reporting`, `owner-walkins`, `public-walkin-request` |
+| `private.membership_activation_dates` (routine_name) | `supabase/migrations/20261110110000_membership_lifecycle.sql:92`; `supabase/migrations/20261110160000_receipt_review_corrections.sql:343` | `member-checkin`, `owner-attendance`, `owner-attendance-claims`, `owner-cash`, `owner-create-membership-purchase`, `owner-list-membership-purchases`, `owner-membership-lifecycle`, `owner-membership-payments`, `owner-receipt-review`, `owner-reporting`, `owner-walkins`, `public-walkin-request` |
+| `private.guard_member_registration_approval` (routine_name) | `supabase/migrations/20261110110000_membership_lifecycle.sql:149` | `member-checkin`, `member-enroll-pin`, `member-reset-pin`, `owner-attendance`, `owner-attendance-claims`, `owner-cash`, `owner-create-membership-purchase`, `owner-create-pin-enrollment-token`, `owner-create-pin-recovery-token`, `owner-list-members`, `owner-list-membership-purchases`, `owner-membership-lifecycle`, `owner-membership-payments`, `owner-receipt-review`, `owner-register-member`, `owner-reporting`, `owner-walkins`, `public-walkin-request` |
+| `private.guard_membership_lifecycle` (routine_name) | `supabase/migrations/20261110110000_membership_lifecycle.sql:173`; `supabase/migrations/20261110160000_receipt_review_corrections.sql:202` | `member-checkin`, `owner-attendance`, `owner-attendance-claims`, `owner-cash`, `owner-create-membership-purchase`, `owner-list-membership-purchases`, `owner-membership-lifecycle`, `owner-membership-payments`, `owner-receipt-review`, `owner-reporting`, `owner-walkins`, `public-walkin-request` |
+| `api.owner_approve_member` (routine_name) | `supabase/migrations/20261110110000_membership_lifecycle.sql:220` | `owner-membership-lifecycle` |
+| `api.owner_activate_membership_purchase` (routine_name) | `supabase/migrations/20261110110000_membership_lifecycle.sql:253` | `owner-membership-lifecycle` |
+| `api.owner_dashboard_summary` (routine_name) | `supabase/migrations/20261110120000_owner_reporting.sql:34`; `supabase/migrations/20261110190000_receipt_allocation_review.sql:210` | `owner-reporting` |
+| `api.owner_list_audit_events` (routine_name) | `supabase/migrations/20261110120000_owner_reporting.sql:78` | `owner-reporting` |
+| `api.owner_create_verified_pin_enrollment_token` (routine_name) | `supabase/migrations/20261110130000_pin_recovery.sql:21` | `owner-create-pin-enrollment-token` |
+| `api.owner_create_pin_recovery_token` (routine_name) | `supabase/migrations/20261110130000_pin_recovery.sql:39` | `owner-create-pin-recovery-token` |
+| `api.member_reset_pin` (routine_name) | `supabase/migrations/20261110130000_pin_recovery.sql:66` | `member-reset-pin` |
+| `api.member_enroll_pin` (routine_name) | `supabase/migrations/20261110130000_pin_recovery.sql:101` | `member-enroll-pin` |
+| `private.prevent_walkin_history_mutation` (routine_name) | `supabase/migrations/20261110140000_walkin_operations.sql:104` | `member-checkin`, `owner-attendance`, `owner-attendance-claims`, `owner-cash`, `owner-create-membership-purchase`, `owner-list-membership-purchases`, `owner-membership-lifecycle`, `owner-membership-payments`, `owner-receipt-review`, `owner-reporting`, `owner-walkins`, `public-walkin-request` |
+| `private.guard_walkin_request_snapshot` (routine_name) | `supabase/migrations/20261110140000_walkin_operations.sql:122` | `member-checkin`, `owner-attendance`, `owner-attendance-claims`, `owner-cash`, `owner-create-membership-purchase`, `owner-list-membership-purchases`, `owner-membership-lifecycle`, `owner-membership-payments`, `owner-receipt-review`, `owner-reporting`, `owner-walkins`, `public-walkin-request` |
+| `private.guard_walkin_allocation` (routine_name) | `supabase/migrations/20261110140000_walkin_operations.sql:167`; `supabase/migrations/20261110190000_receipt_allocation_review.sql:251` | `member-checkin`, `owner-attendance`, `owner-attendance-claims`, `owner-cash`, `owner-create-membership-purchase`, `owner-list-membership-purchases`, `owner-membership-lifecycle`, `owner-membership-payments`, `owner-receipt-review`, `owner-reporting`, `owner-walkins`, `public-walkin-request` |
+| `private.guard_paid_walkin_attendance` (routine_name) | `supabase/migrations/20261110140000_walkin_operations.sql:192` | `member-checkin`, `owner-attendance`, `owner-attendance-claims`, `owner-cash`, `owner-create-membership-purchase`, `owner-list-membership-purchases`, `owner-membership-lifecycle`, `owner-membership-payments`, `owner-receipt-review`, `owner-reporting`, `owner-walkins`, `public-walkin-request` |
+| `private.guard_walkin_receipt_review` (routine_name) | `supabase/migrations/20261110140000_walkin_operations.sql:217` | `member-checkin`, `owner-attendance`, `owner-attendance-claims`, `owner-cash`, `owner-create-membership-purchase`, `owner-list-membership-purchases`, `owner-membership-lifecycle`, `owner-membership-payments`, `owner-receipt-review`, `owner-reporting`, `owner-walkins`, `public-walkin-request` |
+| `api.owner_set_walkin_fee` (routine_name) | `supabase/migrations/20261110140000_walkin_operations.sql:237` | `owner-walkins` |
+| `api.public_create_walkin_request` (routine_name) | `supabase/migrations/20261110140000_walkin_operations.sql:261` | `public-walkin-request` |
+| `api.owner_list_walkin_requests` (routine_name) | `supabase/migrations/20261110140000_walkin_operations.sql:289` | `owner-walkins` |
+| `api.owner_confirm_walkin` (routine_name) | `supabase/migrations/20261110140000_walkin_operations.sql:312` | `owner-walkins` |
+| `private.walkin_request_rate_events` (relation) | `supabase/migrations/20261110140000_walkin_operations.sql:40` | `public-walkin-request` |
+| `private.receipt_review` (relation) | `supabase/migrations/20261110140000_walkin_operations.sql:59` | `member-checkin`, `owner-attendance`, `owner-attendance-claims`, `owner-cash`, `owner-create-membership-purchase`, `owner-list-membership-purchases`, `owner-membership-lifecycle`, `owner-membership-payments`, `owner-receipt-review`, `owner-reporting`, `owner-walkins`, `public-walkin-request` |
+| `private.walkin_requests.requested_payment_method` (column) | `supabase/migrations/20261110140000_walkin_operations.sql:33` | `member-checkin`, `owner-attendance`, `owner-attendance-claims`, `owner-cash`, `owner-create-membership-purchase`, `owner-list-membership-purchases`, `owner-membership-lifecycle`, `owner-membership-payments`, `owner-receipt-review`, `owner-reporting`, `owner-walkins`, `public-walkin-request` |
+| `private.member_checkin_eligible_purchase` (routine_name) | `supabase/migrations/20261110150000_member_checkin.sql:90`; `supabase/migrations/20261110190000_receipt_allocation_review.sql:196` | `member-checkin`, `owner-attendance`, `owner-attendance-claims`, `owner-cash`, `owner-create-membership-purchase`, `owner-list-membership-purchases`, `owner-membership-lifecycle`, `owner-membership-payments`, `owner-receipt-review`, `owner-reporting`, `owner-walkins`, `public-walkin-request` |
+| `private.guard_member_attendance_basis` (routine_name) | `supabase/migrations/20261110150000_member_checkin.sql:107` | `member-checkin`, `owner-attendance`, `owner-attendance-claims`, `owner-cash`, `owner-create-membership-purchase`, `owner-list-membership-purchases`, `owner-membership-lifecycle`, `owner-membership-payments`, `owner-receipt-review`, `owner-reporting`, `owner-walkins`, `public-walkin-request` |
+| `api.reserve_member_checkin_request` (routine_name) | `supabase/migrations/20261110150000_member_checkin.sql:130` | `member-checkin` |
+| `api.prepare_member_checkin` (routine_name) | `supabase/migrations/20261110150000_member_checkin.sql:170` | `member-checkin` |
+| `api.commit_member_checkin` (routine_name) | `supabase/migrations/20261110150000_member_checkin.sql:188` | `member-checkin` |
+| `private.member_checkin_rate_events` (relation) | `supabase/migrations/20261110150000_member_checkin.sql:50` | `member-checkin` |
+| `private.attendance_checkins.membership_purchase_id` (column) | `supabase/migrations/20261110150000_member_checkin.sql:40` | `member-checkin`, `owner-attendance`, `owner-attendance-claims`, `owner-cash`, `owner-create-membership-purchase`, `owner-list-membership-purchases`, `owner-membership-lifecycle`, `owner-membership-payments`, `owner-receipt-review`, `owner-reporting`, `owner-walkins`, `public-walkin-request` |
+| `api.owner_list_attendance` (routine_name) | `supabase/migrations/20261110153000_owner_attendance.sql:9` | `owner-attendance` |
+| `private.assert_receipt_review_owner` (routine_name) | `supabase/migrations/20261110160000_receipt_review_corrections.sql:64` | `owner-cash`, `owner-receipt-review` |
+| `private.is_receipt_verified` (routine_name) | `supabase/migrations/20261110160000_receipt_review_corrections.sql:79` | `owner-cash`, `owner-receipt-review` |
+| `api.owner_verify_actual_receipt` (routine_name) | `supabase/migrations/20261110160000_receipt_review_corrections.sql:90` | `owner-receipt-review` |
+| `api.owner_record_actual_receipt` (routine_name) | `supabase/migrations/20261110160000_receipt_review_corrections.sql:118` | `owner-receipt-review` |
+| `api.owner_list_receipt_review` (routine_name) | `supabase/migrations/20261110160000_receipt_review_corrections.sql:163` | `owner-receipt-review` |
+| `private.guard_attendance_payment_invalidation` (routine_name) | `supabase/migrations/20261110160000_receipt_review_corrections.sql:257` | `member-checkin`, `owner-attendance`, `owner-attendance-claims`, `owner-cash`, `owner-create-membership-purchase`, `owner-list-membership-purchases`, `owner-membership-lifecycle`, `owner-membership-payments`, `owner-receipt-review`, `owner-reporting`, `owner-walkins`, `public-walkin-request` |
+| `api.owner_void_payment_confirmation` (routine_name) | `supabase/migrations/20261110160000_receipt_review_corrections.sql:278` | `owner-receipt-review` |
+| `private.receipt_verifications` (relation) | `supabase/migrations/20261110160000_receipt_review_corrections.sql:12` | `owner-cash`, `owner-receipt-review` |
+| `private.payment_confirmation_voids` (relation) | `supabase/migrations/20261110160000_receipt_review_corrections.sql:19` | `member-checkin`, `owner-attendance`, `owner-attendance-claims`, `owner-cash`, `owner-create-membership-purchase`, `owner-list-membership-purchases`, `owner-membership-lifecycle`, `owner-membership-payments`, `owner-receipt-review`, `owner-reporting`, `owner-walkins`, `public-walkin-request` |
+| `private.receipt_verification_voids` (relation) | `supabase/migrations/20261110160000_receipt_review_corrections.sql:28` | `owner-cash`, `owner-receipt-review` |
+| `private.receipt_replacement_links` (relation) | `supabase/migrations/20261110160000_receipt_review_corrections.sql:36` | `owner-receipt-review` |
+| `private.guard_cash_session` (routine_name) | `supabase/migrations/20261110170000_cash_operations.sql:54` | `owner-cash` |
+| `api.owner_open_cash_drawer` (routine_name) | `supabase/migrations/20261110170000_cash_operations.sql:69` | `owner-cash` |
+| `api.owner_close_cash_drawer` (routine_name) | `supabase/migrations/20261110170000_cash_operations.sql:94` | `owner-cash` |
+| `api.owner_list_cash_drawers` (routine_name) | `supabase/migrations/20261110170000_cash_operations.sql:130` | `owner-cash` |
+| `private.cash_reconciliation_receipts` (relation) | `supabase/migrations/20261110170000_cash_operations.sql:20` | `owner-cash` |
+| `private.cash_drawer_sessions.business_date` (column) | `supabase/migrations/20261110170000_cash_operations.sql:15` | `owner-cash` |
+| `private.cash_drawer_sessions.operation_id` (column) | `supabase/migrations/20261110170000_cash_operations.sql:16` | `owner-cash` |
+| `private.cash_reconciliations.reason` (column) | `supabase/migrations/20261110170000_cash_operations.sql:18` | `owner-cash` |
+| `private.cash_reconciliations.evidence_reference` (column) | `supabase/migrations/20261110170000_cash_operations.sql:19` | `owner-cash` |
+| `api.owner_submit_attendance_claim` (routine_name) | `supabase/migrations/20261110180000_provisional_claims.sql:39` | `owner-attendance-claims` |
+| `api.owner_resolve_attendance_claim` (routine_name) | `supabase/migrations/20261110180000_provisional_claims.sql:62` | `owner-attendance-claims` |
+| `api.owner_list_attendance_claims` (routine_name) | `supabase/migrations/20261110180000_provisional_claims.sql:102` | `owner-attendance-claims` |
+| `private.owner_attendance_claims` (relation) | `supabase/migrations/20261110180000_provisional_claims.sql:5` | `owner-attendance-claims` |
+| `private.owner_claim_resolutions` (relation) | `supabase/migrations/20261110180000_provisional_claims.sql:13` | `owner-attendance-claims` |
+| `private.receipt_membership_target_matches` (routine_name) | `supabase/migrations/20261110190000_receipt_allocation_review.sql:32` | `member-checkin`, `owner-attendance`, `owner-attendance-claims`, `owner-cash`, `owner-create-membership-purchase`, `owner-list-membership-purchases`, `owner-membership-lifecycle`, `owner-membership-payments`, `owner-receipt-review`, `owner-reporting`, `owner-walkins`, `public-walkin-request` |
+| `api.owner_allocate_verified_receipt` (routine_name) | `supabase/migrations/20261110190000_receipt_allocation_review.sql:42` | `owner-receipt-review` |
+| `private.receipt_allocation_reviews` (relation) | `supabase/migrations/20261110190000_receipt_allocation_review.sql:8` | `member-checkin`, `owner-attendance`, `owner-attendance-claims`, `owner-cash`, `owner-create-membership-purchase`, `owner-list-membership-purchases`, `owner-membership-lifecycle`, `owner-membership-payments`, `owner-receipt-review`, `owner-reporting`, `owner-walkins`, `public-walkin-request` |
+| `api.owner_income_report` (routine_name) | `supabase/migrations/20261110200000_operational_reports.sql:5` | `owner-reporting` |
+| `api.owner_expiry_reminders` (routine_name) | `supabase/migrations/20261110200000_operational_reports.sql:31` | `owner-reporting` |
+| `api.owner_list_payable_purchases` (routine_name) | `supabase/migrations/20261110200000_operational_reports.sql:58` | `owner-membership-payments` |
+| `private.payment_records.target_membership_purchase_id` (column) | `supabase/migrations/20261103120000_owner_membership_payments.sql:7` | `member-checkin`, `owner-attendance`, `owner-attendance-claims`, `owner-cash`, `owner-create-membership-purchase`, `owner-list-membership-purchases`, `owner-membership-lifecycle`, `owner-membership-payments`, `owner-receipt-review`, `owner-reporting`, `owner-walkins`, `public-walkin-request` |
+
+### 13.3 Frontend-to-handler request/response review
+
+All 21 endpoint names have a matching frontend consumer. The payload/response
+checks below compare source, not real hosted success. Correctly typed empty
+arrays are legitimate; A05 concerns malformed RPC results becoming empty arrays.
+Every handler reference is its actual entrypoint; the direct RPC matrix above
+provides final SQL definition lines. Additional shared validation is at
+`supabase/functions/_shared/owner-register-request.ts:5`,
+`supabase/functions/_shared/receipt-review.ts:4`,
+`supabase/functions/_shared/member-checkin.ts:83` and
+`supabase/functions/_shared/owner-reporting.ts:19`.
+
+| Edge endpoint | Frontend call evidence | Request intent | Consumed/returned shape | Result / limitation |
+| --- | --- | --- | --- | --- |
+| `supabase/functions/owner-status/index.ts:1` | `src/App.tsx:82` | Owner session; no client-supplied Owner identity | authenticated/isActiveOwner/authorizationReady booleans | No static valid-request mismatch found; hosted JWT/role path untested. |
+| `supabase/functions/owner-register-member/index.ts:1` | `src/components/MembersPage.tsx:269` | fullName/mobile | success + member.member_code; client also tolerates memberCode | Names compatible. Generic error UI does not parse FunctionsHttpError JSON for detailed mobile-conflict message; no sensitive error forwarding proposed. |
+| `supabase/functions/owner-list-members/index.ts:1` | `src/components/MembersPage.tsx:189` | search/status/limit/offset | members[] (no success flag required) | Compatible normal array; A05 masks malformed RPC output. |
+| `supabase/functions/owner-list-membership-plans/index.ts:1` | `src/components/MembershipPlansPage.tsx:56` | list request | plans[] (no success flag required) | Compatible normal array; A05 masks malformed RPC output. |
+| `supabase/functions/owner-save-membership-plan/index.ts:1` | `src/components/MembershipPlansPage.tsx:156` | optional id/name/pricePhp/isActive | success + plan.id | No static valid-request mismatch found. |
+| `supabase/functions/owner-create-membership-purchase/index.ts:1` | `src/components/MembershipPurchasesPage.tsx:216` | memberId/planId | success + purchase.id | Compatible; server supplies price/state, no activation date in request. |
+| `supabase/functions/owner-list-membership-purchases/index.ts:1` | `src/components/MembershipPurchasesPage.tsx:171` | search/status/limit/offset | purchases[] (no success flag required) | Compatible normal array including payment_review; A05 masks malformed RPC output. |
+| `supabase/functions/owner-membership-payments/index.ts:1` | `src/components/PaymentsPage.tsx:138` | action=list/payable/record/confirm/reject with action-specific fields | list result.payments/payablePurchases; payable purchases; mutation success + payment/confirmation/rejection | Matches dispatch; payable requires P17 and list final semantics require P16. Separate errors/retry payloads retained. |
+| `supabase/functions/owner-membership-lifecycle/index.ts:1` | `src/components/MembersPage.tsx:239` | approve memberId/reason; activate membershipPurchaseId | success + member or purchase with expected IDs/states/dates | Matches shared dispatcher; source derives actor from getUser, not payload. |
+| `supabase/functions/owner-reporting/index.ts:1` | `src/components/ReportsPage.tsx:21` | summary/audit/income/expiry with bounded filters | success + summary/events/income/expiries, exact-decimal amount strings | Matches source; UI wording at most 366 days corresponds to SQL through-from <=365 inclusive. Blank dates default in SQL. |
+| `supabase/functions/owner-attendance/index.ts:1` | `src/components/AttendancePage.tsx:59` | search/fromDate/toDate/status/limit/offset | success + attendance[] | Names/date/status fields match SQL JSON; unavailable status remains separate from empty arrays. |
+| `supabase/functions/owner-receipt-review/index.ts:1` | `src/components/ReceiptReviewPage.tsx:41` | list/record/verify/void/allocate, operation/evidence/target attestations | success + result (list array or action result) | Matches action parser; allocate needs P16, does not infer payment verification from UI. |
+| `supabase/functions/owner-cash/index.ts:1` | `src/components/CashDrawerPage.tsx:28` | list/open/close with attestation, reason/evidence and operation ID | success + result; list has businessDate/status/float/totals | Matches SQL JSON. UI current date is advisory; server owns dates; stale drawer remains review. |
+| `supabase/functions/owner-attendance-claims/index.ts:1` | `src/components/ClaimReviewPage.tsx:22` | list/submit/resolve, claimedLocalDate or confirmCurrentPresence/reason | success + result; immutable claim/resolution status | Matches dispatcher; no durable offline queue or client-proven historical attendance. |
+| `supabase/functions/owner-create-pin-enrollment-token/index.ts:1` | `src/components/MembersPage.tsx:78` | memberId/identityVerified=true/reason | token/purpose=enrollment/expiresAt | Matches new P09 verified issuer. No success flag required by UI; raw token goes only to private fragment handoff. |
+| `supabase/functions/owner-create-pin-recovery-token/index.ts:1` | `src/components/MembersPage.tsx:78` | memberId/identityVerified=true/reason | token/purpose=reset/expiresAt | Matches P09 issuer, no member PIN returned. |
+| `supabase/functions/member-enroll-pin/index.ts:1` | `src/components/PinSetupPage.tsx:42` | token/pin | success=true / PIN_ENROLLMENT_COMPLETE | Matches generated-token path; request values are never accepted as actor/date/payment facts. |
+| `supabase/functions/member-reset-pin/index.ts:1` | `src/components/PinSetupPage.tsx:42` | token/pin | success=true / PIN_RESET_COMPLETE | Generated 43-character tokens match. A11 covers wider invalid-input UI acceptance only. |
+| `supabase/functions/member-checkin/index.ts:1` | `src/components/EntrancePage.tsx:58` | identifier/pin only | success=true + CHECKIN_ACCEPTED; denial/unavailable generic | Matches final constructed public result; raw prepare candidate/hash never forwarded. |
+| `supabase/functions/owner-walkins/index.ts:1` | `src/components/WalkinsPage.tsx:73` | fee/list/confirm with fee/reason or immutable confirmation payload | success + fee/requests/result; confirmed result includes requestId/paymentId/outcome/attendanceId | Matches SQL confirmed versus receipt_review outcome; only Owner actually verifies money. |
+| `supabase/functions/public-walkin-request/index.ts:1` | `src/components/EntrancePage.tsx:91` | paymentMethod only | success + request{id,feePhp,currency,paymentMethod,createdAt,expiresAt} | Matches allowlisted RPC shape; A08 covers lost-response duplication. |
+
+The browser client is configured in `src/lib/supabase.ts:29`.
+Owner identity still requires Auth verification in handlers and SQL authorization;
+frontend types, hidden menus, Origin and gateway verify_jwt=false are not grants.
+No confirmed valid-generated request/response naming mismatch was found in this
+review. Failure-path A05/A06 and configuration A10 remain actual audit findings;
+this conclusion does not certify malformed/unexpected payload handling everywhere.
+
+## 14. Fresh baseline tests, GO/NO-GO and closing acceptance
+
+These commands actually ran during this audit at 38fdf66. Test/generated outputs
+are ignored local artifacts; only the report is changed in the tracked tree.
+
+| Check | Fresh result | Scope / limits |
+| --- | --- | --- |
+| `npm.cmd run lint` | PASS | Static lint, not runtime authorization. |
+| `npm.cmd run typecheck` | PASS | Frontend TypeScript compile. |
+| `npm.cmd test` | PASS 37/37 | Includes source boundaries, safe errors, exact money, retry handling, synthetic handler HTTP and public diagnostic mocks; no real hosted calls. |
+| `npm.cmd run test:security` | PASS | Static rules; no environment-file reads. |
+| `node docs/production-preflight/sql-editor/validate.cjs` | PASS | PG17/PG18 parser/AST/text/hash checks on all 16 diagnostic variants; approved original SQL unchanged; no SQL execution. |
+| All 37 migration files parsed with cached PG17 grammar | PASS, 993 statements | Five leading BOMs removed only from parser input in memory. All function/DO bodies inspected as source; this does not validate hosted object resolution or authority. |
+| Cached Deno shared tests | PASS 103/103 | `deno test --cached-only --node-modules-dir=manual --allow-read=supabase/functions --allow-env=MEMBER_MOBILE_ENCRYPTION_KEY_B64,MEMBER_MOBILE_HMAC_KEY_B64 supabase/functions/_shared`, using the installed binary and synthetic test values. |
+| Cached Deno entrypoint typecheck | PASS 21/21 | `deno check --cached-only --node-modules-dir=manual` on the 21 exact `index.ts` paths; no dependency installation/deployment. |
+| `npm.cmd run test:database` | PASS | Fresh isolated loopback PostgreSQL 18 cluster, synthetic Auth/records, all 37 files/phase behavior, final security assertions and nine deterministic two-session races. Cluster stopped. Hosted PostgreSQL 17/non-superuser compatibility UNKNOWN. |
+| `npm.cmd run build` | PASS | Full Vite/PWA generation. PWA closeBundle emitted a slow-callback warning (approximately 316 seconds); exit was successful. This is a local toolchain timing observation, not a production request benchmark. |
+| `node scripts/test-browser.mjs --production` | PASS | Synthetic Auth/API mobile entrance/Owner navigation, list failure/recovery, payment/walk-in handling, QR/PIN and static-only cache checks, no external application requests. Not real Supabase end-to-end acceptance. |
+| Additional A05 negative probe | Defect reproduced in 3/3 tested list handlers | Real handler source loaded through Node TypeScript stripping and installed SDK; synthetic Auth JSON plus malformed RPC JSON object. All returned 200/empty array; expected fail-closed behavior remains unmet. |
+| Additional A06 negative probe | Defect reproduced in 5/5 tested handlers | Real handler source, APP_ORIGIN only, trusted-origin OPTIONS; all returned 503. This reproduction does not claim production secrets are missing. |
+| `git diff --check` / final report-reference validation | PASS | 37 migration references, 17 unchanged source fingerprints/dependency rows, 79 distinct marker rows, all 21 endpoint contracts, 11 findings and 262 in-bounds source-line references checked. Only this report changed. |
+| Real hosted mutation/authorization tests, production SQL, Pages/Edge deployment | NOT RUN / UNTESTED | Explicitly outside audit scope; no production connection or configuration change. |
+
+Additional-probe method: the five A06 handlers were member list, plan list,
+plan save, purchase create and purchase list. For A05, `globalThis.fetch` was
+replaced by a strict synthetic-origin dispatcher for member/plan/purchase list;
+it supplied one verified synthetic Auth user and an RPC object where an array
+was required. Six intercepted synthetic fetches occurred and **zero network
+requests**. The assertions passing means the undesirable behavior was reproduced,
+not that the product passed those negative requirements. No probe source or
+application change was committed; exact affected code is cited in section 11.
+
+Native database evidence:
+`.cache/security-test-50f65182028645c1b5ae962f0aa0ee28`.
+Browser evidence:
+`.cache/browser-test-012a5c0e-4c26-49e5-bf5a-25784acf7fd8`.
+The optional legacy incompatible-audit seed mode was not rerun; its older PASS
+remains historical. The ordinary audit-timezone seed/behavior suites did pass.
+
+### Evidence availability audit
+
+`docs/production-preflight/` contains verification SQL, instructions/manifests,
+status documentation and the SQL Editor archive. The archive inventory contains
+16 SQL files, one JSON manifest, four Markdown files and one validator; it does
+not supply the missing production result grids. Documentation is not a query
+execution log. The Owner-supplied 88/3 marker and 22-table ENABLE RLS aggregates
+are accepted as supplied evidence, but exact identities, defaults, signatures,
+owners, executor memberships, full policy predicates, audit/data checks and
+current endpoint deployment state remain UNKNOWN. No production bodies/records
+are requested to resolve these; use private Owner review and sanitized outcomes.
+
+### Final recommendation: NO-GO
+
+Do not apply migrations, deploy handlers/frontend or open full operational use.
+Local test PASS does not outweigh confirmed release gaps or unknown hosted
+authority/data conditions. Keep the safe recovery order in section 6, with the
+direct/chronological distinctions and source edges in sections 12–13.
+
+Release acceptance requires all of the following, with explicit evidence:
+
+1. **Metadata reconciliation:** identify the three present occurrences privately,
+   resolve every incompatible/unmarked effect, verify exact 20-file baseline and
+   P01–P17 prerequisites, and approve any further read-only scripts. Scripts
+   03–07 remain held; no history repair or blanket replay is authorized.
+2. **Authority/security:** hosted-equivalent ownership/default-ACL/runner proof,
+   correct final owners/FORCE RLS/33-table allowlist, no executor memberships or
+   schema CREATE leaks, api-only exposure and no direct browser/service table
+   privileges. A02/A03 must be resolved technically, not waived as test PASS.
+3. **Data/recovery:** Owner-approved audit/lifecycle/financial/legacy drawer
+   outcomes, exact uniqueness/exclusion checks, preserved originals and tested
+   backup/isolated recovery with agreed RPO/RTO and maintained key custody.
+4. **Code defects:** separately authorize fixes for A05/A06, with regressions
+   across all relevant handlers and legitimate-empty versus malformed-data
+   cases. Review A08's lost-response operation/recovery policy before enabling
+   public creation. Verify A09/A10 bundle/key configuration; address/document
+   A11 without weakening the server format or generic responses.
+5. **Controlled release:** Owner approves exact source bytes/runner/operator,
+   window/locks/traffic controls, forward checkpoints and abort plan; then
+   separately authorizes hosted settings, Edge bundles and normal Pages
+   publication. No automatic merge/push/deploy follows this report.
+6. **End-to-end acceptance:** actual isolated Auth/JWT/Edge/PostgREST/SQL success,
+   negative and race tests; correct Owner-only payment/registration/renewal/
+   expiry/receipt/cash/audit behavior, secure public QR/PIN and 15-minute walk-in
+   workflow. Owner production reads must prove payment/payable/walk-in loading
+   after release without introducing synthetic live financial records.
+7. **Operating approvals:** approved fee, PIN token/KDF/abuse/runtime parameters,
+   applicable privacy/retention/recovery/evidence procedures and real-device
+   acceptance. Keep disabled release switches closed until those gates pass.
+
+No finalized business rule was changed. The remaining application defects and
+all production remediation are proposed work requiring the appropriate Owner
+authorization after this report. **Audit work stops here.**
 
 **Stop here for Owner review. No production apply, history reconciliation write,
 permission change, release switch, Edge deployment, commit/push or Pages

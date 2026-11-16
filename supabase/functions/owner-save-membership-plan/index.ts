@@ -1,4 +1,5 @@
-﻿import { createClient } from "npm:@supabase/supabase-js@2";
+﻿import { withBrowserCors } from "../_shared/browser-cors.ts";
+import { createClient } from "npm:@supabase/supabase-js@2";
 
 const allowedOrigin = Deno.env.get("APP_ORIGIN");
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -102,7 +103,7 @@ function bearerToken(request: Request): string | null {
   return value.slice(7).trim() || null;
 }
 
-Deno.serve(async (request: Request) => {
+Deno.serve(withBrowserCors(allowedOrigin, async (request: Request) => {
   const early = checkRequest(request);
   if (early) return early;
 
@@ -210,4 +211,4 @@ Deno.serve(async (request: Request) => {
 
     return respond(500, { error: "INTERNAL_SERVER_ERROR" });
   }
-});
+}));

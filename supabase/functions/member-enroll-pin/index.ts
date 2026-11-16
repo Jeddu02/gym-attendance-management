@@ -1,3 +1,4 @@
+import { withBrowserCors } from "../_shared/browser-cors.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 import { hashMemberPin, validateMemberPin } from "../_shared/pin-password.ts";
 import { readPinRequestBody } from "../_shared/pin-recovery.ts";
@@ -46,7 +47,7 @@ async function hashEnrollmentToken(token: string): Promise<string> {
     .join("");
 }
 
-Deno.serve(async (request: Request): Promise<Response> => {
+Deno.serve(withBrowserCors(APP_ORIGIN, async (request: Request): Promise<Response> => {
   const origin = request.headers.get("origin") ?? undefined;
 
   if (!APP_ORIGIN) {
@@ -230,4 +231,4 @@ Deno.serve(async (request: Request): Promise<Response> => {
   } catch {
     return response(503, { error: "SERVICE_UNAVAILABLE" }, origin);
   }
-});
+}));

@@ -1,3 +1,4 @@
+import { withBrowserCors } from "../_shared/browser-cors.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const allowedOrigin = Deno.env.get("APP_ORIGIN");
@@ -56,7 +57,7 @@ async function readLimitedBody(request: Request): Promise<unknown> {
   return JSON.parse(new TextDecoder().decode(bytes));
 }
 
-Deno.serve(async (request: Request) => {
+Deno.serve(withBrowserCors(allowedOrigin, async (request: Request) => {
   if (!allowedOrigin || !supabaseUrl || !publishableKey || !serviceRoleKey) {
     return respond(503, { error: "SERVER_CONFIGURATION_ERROR" });
   }
@@ -153,8 +154,9 @@ Deno.serve(async (request: Request) => {
       return respond(500, { error: "MEMBER_LIST_UNAVAILABLE" });
     }
 
+    if (!Array.isArray(data)) return respond(503, { error: "SERVICE_UNAVAILABLE" });
     return respond(200, {
-      members: Array.isArray(data) ? data : [],
+      members: data,
     });
   } catch (error) {
     console.error(
@@ -163,4 +165,4 @@ Deno.serve(async (request: Request) => {
     );
     return respond(500, { error: "INTERNAL_SERVER_ERROR" });
   }
-});
+}));

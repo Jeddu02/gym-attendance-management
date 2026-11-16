@@ -1,3 +1,4 @@
+import { withBrowserCors } from "../_shared/browser-cors.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const allowedOrigin = Deno.env.get("APP_ORIGIN");
@@ -21,7 +22,7 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-Deno.serve(async (request: Request) => {
+Deno.serve(withBrowserCors(allowedOrigin, async (request: Request) => {
   if (!allowedOrigin) {
     return new Response(
       JSON.stringify({ error: "Authorization service unavailable" }),
@@ -130,4 +131,4 @@ Deno.serve(async (request: Request) => {
       503,
     );
   }
-});
+}));

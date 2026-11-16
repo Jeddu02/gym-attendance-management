@@ -38,6 +38,63 @@ function request(body, options = {}) {
   });
 }
 
+test('A05 Owner lists preserve arrays and reject malformed RPC successes without details', async () => {
+  const originalDeno = globalThis.Deno;
+  const originalFetch = globalThis.fetch;
+  let result;
+  let rpcError = null;
+  let authValid = true;
+  let rpcCalls = 0;
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(typeof input === 'string' ? input : input.url ?? input.href);
+    assert.equal(url.origin, baseEnv.SUPABASE_URL, 'No external network allowed');
+    if (url.pathname === '/auth/v1/user') return Response.json(authValid ? { id: actor } : { message: 'synthetic denial' }, { status: authValid ? 200 : 401 });
+    assert.ok(url.pathname.startsWith('/rest/v1/rpc/'));
+    assert.equal(new Headers(init.headers).get('Content-Profile'), 'api');
+    assert.equal(JSON.parse(init.body).p_actor_user_id, actor);
+    rpcCalls++;
+    return Response.json(rpcError ?? result, { status: rpcError ? 400 : 200 });
+  };
+  try {
+    for (const [name, key, row] of [
+      ['owner-list-members', 'members', { id: actor, memberCode: 'MBR-ABCDEF123456', fullName: 'Synthetic member', status: 'pending', createdAt: '2026-11-16T00:00:00Z' }],
+      ['owner-list-membership-plans', 'plans', { id: actor, name: 'Synthetic monthly', pricePhp: '350.00', isActive: true }],
+      ['owner-list-membership-purchases', 'purchases', { id: actor, memberName: 'Synthetic member', purchaseStatus: 'pending_payment', pricePhp: '350.00' }],
+    ]) {
+      const handler = await loadHandler(name, baseEnv);
+      for (const valid of [[], [row]]) {
+        result = valid;
+        const response = await handler(request({}));
+        assert.equal(response.status, 200, `${name}: legitimate array rejected`);
+        assert.deepEqual((await response.json())[key], valid);
+        assert.equal(response.headers.get('Cache-Control'), 'no-store');
+      }
+      for (const malformed of [{ privateMarker: 'synthetic-private-detail' }, { [key]: [] }, null, 'synthetic-private-detail', 42, true, false]) {
+        result = malformed;
+        const response = await handler(request({}));
+        assert.equal(response.status, 503, `${name}: malformed RPC success accepted`);
+        assert.deepEqual(await response.json(), { error: 'SERVICE_UNAVAILABLE' });
+        assert.equal(response.headers.get('Cache-Control'), 'no-store');
+      }
+      rpcError = { code: '42501', message: 'synthetic-private-detail' };
+      const forbidden = await handler(request({}));
+      assert.equal(forbidden.status, 403, `${name}: SQL Owner restriction lost`);
+      assert.equal((await forbidden.text()).includes('synthetic-private-detail'), false);
+      rpcError = null;
+      const previous = rpcCalls;
+      assert.equal((await handler(request({}, { auth: false }))).status, 401);
+      authValid = false;
+      assert.equal((await handler(request({}))).status, 401);
+      authValid = true;
+      assert.equal(rpcCalls, previous, 'Invalid/missing Auth reached RPC');
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalDeno === undefined) delete globalThis.Deno;
+    else globalThis.Deno = originalDeno;
+  }
+});
+
 test('payment and walk-in handlers preserve CORS, verified actors, RPC boundaries and safe failures', async () => {
   const originalDeno = globalThis.Deno;
   const originalFetch = globalThis.fetch;

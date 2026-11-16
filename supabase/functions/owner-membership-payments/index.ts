@@ -1,3 +1,4 @@
+import { withBrowserCors } from "../_shared/browser-cors.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const allowedOrigin = Deno.env.get("APP_ORIGIN");
@@ -106,7 +107,7 @@ function paymentError(error: { code?: string; message?: string }): Response {
   return respond(500, { error: "MEMBERSHIP_PAYMENT_UNAVAILABLE" });
 }
 
-Deno.serve(async (request: Request) => {
+Deno.serve(withBrowserCors(allowedOrigin, async (request: Request) => {
   const early = checkRequest(request);
   if (early) return early;
 
@@ -218,4 +219,4 @@ Deno.serve(async (request: Request) => {
     console.error("Owner membership payment request failed:", error instanceof Error ? error.name : "Unknown error");
     return respond(500, { error: "INTERNAL_SERVER_ERROR" });
   }
-});
+}));

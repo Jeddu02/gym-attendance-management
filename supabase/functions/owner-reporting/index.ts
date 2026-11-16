@@ -1,3 +1,4 @@
+import { withBrowserCors } from "../_shared/browser-cors.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { validateOwnerRegisterRequest } from "../_shared/owner-register-request.ts";
 import { parseReportCommand } from "../_shared/owner-reporting.ts";
@@ -20,7 +21,7 @@ function respond(status: number, body: Record<string, unknown>): Response {
     },
   });
 }
-Deno.serve(async (request: Request) => {
+Deno.serve(withBrowserCors(origin, async (request: Request) => {
   if (!origin || !url || !publicKey || !serverKey) {
     return respond(503, { error: "SERVER_CONFIGURATION_ERROR" });
   }
@@ -80,4 +81,4 @@ Deno.serve(async (request: Request) => {
   } catch {
     return respond(503, { error: "REPORT_UNAVAILABLE" });
   }
-});
+}));

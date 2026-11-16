@@ -1,3 +1,4 @@
+import { withBrowserCors } from "../_shared/browser-cors.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 import { createMobileLookupHash } from "../_shared/member-mobile.ts";
 import { verifyMemberPin } from "../_shared/pin-password.ts";
@@ -29,7 +30,7 @@ const headers = {
 };
 const respond = (status: number, accepted = false, extra: Record<string, string> = {}) => new Response(JSON.stringify(publicMemberCheckinOutcome(accepted)), { status, headers: { ...headers, ...extra } });
 
-Deno.serve(async (request: Request): Promise<Response> => {
+Deno.serve(withBrowserCors(appOrigin, async (request: Request): Promise<Response> => {
   if (!appOrigin) return respond(503);
   if (request.headers.get("Origin") !== appOrigin) return respond(403);
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers });
@@ -78,4 +79,4 @@ Deno.serve(async (request: Request): Promise<Response> => {
     });
     return respond(result.status, result.accepted, result.retryAfterSeconds ? { "Retry-After": String(result.retryAfterSeconds) } : {});
   } catch { return respond(503); }
-});
+}));

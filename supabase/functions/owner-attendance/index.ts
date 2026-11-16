@@ -1,3 +1,4 @@
+import { withBrowserCors } from "../_shared/browser-cors.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 import { validateOwnerRegisterRequest } from "../_shared/owner-register-request.ts";
 import { parseAttendanceFilters } from "../_shared/owner-attendance.ts";
@@ -21,7 +22,7 @@ function respond(status: number, body: Record<string, unknown>): Response {
   });
 }
 
-Deno.serve(async (request: Request): Promise<Response> => {
+Deno.serve(withBrowserCors(origin, async (request: Request): Promise<Response> => {
   if (!origin || !url || !publicKey || !serverKey) return respond(503, { error: "SERVER_CONFIGURATION_ERROR" });
   if (request.headers.get("Origin") !== origin) return respond(403, { error: "ORIGIN_NOT_ALLOWED" });
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: respond(200, {}).headers });
@@ -50,4 +51,4 @@ Deno.serve(async (request: Request): Promise<Response> => {
   } catch {
     return respond(503, { error: "ATTENDANCE_UNAVAILABLE" });
   }
-});
+}));

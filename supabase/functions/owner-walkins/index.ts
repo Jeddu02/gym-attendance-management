@@ -1,3 +1,4 @@
+import { withBrowserCors } from "../_shared/browser-cors.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 import { readPinRequestBody } from "../_shared/pin-recovery.ts";
 import { parseOwnerWalkinInput } from "../_shared/walkin-request.ts";
@@ -14,7 +15,7 @@ const headers = {
 };
 const respond = (status: number, body: Record<string, unknown>) => new Response(JSON.stringify(body), { status, headers });
 
-Deno.serve(async (request: Request): Promise<Response> => {
+Deno.serve(withBrowserCors(appOrigin, async (request: Request): Promise<Response> => {
   if (!appOrigin) return respond(503, { error: "SERVICE_UNAVAILABLE" });
   if (request.headers.get("Origin") !== appOrigin) return respond(403, { error: "ORIGIN_NOT_ALLOWED" });
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers });
@@ -63,4 +64,4 @@ Deno.serve(async (request: Request): Promise<Response> => {
     if (input.action === "list") return respond(200, { success: true, requests: data });
     return respond(200, { success: true, result: data });
   } catch { return respond(503, { error: "SERVICE_UNAVAILABLE" }); }
-});
+}));

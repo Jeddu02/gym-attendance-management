@@ -1,4 +1,5 @@
-﻿import { createClient } from "npm:@supabase/supabase-js@2.118.0";
+﻿import { withBrowserCors } from "../_shared/browser-cors.ts";
+import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 import { validateOwnerRegisterRequest } from "../_shared/owner-register-request.ts";
 import { cashOperation } from "../_shared/cash-operations.ts";
 
@@ -11,7 +12,7 @@ const headers = { "Content-Type": "application/json", "Cache-Control": "no-store
   "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info" };
 const respond = (status: number, body: Record<string, unknown>) => new Response(JSON.stringify(body), { status, headers });
 
-Deno.serve(async (request: Request): Promise<Response> => {
+Deno.serve(withBrowserCors(origin, async (request: Request): Promise<Response> => {
   if (!origin || !url || !publicKey || !serverKey) return respond(503, { error: "SERVICE_UNAVAILABLE" });
   if (request.headers.get("Origin") !== origin) return respond(403, { error: "ORIGIN_NOT_ALLOWED" });
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers });
@@ -30,4 +31,4 @@ Deno.serve(async (request: Request): Promise<Response> => {
       { error: error.code === "42501" ? "OWNER_ACCESS_REQUIRED" : "CASH_REVIEW_UNAVAILABLE" });
     return respond(200, { success: true, result: data });
   } catch { return respond(503, { error: "SERVICE_UNAVAILABLE" }); }
-});
+}));

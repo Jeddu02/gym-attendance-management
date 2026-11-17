@@ -1,0 +1,52 @@
+{
+  "format": 1,
+  "canonical": "git-blob-lf-v1",
+  "reviewedCommit": "1566c92e92a3f5f562225ddd40672bd4884f0879",
+  "legacyCRLF": {
+    "supabase/migrations/20261028061728_initial_schema.sql": "all",
+    "supabase/migrations/20261028062516_membership_core.sql": "all",
+    "supabase/migrations/20261028062602_payment_ledger.sql": "all",
+    "supabase/migrations/20261028062706_walkin_attendance.sql": "all",
+    "supabase/migrations/20261028062757_owner_security.sql": "all",
+    "supabase/migrations/20261028062853_member_pin_security.sql": "all",
+    "supabase/migrations/20261028062935_cash_reconciliation.sql": "all",
+    "supabase/migrations/20261028063027_audit_integrity.sql": "all",
+    "supabase/migrations/20261028063404_integrity_fixes.sql": "all",
+    "supabase/migrations/20261028063446_membership_overlap_guard.sql": "all",
+    "supabase/migrations/20261028063638_payment_integrity_guard.sql": "all",
+    "supabase/migrations/20261030120000_audit_chain_enforcement.sql": "all",
+    "supabase/migrations/20261030130000_owner_register_member.sql": [
+      126,
+      127
+    ],
+    "supabase/migrations/20261030140000_owner_create_pin_enrollment_token.sql": [
+      120
+    ],
+    "supabase/migrations/20261030150000_member_pin_enrollment.sql": [
+      132
+    ],
+    "supabase/migrations/20261030180000_owner_list_members.sql": [
+      92
+    ],
+    "supabase/migrations/20261103100000_owner_create_membership_purchase.sql": [
+      123
+    ],
+    "supabase/migrations/20261110190000_receipt_allocation_review.sql": [
+      111,
+      147,
+      148,
+      182,
+      183,
+      194,
+      195,
+      208,
+      209,
+      249,
+      250,
+      269,
+      270,
+      402,
+      481
+    ]
+  }
+}

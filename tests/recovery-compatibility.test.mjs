@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { verifySourceManifest } from '../scripts/recovery/compare-catalog.mjs';
+import { verifyReviewedSource } from '../scripts/recovery/source-bytes.mjs';
 const require = createRequire(import.meta.url);
 const parser = require('../scripts/recovery/parser.cjs')(17);
 await parser.loadModule();
@@ -27,8 +28,7 @@ for (const mode of ['review','synthetic']) {
       assert.equal(sha(sql),record.compatibilitySha256,record.file);
       assert.doesNotMatch(sql, /[\t ]+$/m, `${record.file}: generated trailing whitespace`);
       if (!/^\d{14}_/.test(record.file)) continue;
-      const original = readFileSync(new URL('supabase/migrations/'+record.file,root));
-      assert.equal(sha(original),record.originalSha256);
+      const original = verifyReviewedSource('supabase/migrations/'+record.file,record.originalSha256).bytes;
       assert.deepEqual(functions(sql),functions(original.toString('utf8')),record.file);
       assert.equal(record.historyAction,'NONE');
       assert.match(sql,/Customer PG17 migration identity required/);

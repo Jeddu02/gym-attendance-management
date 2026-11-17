@@ -1,19 +1,19 @@
 // Offline source hashes and explicitly locked grammar only; never reads environment files.
 import { readFileSync, readdirSync } from 'node:fs';
-import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { verifySourceManifest } from './compare-catalog.mjs';
+import { verifyReviewedSource } from './source-bytes.mjs';
 const require = createRequire(import.meta.url);
 try {
   const root = new URL('../../', import.meta.url);
   const manifest = JSON.parse(readFileSync(new URL('supabase/recovery/source-manifest.json', root), 'utf8'));
-  verifySourceManifest(manifest.migrations);
+  let gitBlobChecks = verifySourceManifest(manifest.migrations).gitBlobChecks;
   for (const [key, count] of [['edgeEntrypoints', 21], ['sharedRuntime', 17]]) {
     const rows = manifest[key];
     if (!Array.isArray(rows) || rows.length !== count || new Set(rows.map(x => x.file)).size !== count) throw new Error('Incomplete runtime manifest');
     for (const row of rows) {
       if (!/^supabase\/functions\/(?:[a-z-]+\/index|_shared\/[a-z-]+)\.ts$/.test(row.file)) throw new Error('Invalid runtime path');
-      if (createHash('sha256').update(readFileSync(new URL(row.file, root))).digest('hex') !== row.sha256) throw new Error('Runtime source changed');
+      if (verifyReviewedSource(row.file, row.sha256).gitBlobChecked) gitBlobChecks++;
     }
   }
   const entries = readdirSync(new URL('supabase/functions/', root), { withFileTypes: true })
@@ -31,5 +31,5 @@ try {
     }
     console.log(`PASS PG${major} grammar: 37 migration files, ${statements} top-level statements, two proposals. Bodies require runtime tests.`);
   }
-  console.log('PASS unchanged SHA-256: 37 migrations, 21 entrypoints, 17 shared runtime modules. Not hosted/history verification.');
+  console.log(`PASS reviewed SHA-256: 37 migrations, 21 entrypoints, 17 shared runtime modules; ${gitBlobChecks}/75 HEAD blobs checked; ${75-gitBlobChecks}/75 pinned source-archive checks. Explicit legacy-byte layouts; not hosted/history verification.`);
 } catch { console.error('HOLD: local source/hash/grammar validation failed; no SQL executed.'); process.exitCode = 2; }

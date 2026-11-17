@@ -13,7 +13,7 @@ for(const folder of ['scripts/recovery','supabase/migrations','supabase/recovery
 mkdirSync(resolve(fresh,'tools/recovery-parser'),{recursive:true});
 mkdirSync(resolve(fresh,'tests'));
 for(const file of ['package.json','package-lock.json']) copyFileSync(resolve(root,'tools/recovery-parser',file),resolve(fresh,'tools/recovery-parser',file));
-for(const file of ['recovery.test.mjs','recovery-sql.test.mjs','recovery-compatibility.test.mjs','recovery-tooling.test.mjs']) copyFileSync(resolve(root,'tests',file),resolve(fresh,'tests',file));
+for(const file of ['recovery.test.mjs','recovery-sql.test.mjs','recovery-compatibility.test.mjs','recovery-tooling.test.mjs','recovery-integrity.test.mjs']) copyFileSync(resolve(root,'tests',file),resolve(fresh,'tests',file));
 writeFileSync(resolve(fresh,'package.json'),JSON.stringify({private:true,type:'module'}));
 if(existsSync(resolve(fresh,'.cache'))||existsSync(resolve(fresh,'node_modules'))) throw Error('Clean-room prerequisites violated');
 execFileSync('cmd.exe',['/d','/s','/c','npm.cmd ci --prefix tools/recovery-parser --ignore-scripts --no-audit --no-fund --registry https://registry.npmjs.org --cache npm-empty-cache'],{cwd:fresh,stdio:'inherit'});
@@ -23,7 +23,7 @@ const artifacts=()=>Object.fromEntries(['review','synthetic'].flatMap(mode=>{
 }));
 const before=JSON.stringify(artifacts());
 for(const args of [
-  ['--test','tests/recovery.test.mjs','tests/recovery-sql.test.mjs','tests/recovery-compatibility.test.mjs','tests/recovery-tooling.test.mjs'],
+  ['--test','tests/recovery.test.mjs','tests/recovery-sql.test.mjs','tests/recovery-compatibility.test.mjs','tests/recovery-tooling.test.mjs','tests/recovery-integrity.test.mjs'],
   ['scripts/recovery/validate-source.mjs'],['scripts/recovery/build-compatibility.mjs'],
   ['scripts/recovery/build-compatibility.mjs','--synthetic'],['docs/production-preflight/sql-editor/validate.cjs']
 ]) execFileSync(process.execPath,args,{cwd:fresh,stdio:'inherit'});

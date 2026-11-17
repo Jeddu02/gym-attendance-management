@@ -1,7 +1,7 @@
 // Offline metadata comparison only. Never connects to a database or emits raw metadata.
 import { readFileSync, readdirSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { createHash } from 'node:crypto';
+import { verifyReviewedSource } from './source-bytes.mjs';
 
 export function verifySourceManifest(manifest) {
   if (!Array.isArray(manifest) || manifest.length !== 37 || new Set(manifest.map(x => x.file)).size !== 37) {
@@ -11,12 +11,13 @@ export function verifySourceManifest(manifest) {
   if (JSON.stringify(actual) !== JSON.stringify(manifest.map(x => x.file).sort())) {
     throw new Error('Migration directory differs from reviewed manifest');
   }
+  let gitBlobChecks = 0;
   for (const row of manifest) {
     if (!/^\d{14}_[a-z0-9_]+\.sql$/.test(row.file) || row.version !== row.file.slice(0, 14)
       || !/^[a-f0-9]{64}$/.test(row.sha256)) throw new Error('Invalid source identity');
-    const bytes = readFileSync(new URL('../../supabase/migrations/' + row.file, import.meta.url));
-    if (createHash('sha256').update(bytes).digest('hex') !== row.sha256) throw new Error('Source changed; reference must be rebuilt');
+    if (verifyReviewedSource('supabase/migrations/' + row.file, row.sha256).gitBlobChecked) gitBlobChecks++;
   }
+  return { files: manifest.length, gitBlobChecks };
 }
 
 export function validateCatalog(value) {

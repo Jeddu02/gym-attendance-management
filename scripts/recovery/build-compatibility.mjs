@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { verifySourceManifest } from './compare-catalog.mjs';
+import { readCanonicalSource } from './source-bytes.mjs';
 const require = createRequire(import.meta.url);
 const parser = require('./parser.cjs')(17);
 await parser.loadModule();
@@ -114,7 +115,7 @@ function save(file, original, sql, edits, originalHash = sha(original)) {
     functionBodiesPreserved: true, historyAction: 'NONE', provider });
 }
 for (const item of manifest.migrations.filter(x => x.version >= '20261110100000')) {
-  const original = readFileSync(new URL('supabase/migrations/' + item.file, root), 'utf8').replace(/^\uFEFF/, '');
+  const original = readCanonicalSource('supabase/migrations/' + item.file).toString('utf8').replace(/^\uFEFF/, '');
   let { text: sql, count } = adaptGraph(original.replace(/\r\n/g, '\n'));
   const expectedCount = { '20261110100000':3, '20261110110000':1, '20261110120000':1, '20261110140000':1, '20261110150000':1 }[item.version] ?? 0;
   if (count !== expectedCount) throw new Error('Membership assertion inventory drift');
@@ -141,25 +142,25 @@ for (const item of manifest.migrations.filter(x => x.version >= '20261110100000'
   }
   save(item.file, original, sql, count, item.sha256);
 }
-const proposal = readFileSync(new URL('supabase/recovery/proposals/01-explicit-routine-acls.sql', root), 'utf8');
+const proposal = readCanonicalSource('supabase/recovery/proposals/01-explicit-routine-acls.sql').toString('utf8');
 let adapted = adaptGraph(proposal.replace(/\r\n/g, '\n'));
 adapted.text = once(adapted.text, 'BEGIN;', `BEGIN;\nSET LOCAL search_path=pg_catalog;\n${graphGuard()}\n${prepare({ data: false })}`);
 adapted.text = once(adapted.text, 'COMMIT;', `${cleanup()}\nCOMMIT;`);
 save('01-explicit-routine-acls.sql', proposal, adapted.text, adapted.count);
 for (const file of ['executor_hardening_assertions.sql','member_checkin_behavior.sql','final_security_assertions.sql']) {
-  const original = readFileSync(new URL('supabase/tests/' + file, root), 'utf8');
+  const original = readCanonicalSource('supabase/tests/' + file).toString('utf8');
   const { text, count } = adaptGraph(original.replace(/\r\n/g, '\n'), false);
   if (count !== 1) throw new Error('Assertion variant membership inventory drift');
   writeFileSync(new URL(file, output), text);
   records.push({ file, assertionVariant: true, originalSha256: sha(original), compatibilitySha256: sha(text), membershipPredicates: count });
 }
-let screen = readFileSync(new URL('supabase/recovery/effective-privileges.sql', root), 'utf8').replace(/\r\n/g, '\n');
+let screen = readCanonicalSource('supabase/recovery/effective-privileges.sql').toString('utf8');
 const graphScreen = screen.match(/SELECT 'reserved_membership_edges',[\s\S]*?WHERE r\.rolname IN\s*\([^)]*\)/)?.[0];
 if (!graphScreen) throw new Error('Reserved graph screen drift');
 screen = once(screen, graphScreen, `${graphScreen} AND NOT ${allowedEdge('m')}`);
 writeFileSync(new URL('effective-privileges.sql', output), screen);
-records.push({ file:'effective-privileges.sql', originalSha256:sha(readFileSync(new URL('supabase/recovery/effective-privileges.sql',root))), compatibilitySha256:sha(screen), assertionVariant:true });
-const diagnosticOriginal = readFileSync(new URL('supabase/recovery/diagnostics/compatibility-authority.sql',root),'utf8');
+records.push({ file:'effective-privileges.sql', originalSha256:sha(readCanonicalSource('supabase/recovery/effective-privileges.sql')), compatibilitySha256:sha(screen), assertionVariant:true });
+const diagnosticOriginal = readCanonicalSource('supabase/recovery/diagnostics/compatibility-authority.sql').toString('utf8');
 const diagnostic = provider==='supabase_admin' ? diagnosticOriginal : once(diagnosticOriginal,"rolname='supabase_admin'",`rolname='${provider}'`);
 parser.parseSync(diagnostic);
 writeFileSync(new URL('compatibility-authority.sql',output),diagnostic);

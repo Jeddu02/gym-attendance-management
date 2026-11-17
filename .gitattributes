@@ -1,0 +1,6 @@
+# Recovery artifacts and their validators have exact reviewed LF byte hashes.
+scripts/** text eol=lf
+tests/** text eol=lf
+supabase/recovery/** text eol=lf
+tools/recovery-parser/** text eol=lf
+docs/production-preflight/** text eol=lf

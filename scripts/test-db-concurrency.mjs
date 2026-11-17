@@ -11,6 +11,7 @@ const psql = process.env.GYMFORCE_TEST_PSQL;
 const connection = process.env.GYMFORCE_TEST_CONNECTION;
 const directory = process.env.GYMFORCE_TEST_DATA_DIRECTORY;
 const database = 'gymforce_batch1_synthetic';
+const administrativeUser = process.argv.includes('--compatibility-fixture') ? 'gf_provider_admin' : 'postgres';
 const owner = '00000000-0000-4000-8000-000000000001';
 const member = '10000000-0000-4000-8000-000000000011';
 const plan = '10000000-0000-4000-8000-000000000012';
@@ -33,12 +34,12 @@ async function validateTarget() {
   const passfile = resolve(expected, '..', 'pgpass.conf').replaceAll('\\', '/');
   // Parse precisely the runner's limited libpq format; reject extra connection
   // parameters/options/service files and paths containing quote escapes.
-  const match = /^host=127\.0\.0\.1 port=(\d+) dbname=gymforce_batch1_synthetic user=postgres passfile='([^'\\]+)' require_auth=scram-sha-256 connect_timeout=5$/.exec(connection);
+  const match = /^host=127\.0\.0\.1 port=(\d+) dbname=gymforce_batch1_synthetic user=postgres passfile='([^'\\]+)' require_auth=scram-sha-256 connect_timeout=5$/.exec(connection.replace(`user=${administrativeUser} `, 'user=postgres '));
   if (!match || Number(match[1]) < 1024 || Number(match[1]) > 65535 || match[2].toLowerCase() !== passfile.toLowerCase()) throw Error('connection allowlist');
   if (!(await stat(psql)).isFile() || !(await stat(resolve(expected, '..', 'pgpass.conf'))).isFile()) throw Error('missing local runner files');
   guard = `SET statement_timeout='20s'; SET lock_timeout='15s';
 DO $guard$ BEGIN
- IF current_database() <> '${database}' OR session_user <> 'postgres' OR current_user <> 'postgres'
+ IF current_database() <> '${database}' OR session_user <> '${administrativeUser}' OR current_user <> '${administrativeUser}'
  OR inet_server_addr() IS DISTINCT FROM '127.0.0.1'::inet OR inet_server_port() <> ${Number(match[1])}
  OR current_setting('gymforce.synthetic_run_id',true) IS DISTINCT FROM '${runId}'
  OR lower(replace(current_setting('data_directory'),chr(92),'/')) <> lower(${quote(expected.replaceAll('\\', '/'))})

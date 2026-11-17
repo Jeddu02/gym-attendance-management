@@ -1,0 +1,144 @@
+[
+  {
+    "id": "registration_plan_cash",
+    "file": "supabase/recovery/diagnostics/registration-plan-cash.sql",
+    "tables": [
+      {
+        "name": "members",
+        "columns": [
+          "status",
+          "approved_at"
+        ]
+      },
+      {
+        "name": "membership_plans",
+        "columns": [
+          "name"
+        ]
+      },
+      {
+        "name": "cash_drawer_sessions",
+        "columns": [
+          "id"
+        ]
+      }
+    ],
+    "beforeVersion": "20261110170000"
+  },
+  {
+    "id": "lifecycle_payments",
+    "file": "supabase/recovery/diagnostics/lifecycle-payments.sql",
+    "tables": [
+      {
+        "name": "members",
+        "columns": [
+          "id",
+          "approved_at"
+        ]
+      },
+      {
+        "name": "membership_purchases",
+        "columns": [
+          "id",
+          "member_id",
+          "purchase_status",
+          "activation_date",
+          "expiry_date",
+          "price_php"
+        ]
+      },
+      {
+        "name": "payment_records",
+        "columns": [
+          "id",
+          "operation_id",
+          "target_membership_purchase_id",
+          "verification_status",
+          "amount_php",
+          "payment_method",
+          "external_reference"
+        ]
+      },
+      {
+        "name": "payment_allocations",
+        "columns": [
+          "payment_id",
+          "membership_purchase_id"
+        ]
+      },
+      {
+        "name": "payment_events",
+        "columns": [
+          "payment_id",
+          "event_type"
+        ]
+      }
+    ],
+    "beforeVersion": "20261110110000"
+  },
+  {
+    "id": "audit",
+    "file": "supabase/recovery/diagnostics/audit.sql",
+    "tables": [
+      {
+        "name": "audit_events",
+        "columns": [
+          "id",
+          "stream_key",
+          "previous_event_hash",
+          "event_hash",
+          "actor_user_id",
+          "event_type",
+          "subject_type",
+          "subject_id",
+          "details",
+          "created_at"
+        ]
+      },
+      {
+        "name": "audit_chain_heads",
+        "columns": [
+          "stream_key",
+          "last_event_id",
+          "last_event_hash"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "additional_legacy",
+    "file": "supabase/recovery/diagnostics/additional-legacy-blockers.sql",
+    "tables": [
+      {
+        "name": "payment_allocations",
+        "columns": [
+          "walkin_request_id"
+        ]
+      },
+      {
+        "name": "membership_purchases",
+        "columns": [
+          "id",
+          "member_id",
+          "purchase_status",
+          "activation_date",
+          "expiry_date"
+        ]
+      },
+      {
+        "name": "attendance_checkins",
+        "columns": [
+          "member_id",
+          "membership_purchase_id"
+        ]
+      },
+      {
+        "name": "walkin_requests",
+        "columns": [
+          "requested_payment_method"
+        ]
+      }
+    ],
+    "beforeVersion": "20261110160000"
+  }
+]

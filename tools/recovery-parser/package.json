@@ -1,0 +1,8 @@
+{
+  "name": "gymforce-recovery-parser",
+  "private": true,
+  "dependencies": {
+    "pg17": "npm:libpg-query@17.8.2",
+    "pg18": "npm:libpg-query@18.1.4"
+  }
+}

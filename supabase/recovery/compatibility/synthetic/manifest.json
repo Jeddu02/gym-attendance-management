@@ -1,0 +1,400 @@
+{
+  "format": 1,
+  "provider": "gf_provider_admin",
+  "sourceManifest": [
+    {
+      "file": "20261028061728_initial_schema.sql",
+      "version": "20261028061728",
+      "recordedInSuppliedHistory": true,
+      "sha256": "b781d85f6dec406129d49b0e7698f4a8553075e8782127e6233ff46d88b0ddd2"
+    },
+    {
+      "file": "20261028062516_membership_core.sql",
+      "version": "20261028062516",
+      "recordedInSuppliedHistory": true,
+      "sha256": "0148a2f1b2e3aed5bb6eddb0b9590e3a951e548b9f05a53995fee664f37acfd1"
+    },
+    {
+      "file": "20261028062602_payment_ledger.sql",
+      "version": "20261028062602",
+      "recordedInSuppliedHistory": true,
+      "sha256": "cfb22c3d99229e7bbbda54e4033b8111d3e816fd7fce4d30c542315ed03aa90e"
+    },
+    {
+      "file": "20261028062706_walkin_attendance.sql",
+      "version": "20261028062706",
+      "recordedInSuppliedHistory": true,
+      "sha256": "9028872e5e43b90d966678b8efa4074b5323c424db93a88a4e4ce3b463840cb4"
+    },
+    {
+      "file": "20261028062757_owner_security.sql",
+      "version": "20261028062757",
+      "recordedInSuppliedHistory": true,
+      "sha256": "bfd7dec297b57183fc868c17a4f1a8243cfd533e4591aac036c11174869f7731"
+    },
+    {
+      "file": "20261028062853_member_pin_security.sql",
+      "version": "20261028062853",
+      "recordedInSuppliedHistory": true,
+      "sha256": "5677859e6272c2f279adaf31982762cc867b47108d8e06e973cd8f238cb4713a"
+    },
+    {
+      "file": "20261028062935_cash_reconciliation.sql",
+      "version": "20261028062935",
+      "recordedInSuppliedHistory": true,
+      "sha256": "32d136869b0a4860a77dbde91c98e81116b009c7168d877ce8e926ef6ab3694f"
+    },
+    {
+      "file": "20261028063027_audit_integrity.sql",
+      "version": "20261028063027",
+      "recordedInSuppliedHistory": true,
+      "sha256": "25ace6ef8465fcb5e01d3863623306c3018d32dec0d114c7ae6b3e92dbf8966f"
+    },
+    {
+      "file": "20261028063404_integrity_fixes.sql",
+      "version": "20261028063404",
+      "recordedInSuppliedHistory": true,
+      "sha256": "2d7beb28540785850e555e6f30bcee83dcc10ec1667ae1f4bbb277a31a2c5ec1"
+    },
+    {
+      "file": "20261028063446_membership_overlap_guard.sql",
+      "version": "20261028063446",
+      "recordedInSuppliedHistory": true,
+      "sha256": "521f66b6bf3baa6e7a7a34fe0f5e81c84073dc5ecc2d157236e22119ad1ced32"
+    },
+    {
+      "file": "20261028063638_payment_integrity_guard.sql",
+      "version": "20261028063638",
+      "recordedInSuppliedHistory": true,
+      "sha256": "315f9fa3cb4d8e14f6b1f333611751bf0f80bfcde90f20311c2e85a6ecc8a68e"
+    },
+    {
+      "file": "20261028064100_database_security_foundation.sql",
+      "version": "20261028064100",
+      "recordedInSuppliedHistory": true,
+      "sha256": "2286fe92b9075d1101b370fc70a560dd845972927c9a399f3699572745c05a35"
+    },
+    {
+      "file": "20261029100000_owner_authorization_rpc.sql",
+      "version": "20261029100000",
+      "recordedInSuppliedHistory": true,
+      "sha256": "2a1df410fb8413f360ac0d3c936855cfd8620f1b6d227a6dac935a54a9ea6328"
+    },
+    {
+      "file": "20261030120000_audit_chain_enforcement.sql",
+      "version": "20261030120000",
+      "recordedInSuppliedHistory": true,
+      "sha256": "843fbfea2e0ea5ce3762fcbb8f25d048e80ad23532a8729dc71518b1823ef475"
+    },
+    {
+      "file": "20261030130000_owner_register_member.sql",
+      "version": "20261030130000",
+      "recordedInSuppliedHistory": true,
+      "sha256": "15d45542fcb82fd4f949716a60c4325a6f5fb28fc3b251667b6bf783a1f73c93"
+    },
+    {
+      "file": "20261030140000_owner_create_pin_enrollment_token.sql",
+      "version": "20261030140000",
+      "recordedInSuppliedHistory": true,
+      "sha256": "e93cea9afd0eab52f3bcfbcb6f1ea491a406fa59fabdb8f20a5ed5a093166c5f"
+    },
+    {
+      "file": "20261030150000_member_pin_enrollment.sql",
+      "version": "20261030150000",
+      "recordedInSuppliedHistory": true,
+      "sha256": "c91e7ad9225a12787664f4d8a34c0135c1007551028b48163ab0000e69b9c67f"
+    },
+    {
+      "file": "20261030160000_global_pin_enrollment_rate_limit.sql",
+      "version": "20261030160000",
+      "recordedInSuppliedHistory": true,
+      "sha256": "133c77f06a80dc4248cad7c4e1ece9e92378459d0be668360c4e4e9b74eaf00f"
+    },
+    {
+      "file": "20261030170000_rolling_pin_enrollment_rate_limit.sql",
+      "version": "20261030170000",
+      "recordedInSuppliedHistory": true,
+      "sha256": "8e6c88bf97a6c4e01047534bdd7f1ac907e95b544ed68e4c4c94d72beb5bacf3"
+    },
+    {
+      "file": "20261030180000_owner_list_members.sql",
+      "version": "20261030180000",
+      "recordedInSuppliedHistory": true,
+      "sha256": "5edbe55267dba6a4681f01fa12edbd3ec4cd58f9fe9d72ac209b44ac894140af"
+    },
+    {
+      "file": "20261103080000_owner_membership_plans.sql",
+      "version": "20261103080000",
+      "recordedInSuppliedHistory": false,
+      "sha256": "8129ad8b38744ab6ff0180f246cc2107da9a8abb1c03494e8a426691230b1196"
+    },
+    {
+      "file": "20261103100000_owner_create_membership_purchase.sql",
+      "version": "20261103100000",
+      "recordedInSuppliedHistory": false,
+      "sha256": "7c8d0d18b1b4a8d2c475b3fa193764a7ece282abec33ad39a7d0b3fb23739fc6"
+    },
+    {
+      "file": "20261103110000_owner_list_membership_purchases.sql",
+      "version": "20261103110000",
+      "recordedInSuppliedHistory": false,
+      "sha256": "4e921477e040aa652a5943d7886f75c441395003674d72e36a1e84250933d0d5"
+    },
+    {
+      "file": "20261103120000_owner_membership_payments.sql",
+      "version": "20261103120000",
+      "recordedInSuppliedHistory": false,
+      "sha256": "62ff9ec172e04f901bcec4d7b9f4d4718b8590dfb92ba13f2456fcd402635240"
+    },
+    {
+      "file": "20261110100000_executor_hardening.sql",
+      "version": "20261110100000",
+      "recordedInSuppliedHistory": false,
+      "sha256": "b524b698e1bb2d58d79231e498cee0db47694dc231f49cd9d0430e0544417b9d"
+    },
+    {
+      "file": "20261110103000_audit_timezone.sql",
+      "version": "20261110103000",
+      "recordedInSuppliedHistory": false,
+      "sha256": "58fd9a89b7f3aee11510fc439e75e9f543bd854c73e36635fc0a79aa2a74e26f"
+    },
+    {
+      "file": "20261110110000_membership_lifecycle.sql",
+      "version": "20261110110000",
+      "recordedInSuppliedHistory": false,
+      "sha256": "f8204849462b8a173f0ccceea4383368ed7baa731e98335591b950f26543f966"
+    },
+    {
+      "file": "20261110120000_owner_reporting.sql",
+      "version": "20261110120000",
+      "recordedInSuppliedHistory": false,
+      "sha256": "d9f51df5d75b56ba31a456fbd8b019c7c094f1b871f9514b2f03a456f9e1e0da"
+    },
+    {
+      "file": "20261110130000_pin_recovery.sql",
+      "version": "20261110130000",
+      "recordedInSuppliedHistory": false,
+      "sha256": "317c77c50cca204cdcbe4b7a24eae45103c16878f921573e225e926dbe8c56c4"
+    },
+    {
+      "file": "20261110140000_walkin_operations.sql",
+      "version": "20261110140000",
+      "recordedInSuppliedHistory": false,
+      "sha256": "48d8d2c9b8e6e2d890e4625b88455bca3084d67f0c2452b918336c7e21910303"
+    },
+    {
+      "file": "20261110150000_member_checkin.sql",
+      "version": "20261110150000",
+      "recordedInSuppliedHistory": false,
+      "sha256": "012983386f610944b66a837135cb4f8e4571b5f11bde350bd81cf8e0cc04bd73"
+    },
+    {
+      "file": "20261110153000_owner_attendance.sql",
+      "version": "20261110153000",
+      "recordedInSuppliedHistory": false,
+      "sha256": "7e6af68a594c5cb26ab77eac4620849a3ecf5b8888aede71808eda5f569a5f46"
+    },
+    {
+      "file": "20261110160000_receipt_review_corrections.sql",
+      "version": "20261110160000",
+      "recordedInSuppliedHistory": false,
+      "sha256": "5f66c08fc3df9ba85760dc90ff69e1007e76409af2e77517b619b90407fe2b1e"
+    },
+    {
+      "file": "20261110170000_cash_operations.sql",
+      "version": "20261110170000",
+      "recordedInSuppliedHistory": false,
+      "sha256": "96bab1c3491f7129aaceffb9d032d5cebd622e2e69f0c5e9e44f3971c8b6969b"
+    },
+    {
+      "file": "20261110180000_provisional_claims.sql",
+      "version": "20261110180000",
+      "recordedInSuppliedHistory": false,
+      "sha256": "d852267853d37648c1454941f49341bc1b9c07d1f17974eff8f614a6562c6253"
+    },
+    {
+      "file": "20261110190000_receipt_allocation_review.sql",
+      "version": "20261110190000",
+      "recordedInSuppliedHistory": false,
+      "sha256": "6a052a9127e3c5ed571ffefe585a4969fefe616e302472f9ebf6bdd0d403463b"
+    },
+    {
+      "file": "20261110200000_operational_reports.sql",
+      "version": "20261110200000",
+      "recordedInSuppliedHistory": false,
+      "sha256": "7a4c471bfb37afcc1346cd5ad87fc7cbb6db2c0a58142974b8411b0175c24ab9"
+    }
+  ],
+  "productionAuthorization": false,
+  "records": [
+    {
+      "file": "20261110100000_executor_hardening.sql",
+      "originalSha256": "b524b698e1bb2d58d79231e498cee0db47694dc231f49cd9d0430e0544417b9d",
+      "compatibilitySha256": "b7d10e992cd7d92e7dba59e49c6d7f662c714fdf3def1375f6681e8dfdf299c0",
+      "membershipPredicates": 3,
+      "functionBodiesPreserved": true,
+      "historyAction": "NONE",
+      "provider": "gf_provider_admin"
+    },
+    {
+      "file": "20261110103000_audit_timezone.sql",
+      "originalSha256": "58fd9a89b7f3aee11510fc439e75e9f543bd854c73e36635fc0a79aa2a74e26f",
+      "compatibilitySha256": "169640d1a31bfe13ce0e333bae7328be52d4f61d19eaa2ea509e4d723986a34e",
+      "membershipPredicates": 0,
+      "functionBodiesPreserved": true,
+      "historyAction": "NONE",
+      "provider": "gf_provider_admin"
+    },
+    {
+      "file": "20261110110000_membership_lifecycle.sql",
+      "originalSha256": "f8204849462b8a173f0ccceea4383368ed7baa731e98335591b950f26543f966",
+      "compatibilitySha256": "da6959f0807da25c08099b77b77ed166b7aabc2a022ca6fbea191c07b93574f0",
+      "membershipPredicates": 1,
+      "functionBodiesPreserved": true,
+      "historyAction": "NONE",
+      "provider": "gf_provider_admin"
+    },
+    {
+      "file": "20261110120000_owner_reporting.sql",
+      "originalSha256": "d9f51df5d75b56ba31a456fbd8b019c7c094f1b871f9514b2f03a456f9e1e0da",
+      "compatibilitySha256": "0da49c5503b42872376b433b57a0c62c9d19831d4680a126eb7685275cc28659",
+      "membershipPredicates": 1,
+      "functionBodiesPreserved": true,
+      "historyAction": "NONE",
+      "provider": "gf_provider_admin"
+    },
+    {
+      "file": "20261110130000_pin_recovery.sql",
+      "originalSha256": "317c77c50cca204cdcbe4b7a24eae45103c16878f921573e225e926dbe8c56c4",
+      "compatibilitySha256": "8a63fd3bce975c381a5cf4b5d436a1e4780d038fab4cf5dea0ca524829c3df30",
+      "membershipPredicates": 0,
+      "functionBodiesPreserved": true,
+      "historyAction": "NONE",
+      "provider": "gf_provider_admin"
+    },
+    {
+      "file": "20261110140000_walkin_operations.sql",
+      "originalSha256": "48d8d2c9b8e6e2d890e4625b88455bca3084d67f0c2452b918336c7e21910303",
+      "compatibilitySha256": "f2e0fe70bbbf5f2cdfc5b7e3a707dcb06a9ef9dca1ee154da0ce5e1fe4793bdf",
+      "membershipPredicates": 1,
+      "functionBodiesPreserved": true,
+      "historyAction": "NONE",
+      "provider": "gf_provider_admin"
+    },
+    {
+      "file": "20261110150000_member_checkin.sql",
+      "originalSha256": "012983386f610944b66a837135cb4f8e4571b5f11bde350bd81cf8e0cc04bd73",
+      "compatibilitySha256": "205ae33cd7e1ac777322cc1274c14b11b0a9fd5c812e12eed9032ac2f82f09dd",
+      "membershipPredicates": 1,
+      "functionBodiesPreserved": true,
+      "historyAction": "NONE",
+      "provider": "gf_provider_admin"
+    },
+    {
+      "file": "20261110153000_owner_attendance.sql",
+      "originalSha256": "7e6af68a594c5cb26ab77eac4620849a3ecf5b8888aede71808eda5f569a5f46",
+      "compatibilitySha256": "59b63304645dd193651dd5a449c7e43bc69c43026b52486d2a6e178a8166c04e",
+      "membershipPredicates": 0,
+      "functionBodiesPreserved": true,
+      "historyAction": "NONE",
+      "provider": "gf_provider_admin"
+    },
+    {
+      "file": "20261110160000_receipt_review_corrections.sql",
+      "originalSha256": "5f66c08fc3df9ba85760dc90ff69e1007e76409af2e77517b619b90407fe2b1e",
+      "compatibilitySha256": "43aa46261d298b64c69d22a14634ca66e0180ec358a58bc098f993b59a303b09",
+      "membershipPredicates": 0,
+      "functionBodiesPreserved": true,
+      "historyAction": "NONE",
+      "provider": "gf_provider_admin"
+    },
+    {
+      "file": "20261110170000_cash_operations.sql",
+      "originalSha256": "96bab1c3491f7129aaceffb9d032d5cebd622e2e69f0c5e9e44f3971c8b6969b",
+      "compatibilitySha256": "26fb3c42b0eb25f3b340a6d6e21ea289c1752c68902f31670d7329c317410d27",
+      "membershipPredicates": 0,
+      "functionBodiesPreserved": true,
+      "historyAction": "NONE",
+      "provider": "gf_provider_admin"
+    },
+    {
+      "file": "20261110180000_provisional_claims.sql",
+      "originalSha256": "d852267853d37648c1454941f49341bc1b9c07d1f17974eff8f614a6562c6253",
+      "compatibilitySha256": "9720e6ab81111dc0f051b8007940512a05becfeb523fb3e87a67d6a9e718ff33",
+      "membershipPredicates": 0,
+      "functionBodiesPreserved": true,
+      "historyAction": "NONE",
+      "provider": "gf_provider_admin"
+    },
+    {
+      "file": "20261110190000_receipt_allocation_review.sql",
+      "originalSha256": "6a052a9127e3c5ed571ffefe585a4969fefe616e302472f9ebf6bdd0d403463b",
+      "compatibilitySha256": "456dad416792a7a17cbcb8717cde1551269fc7ccf48f800a4c0f8ff609b583d3",
+      "membershipPredicates": 0,
+      "functionBodiesPreserved": true,
+      "historyAction": "NONE",
+      "provider": "gf_provider_admin"
+    },
+    {
+      "file": "20261110200000_operational_reports.sql",
+      "originalSha256": "7a4c471bfb37afcc1346cd5ad87fc7cbb6db2c0a58142974b8411b0175c24ab9",
+      "compatibilitySha256": "d9428c6d55b6fb3bb9267b38c5d2e2ef669d1c757d27016e77a4306d14b9b601",
+      "membershipPredicates": 0,
+      "functionBodiesPreserved": true,
+      "historyAction": "NONE",
+      "provider": "gf_provider_admin"
+    },
+    {
+      "file": "01-explicit-routine-acls.sql",
+      "originalSha256": "662d173ec9bdfaca9c5827d8e14b850be4581e9320f5ee453bb6fb54797a0ced",
+      "compatibilitySha256": "1ca199811d7f1b6edf5e879eb17985a562915117dddcd7f4eb07b7fffa9099b7",
+      "membershipPredicates": 1,
+      "functionBodiesPreserved": true,
+      "historyAction": "NONE",
+      "provider": "gf_provider_admin"
+    },
+    {
+      "file": "executor_hardening_assertions.sql",
+      "assertionVariant": true,
+      "originalSha256": "fca5ffd02e456090b4f4a1113b0c827cedc37a0cbfd92f389f83b37340c1d33c",
+      "compatibilitySha256": "add8540e47bc8237399695899afae8c3874ab82d973a5b6d46f5b9ae163760d7",
+      "membershipPredicates": 1
+    },
+    {
+      "file": "member_checkin_behavior.sql",
+      "assertionVariant": true,
+      "originalSha256": "7d4413d9a1d80c6a13d4d3554349c632ef62e415e08ed4971199bb382d7736ed",
+      "compatibilitySha256": "6e9767b947f18b9e298c3123824d0e36ba26a14cb6a3aed5ca3b6d0aff5d9b2d",
+      "membershipPredicates": 1
+    },
+    {
+      "file": "final_security_assertions.sql",
+      "assertionVariant": true,
+      "originalSha256": "2f93f815b43577c4a21c292f0546667120694c21f24a2d398e1463e25d7b1f73",
+      "compatibilitySha256": "6309bd1fc8aefe5cc8eda219a5651d2852355a8a7c9d2b4fc275151e40f78113",
+      "membershipPredicates": 1
+    },
+    {
+      "file": "effective-privileges.sql",
+      "originalSha256": "43bfad19d3a7b3b2dc41c87d0414c89e025a27c09190fd659442c1465f7febad",
+      "compatibilitySha256": "b43ad0a98ea9efead0efa6e19af58ab0332da0673639acf0df5decaccfbf8a70",
+      "assertionVariant": true
+    },
+    {
+      "file": "compatibility-authority.sql",
+      "originalSha256": "7ef743624536dc44098e1341c49426868b3338f1c5879d97fe7e25c662ab2cc2",
+      "compatibilitySha256": "c7d4aec0c0240a56ea253740030b5aa23789151ab7819a72cec5b9ac15ae78ef",
+      "readOnly": true
+    },
+    {
+      "file": "maintenance-rls-proof.sql",
+      "compatibilitySha256": "173cef2dcc09deceee3b4050b826e6273ca88831faaa1b27655dd6663de4a3d3",
+      "syntheticOnly": true
+    },
+    {
+      "file": "history-fixture.sql",
+      "compatibilitySha256": "ba5b4d47a3b5a894498a64942969c2fadd37fbd4b736f506d39cdf1cde4854e5",
+      "syntheticOnly": true
+    }
+  ]
+}

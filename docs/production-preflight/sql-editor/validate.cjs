@@ -65,7 +65,7 @@ function extract(bytes, stmt) {
   assert.deepEqual(fs.readdirSync(dir).filter(file => file.endsWith('.sql')).sort(),
     manifest.files.map(file => file.file).sort());
   for (const grammar of ['pg17', 'pg18']) {
-    const parser = require(path.join(root, '.cache/foundation-parser/node_modules', grammar));
+    const parser = require(path.join(root, 'scripts/recovery/parser.cjs'))(Number(grammar.slice(2)));
     await parser.loadModule();
     const control = parser.parseSync(wrapper).stmts;
     const sources = new Map();

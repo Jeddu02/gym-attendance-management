@@ -436,3 +436,72 @@ evidence remain unchanged. No SQL execution, environment, install, staging,
 commit, push or deployment. Phase 6.1B implementation NO-GO pending explicit
 architecture/threshold/privacy and local implementation/integration authorization.
 A02 remains PENDING OWNER DECISION. Production remains NO-GO.
+
+## Phase 6.1B local ingress implementation - 2026-11-19
+
+See [the implementation/evidence record](GYMFORCE-PHASE-6-1B-INGRESS-IMPLEMENTATION.md).
+The Owner explicitly accepted I1/T1-T9/P1 for synthetic local testing and separately
+authorized L61B/V61B in the existing isolated PG17 environment, maximum eight
+concurrent admitted operations. This supersedes the earlier local implementation
+HOLD only. A02 remains PENDING OWNER DECISION; hosted permissions are not approved.
+
+Implemented additive bounded admission state, independent attempt/key charges,
+eight locked/generation-bound leases, service-only admitted business wrappers,
+capacity refusal, ungated transport EXECUTE retirement and private aggregate
+telemetry. Added actual byte/encoding/body deadlines and per-stage abort signals.
+SQL refuses sessions lacking pre-existing bounded statement/lock settings. The
+loopback restriction, original atomic recovery helper, C1 retention, historical
+migrations, approved diagnostic hashes and business rules remain unchanged.
+
+Fresh verification: lint/typecheck/security/build PASS; Node 45/45 plus ingress/
+recovery 8/8; Deno 109/109, 22/22 Edge checks; recovery/integrity 27/27; Vite 1/1;
+development and production/PWA browser fixtures PASS. Final PG17.12/170012
+customer profile PASS: original nine races, 11 refusals, two ownership rollback
+probes, Phase 6.1 recovery tests/races and new ingress SQL/concurrency checks.
+Four runs included three corrected implementation/test failures; all servers
+stopped and independent credential/PID metadata checks passed. Exact commands,
+scopes, ignored evidence references and limitations are in the linked report.
+
+Actual persisted Edge/PostgREST HTTP integration remains BLOCKED: missing local
+components were not installed or replaced with mocks as proof. Scenarios #8/#9
+remain PARTIAL; #14 now has scoped native/handler evidence but integrated
+acceptance remains blocked. Full stress/clock/refill, idle cleanup scheduling,
+alert delivery and physical Android acceptance remain unverified. Telemetry is
+bounded/minimal but best effort; physical expiry during inactivity is not claimed.
+Local source ready for Owner code review only. No staging, commit, push, deploy,
+hosted connection or production operation. Production remains NO-GO.
+
+## Phase 6.1B.1 — targeted local hardening, 2026-11-19
+
+Corrected early body rejection cancellation and explicitly qualified the ingress
+ownership/grant catalogs. Added actual-handler no-dispatch/cancellation probes,
+same-session temporary catalog shadowing, separate drift versus consistent
+capacity tests (last slot, replay, exhaustion, rollback), real two-session final
+capacity/token contention, clock-relative refill/window/day-reset checks, lease
+expiration under a held lock and same-slot stale-generation/ABA protection.
+The additive manifest was updated; historical migrations, original diagnostic
+hashes, financial rules and loopback restriction remain unchanged.
+
+Fresh final verification: lint/typecheck/security/build PASS; Node 45/45 plus
+recovery/body 10/10; Deno 109/109 and 22 Edge checks; recovery/integrity 27/27;
+Vite 1/1; development and production browser fixture suites PASS. Final native
+PG17.12 customer profile PASS, including 37 stages, 11 legacy refusals, two
+ownership rollback probes, nine original races, two recovery races, six ingress
+SQL PASS groups and strengthened ingress concurrency tests. Final evidence:
+`.cache/security-test-f77394a9b4214f0297f06b976ed8fd82`. All five attempt
+directories have no temporary credential files or live server PID. Initial
+sandbox/fixture/synchronization failures are documented separately from final
+PASS in `docs/GYMFORCE-PHASE-6-1B-INGRESS-IMPLEMENTATION.md`.
+
+A concrete scheduler/alert/heartbeat proposal is documented, not installed.
+Physical idle expiry and alert delivery remain non-operational. Persisted local
+Edge/PostgREST HTTP acceptance remains BLOCKED; no components were installed.
+Exact clock cutover/stress, provider cleanup, real Android and hosted authority
+remain unverified. The 15-case matrix retains partial integration statuses;
+local fixes do not establish complete acceptance. A02 remains pending.
+
+Ten files edited in this hardening; four other pre-existing changes preserved.
+Current candidate set remains 14 files (eight tracked modifications, six new),
+index empty, HEAD unchanged. No staging, commit, push or deployment. Next:
+Owner review, then separately authorized persisted HTTP and operational-control
+qualification. Production remains NO-GO.

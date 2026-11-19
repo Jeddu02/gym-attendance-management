@@ -4,6 +4,7 @@ param(
     [switch] $RecoveryAudit,
     [switch] $CustomerCompatibility,
     [switch] $PublicRecoveryTest,
+    [switch] $IngressTest,
     [ValidateSet('AfterCredential','BeforeInitdb','InitdbFailure','AfterInitdb','AfterStart')]
     [string] $FaultPoint
 )
@@ -577,6 +578,32 @@ try {
             $recoveryRaces.Output | Set-Content -LiteralPath (Join-Path $runRoot 'public-recovery-concurrency.log')
             $recoveryRaces.Output | ForEach-Object { Write-Output $_ }
             if ($recoveryRaces.ExitCode -ne 0) { throw 'Public recovery concurrency failed.' }
+        } finally {
+            foreach ($entryName in @('GYMFORCE_TEST_RUN_ID','GYMFORCE_TEST_PSQL','GYMFORCE_TEST_CONNECTION','GYMFORCE_TEST_DATA_DIRECTORY')) {
+                Remove-Item -LiteralPath "Env:$entryName" -ErrorAction SilentlyContinue
+            }
+        }
+    }
+    if ($IngressTest) {
+        if (-not $PublicRecoveryTest) { throw 'Ingress requires the explicit recovery stage.' }
+        # Poison only temporary catalog names in this guarded synthetic session.
+        # The candidate must still transfer every real routine and close its ACLs.
+        $shadowCandidate = Join-Path $runRoot 'ingress-shadow-install.sql'
+        $shadowPrefix = "CREATE TEMP TABLE pg_proc (oid oid,pronamespace oid,proname name); CREATE TEMP TABLE pg_namespace (oid oid,nspname name);" + [Environment]::NewLine
+        [IO.File]::WriteAllText($shadowCandidate, $shadowPrefix + [IO.File]::ReadAllText((Join-Path $repoRoot 'supabase/recovery/phase61b/002-public-ingress.sql')))
+        Invoke-TestSqlFile $shadowCandidate
+        Invoke-TestSqlFile (Join-Path $repoRoot 'supabase/tests/public_walkin_ingress.sql')
+        try {
+            $env:GYMFORCE_TEST_RUN_ID=$runId
+            $env:GYMFORCE_TEST_PSQL=$psql
+            $env:GYMFORCE_TEST_CONNECTION=$connection
+            $env:GYMFORCE_TEST_DATA_DIRECTORY=$dataRoot
+            $ingressArgs=@((Join-Path $repoRoot 'scripts/test-db-concurrency.mjs'),'--ingress')
+            if ($CustomerCompatibility) { $ingressArgs += '--compatibility-fixture' }
+            $ingressResult=Invoke-NativeTool (Get-Command node.exe).Source $ingressArgs
+            $ingressResult.Output | Set-Content -LiteralPath (Join-Path $runRoot 'ingress-concurrency.log')
+            $ingressResult.Output | ForEach-Object { Write-Output $_ }
+            if ($ingressResult.ExitCode -ne 0) { throw 'Ingress concurrency failed.' }
         } finally {
             foreach ($entryName in @('GYMFORCE_TEST_RUN_ID','GYMFORCE_TEST_PSQL','GYMFORCE_TEST_CONNECTION','GYMFORCE_TEST_DATA_DIRECTORY')) {
                 Remove-Item -LiteralPath "Env:$entryName" -ErrorAction SilentlyContinue

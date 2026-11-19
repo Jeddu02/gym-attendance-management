@@ -2,6 +2,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { verifySourceManifest } from './compare-catalog.mjs';
 import { verifyReviewedSource } from './source-bytes.mjs';
 const require = createRequire(import.meta.url);
@@ -23,9 +24,15 @@ try {
   const approvedAdditions=['supabase/functions/public-walkin-recovery/index.ts','supabase/functions/_shared/walkin-recovery.ts','src/lib/walkin-recovery-store.ts','supabase/recovery/phase61/001-public-walkin-recovery.sql'];
   if(additive.canonical!=='UTF-8 LF' || JSON.stringify(additive.files.map(row=>row.file).sort())!==JSON.stringify([...approvedAdditions].sort()))throw new Error('Additive inventory drift');
   for(const row of additive.files){
-    const text=readFileSync(new URL(row.file,root),'utf8').replaceAll('\r\n','\n');
+    const text=(row.file==='supabase/functions/public-walkin-recovery/index.ts'
+      ?execFileSync('git',['show','01ceeab403e5689c0de0688893cdfba3e05f9c65:'+row.file],{cwd:root}).toString()
+      :readFileSync(new URL(row.file,root),'utf8')).replaceAll('\r\n','\n');
     if(createHash('sha256').update(text).digest('hex')!==row.sha256)throw new Error('Additive source drift');
   }
+  const ingress=JSON.parse(readFileSync(new URL('supabase/recovery/phase61b/source-manifest.json',root),'utf8'));
+  const ingressFiles=['supabase/functions/public-walkin-recovery/index.ts','supabase/functions/_shared/walkin-ingress.ts','supabase/recovery/phase61b/002-public-ingress.sql'];
+  if(ingress.canonical!=='UTF-8 LF'||JSON.stringify(ingress.files.map(r=>r.file).sort())!==JSON.stringify(ingressFiles.sort()))throw new Error('Ingress inventory drift');
+  for(const row of ingress.files)if(createHash('sha256').update(readFileSync(new URL(row.file,root),'utf8').replaceAll('\r\n','\n')).digest('hex')!==row.sha256)throw new Error('Ingress source drift');
   if (JSON.stringify(entries) !== JSON.stringify([...manifest.edgeEntrypoints.map(x => x.file),'supabase/functions/public-walkin-recovery/index.ts'].sort())) throw new Error('Endpoint directory drift');
   for (const major of [17, 18]) {
     const parser = require('./parser.cjs')(major);
@@ -38,6 +45,7 @@ try {
       parser.parseSync(readFileSync(new URL('supabase/recovery/proposals/' + file, root), 'utf8'));
     }
     parser.parseSync(readFileSync(new URL('supabase/recovery/phase61/001-public-walkin-recovery.sql',root),'utf8'));
+    parser.parseSync(readFileSync(new URL('supabase/recovery/phase61b/002-public-ingress.sql',root),'utf8'));
     console.log(`PASS PG${major} grammar: 37 migration files, ${statements} top-level statements, two proposals. Bodies require runtime tests.`);
   }
   console.log('PASS: separate Phase 6.1 LF-canonical additive fingerprints and PG17/18 grammar; original manifests unchanged.');

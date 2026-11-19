@@ -1,5 +1,6 @@
 import { spawn, execFileSync } from 'node:child_process';
 import { realpath, stat } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -95,7 +96,9 @@ async function race(label, lock, statements, expectedFailure) {
     const results = await Promise.all(racers.map((entry) => entry.done));
     const failed = results.filter((entry) => entry.code !== 0);
     if (expectedFailure) {
-      if (failed.length !== 1 || !new RegExp(`ERROR:\\s+P0001:\\s+${expectedFailure}(?:\\r?\\n|$)`).test(failed[0].stderr)) throw Error('unexpected race outcome');
+      if (expectedFailure === '54000') {
+        if (failed.length !== 1 || !failed[0].stderr.includes('ERROR:  54000:')) throw Error('capacity race refusal');
+      } else if (failed.length !== 1 || !new RegExp(`ERROR:\\s+P0001:\\s+${expectedFailure}(?:\\r?\\n|$)`).test(failed[0].stderr)) throw Error('unexpected race outcome');
     } else if (failed.length) throw Error('unexpected race failure');
     console.log(`PASS: synthetic ${label} race (two blocked sessions observed).`);
   } finally {
@@ -169,7 +172,87 @@ async function operationRaces() {
 
 try {
   await validateTarget();
-  if (process.argv.includes('--public-recovery')) {
+  if (process.argv.includes('--ingress')) {
+    stage='ingress';
+    const reset=`UPDATE private.walkin_ingress_state SET last_second=0,day_number=0,day_attempts=0;
+UPDATE private.walkin_ingress_seconds SET second_number=0,attempts=0;
+UPDATE private.walkin_ingress_leases SET ticket=NULL,expires_at=NULL,digest=NULL,action=NULL,method=NULL,fingerprint=NULL;`;
+    const admission="SET statement_timeout='1s'; SET lock_timeout='100ms'; SET ROLE service_role; SELECT api.public_walkin_admit();";
+    await query(reset);
+    const clients=Array.from({length:8},()=>start('BEGIN;\n\\echo GYMFORCE_LOCK_READY',{hold:true}));
+    if(!(await Promise.all(clients.map(c=>c.ready))).every(Boolean))throw Error('ingress barrier');
+    for(const client of clients)client.child.stdin.end("SET LOCAL statement_timeout='1s'; SET LOCAL lock_timeout='100ms'; SET LOCAL ROLE service_role; SELECT api.public_walkin_admit(); COMMIT;\n");
+    const results=await Promise.all(clients.map(c=>c.done));
+    let allowed=0;
+    for(const result of results){
+      if(result.code!==0){if(!result.stderr.includes('55P03'))throw Error('unexpected admission failure');continue;}
+      const line=result.stdout.split('\n').find(x=>x.startsWith('{'));
+      if(!line)throw Error('missing admission result');
+      const value=JSON.parse(line);if(value.status==='allowed')allowed++;else if(value.status!=='denied')throw Error('unexpected admission classification');
+    }
+    if(Number(await query('SELECT count(*) FROM private.walkin_ingress_leases WHERE ticket IS NOT NULL'))!==allowed||allowed<1||allowed>8)throw Error('lease race cardinality');
+    for(let i=allowed;i<8;i++)if(JSON.parse(await query(admission)).status!=='allowed')throw Error('slot fill');
+    if(JSON.parse(await query(admission)).status!=='denied')throw Error('ninth lease');
+    await query(reset);
+    const original=JSON.parse(await query(admission)).ticket;
+    await query(`UPDATE private.walkin_ingress_leases SET expires_at=clock_timestamp()+interval '1 second' WHERE ticket=${quote(original)}::uuid`);
+    const held=start(`BEGIN; SELECT slot FROM private.walkin_ingress_leases WHERE ticket=${quote(original)}::uuid FOR UPDATE;\n\\echo GYMFORCE_LOCK_READY`,{hold:true});
+    try{
+      if(!await held.ready)throw Error('lease lock');
+      let expired=false;
+      for(let i=0;i<30;i++){
+        if(await query(`SELECT clock_timestamp()>=expires_at FROM private.walkin_ingress_leases WHERE ticket=${quote(original)}::uuid`)==='t'){expired=true;break;}
+        await new Promise(done=>setTimeout(done,50));
+      }
+      if(!expired)throw Error('lease did not expire while lock held');
+      const replacement=JSON.parse(await query(admission));
+      if(replacement.status!=='allowed'||replacement.ticket===original)throw Error('reclaimed locked lease');
+      if(await query(`SELECT count(*) FROM private.walkin_ingress_leases WHERE ticket=${quote(original)}::uuid`)!=='1')throw Error('locked lease erased');
+    }finally{held.child.stdin.end('ROLLBACK;\n');await held.done;}
+    stage='ingress-aba';
+    const reusedSlot=await query(`SELECT slot FROM private.walkin_ingress_leases WHERE ticket=${quote(original)}::uuid`);
+    // Occupy other slots so this proves same-slot reuse, not merely new UUIDs.
+    await query(`UPDATE private.walkin_ingress_leases SET ticket=coalesce(ticket,gen_random_uuid()),expires_at=clock_timestamp()+interval '1 minute' WHERE ticket IS DISTINCT FROM ${quote(original)}::uuid`);
+    const renewed=JSON.parse(await query(admission)).ticket;
+    if(await query(`SELECT slot FROM private.walkin_ingress_leases WHERE ticket=${quote(renewed)}::uuid`)!==reusedSlot)throw Error('ABA fixture did not reuse same slot');
+    await query(`SET statement_timeout='1s'; SET lock_timeout='100ms'; SET ROLE service_role; SELECT api.public_walkin_finish(${quote(original)}::uuid,'denied');`);
+    if(renewed===original||await query(`SELECT count(*) FROM private.walkin_ingress_leases WHERE ticket=${quote(renewed)}::uuid`)!=='1'||await query(`SELECT count(*) FROM private.walkin_ingress_leases WHERE ticket=${quote(original)}::uuid`)!=='0')throw Error('ABA stale finish erased renewed generation');
+    await query(reset);
+
+    // Two real psql transactions compete for one token under the global lock.
+    stage='ingress-final-token';
+    const tickets=[];
+    for(let i=0;i<2;i++)tickets.push(JSON.parse(await query(admission)).ticket);
+    await query("UPDATE private.walkin_ingress_buckets SET tokens=1,updated_at=clock_timestamp(),lookup_tokens=2 WHERE slot=2730");
+    const tokenClients=tickets.map(()=>start('BEGIN;\n\\echo GYMFORCE_LOCK_READY',{hold:true}));
+    if(!(await Promise.all(tokenClients.map(c=>c.ready))).every(Boolean))throw Error('token barrier');
+    tokenClients.forEach((c,i)=>c.child.stdin.end(`SET LOCAL statement_timeout='1s'; SET LOCAL lock_timeout='100ms'; SET LOCAL ROLE service_role; SELECT api.public_walkin_bind(${quote(tickets[i])}::uuid,decode(repeat('aa',32),'hex'),'create','cash'); COMMIT;\n`));
+    const tokenResults=await Promise.all(tokenClients.map(c=>c.done));
+    if(tokenResults.some(r=>r.code!==0))throw Error('token client failure');
+    const tokenStatuses=tokenResults.map(r=>JSON.parse(r.stdout.split('\n').find(x=>x.startsWith('{'))).status).sort();
+    if(tokenStatuses.join(',')!=='allowed,denied')throw Error('token classifications');
+    if(await query("SELECT count(*) FROM private.walkin_ingress_leases WHERE digest=decode(repeat('aa',32),'hex')")!=='1')throw Error('final token double consumption');
+    await query(reset);
+    // Reuse guarded SQL fixture source, preserving triggers and hash assertions.
+    stage='ingress-capacity-fixture';
+    const source=readFileSync(resolve(root,'supabase/tests/public_walkin_ingress.sql'),'utf8');
+    const hashFunction=source.match(/CREATE FUNCTION pg_temp\.protected_hash\(\)[\s\S]*?\$f\$;/)?.[0];
+    const seed=source.match(/DO \$capacity\$[\s\S]*?END \$capacity\$;/)?.[0];
+    if(!hashFunction||!seed)throw Error('capacity fixture source missing');
+    await query(`SET statement_timeout='60s'; ${hashFunction} ${seed}`);
+    const operations=[];
+    for(const byte of ['ab','ac']){
+      const ticket=JSON.parse(await query(admission)).ticket;
+      await query(`SET statement_timeout='1s'; SET lock_timeout='100ms'; SET ROLE service_role; SELECT api.public_walkin_bind(${quote(ticket)}::uuid,decode(repeat('${byte}',32),'hex'),'create','cash')`);
+      operations.push(`SET LOCAL statement_timeout='5s'; SET LOCAL lock_timeout='500ms'; SELECT api.public_walkin_execute(${quote(ticket)}::uuid,decode(repeat('${byte}',32),'hex'),'create','cash')`);
+    }
+    stage='ingress-final-capacity';
+    await race('ingress-final-capacity','SELECT id FROM private.walkin_ingress_capacity WHERE id=1 FOR UPDATE',operations,'54000');
+    if(await query('SELECT count(*) FROM private.walkin_creation_operations')!=='10000'||await query('SELECT bindings FROM private.walkin_ingress_capacity')!=='10000')throw Error('final capacity race drift');
+    await query(reset);
+    console.log('PASS: barrier-released native token clients and two blocked capacity clients compete for the final slots; exactly one binding wins each race. No multi-isolate HTTP claim.');
+    console.log('PASS: eight barrier-released native admission clients respect slot cardinality; ninth lease refused; expired locked lease skipped without erasure. SQL transport only, not Edge/PostgREST integration.');
+  } else if (process.argv.includes('--public-recovery')) {
     stage = 'public-recovery';
     const digest = `decode(repeat('65',32),'hex')`;
     const create = `SELECT api.public_create_walkin_request_v2(${digest},'cash',100)`;

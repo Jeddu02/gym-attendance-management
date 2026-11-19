@@ -23,7 +23,7 @@ test('real recovery handler preserves preflight, exact origin, config and local-
     const denied=await run(request({},'OPTIONS','https://evil.example.test'));
     assert.equal(denied.status,403); assert.equal(denied.headers.has('Access-Control-Allow-Origin'),false);
     assert.equal((await run(request({}))).status,503);
-    const hosted=await handler({APP_ORIGIN:origin,SUPABASE_URL:'https://backend.example.test',SUPABASE_SERVICE_ROLE_KEY:'synthetic',PUBLIC_WALKIN_ENABLED:'true',WALKIN_REQUEST_LIMIT_PER_MINUTE:'5'});
+    const hosted=await handler({APP_ORIGIN:origin,SUPABASE_URL:'https://backend.example.test',SUPABASE_SERVICE_ROLE_KEY:'synthetic',PUBLIC_WALKIN_ENABLED:'true',WALKIN_REQUEST_LIMIT_PER_MINUTE:'10'});
     assert.equal((await hosted(request({action:'lookup',capability}))).status,503);
   } finally {globalThis.Deno=old;}
 });
@@ -32,13 +32,17 @@ test('real recovery handler hashes capability and allowlists RPC outcomes withou
   const snapshot={id:'91000000-0000-4000-8000-000000000001',feePhp:'125.00',currency:'PHP',paymentMethod:'cash',createdAt:'2026-11-19T00:00:00Z',expiresAt:'2026-11-19T00:15:00Z'};
   globalThis.fetch=async(input,init)=>{
     const url=new URL(typeof input==='string'?input:input.url??input.href);
-    assert.equal(url.origin,'http://127.0.0.1:54321');calls++;
-    const args=JSON.parse(init.body);assert.equal(args.p_capability_digest,await capabilityDigest(capability));
+    assert.equal(url.origin,'http://127.0.0.1:54321');
+    if(url.pathname.endsWith('/public_walkin_admit'))return Response.json({status:'allowed',ticket:'61000000-0000-4000-8000-000000000001'});
+    if(url.pathname.endsWith('/public_walkin_finish'))return Response.json(null);
+    const args=JSON.parse(init.body);assert.equal(args.p_digest,await capabilityDigest(capability));
+    if(url.pathname.endsWith('/public_walkin_bind'))return Response.json({status:'allowed'});
+    assert.ok(url.pathname.endsWith('/public_walkin_execute'));calls++;
     assert.equal(JSON.stringify(args).includes(capability),false);
     return Response.json(result);
   };
   try {
-    const run=await handler({APP_ORIGIN:origin,SUPABASE_URL:'http://127.0.0.1:54321',SUPABASE_SERVICE_ROLE_KEY:'synthetic',PUBLIC_WALKIN_ENABLED:'true',WALKIN_REQUEST_LIMIT_PER_MINUTE:'5'});
+    const run=await handler({APP_ORIGIN:origin,SUPABASE_URL:'http://127.0.0.1:54321',SUPABASE_SERVICE_ROLE_KEY:'synthetic',PUBLIC_WALKIN_ENABLED:'true',WALKIN_REQUEST_LIMIT_PER_MINUTE:'10'});
     for(const [classification,status]of [['PROVISIONAL_CREATED',201],['PROVISIONAL_RECOVERED',200],['OPERATION_CONFLICT',409],['RECOVERY_CLOSED',410],['NO_RECOVERABLE_OUTCOME',404]]) {
       result={classification,request:{...snapshot,receiptId:'private-marker'},secret:'private-marker'};
       const response=await run(request({action:'create',capability,paymentMethod:'cash'}));
@@ -57,6 +61,36 @@ test('real recovery handler hashes capability and allowlists RPC outcomes withou
 });
 test('recovery canonical input rejects noncanonical trailing bits',()=>{
   assert.equal(parseRecoveryInput({action:'lookup',capability:'A'.repeat(42)+'B'}),null);
+});
+test('real ingress handler admits malformed attempts before parsing and refuses quota/store failures without business dispatch',async()=>{
+ const oldDeno=globalThis.Deno,oldFetch=globalThis.fetch;const seen=[];
+ let admission={status:'denied'},binding={status:'allowed'};
+ globalThis.fetch=async(input)=>{
+  const path=new URL(typeof input==='string'?input:input.url??input.href).pathname.split('/').at(-1);seen.push(path);
+  if(path==='public_walkin_admit')return Response.json(admission);
+  if(path==='public_walkin_bind')return Response.json(binding);
+  if(path==='public_walkin_finish')return Response.json(null);
+  throw Error('Unexpected business dispatch');
+ };
+ try{
+  const run=await handler({APP_ORIGIN:origin,SUPABASE_URL:'http://127.0.0.1:54321',SUPABASE_SERVICE_ROLE_KEY:'synthetic',PUBLIC_WALKIN_ENABLED:'true',WALKIN_REQUEST_LIMIT_PER_MINUTE:'10'});
+  const malformed=()=>new Request('https://edge.example.test',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:'{'});
+  const denied=await run(malformed());assert.equal(denied.status,429);assert.equal(denied.headers.get('Retry-After'),'5');assert.deepEqual(seen,['public_walkin_admit']);
+  admission={status:'allowed',ticket:'61000000-0000-4000-8000-000000000001'};seen.length=0;
+  assert.equal((await run(malformed())).status,400);assert.deepEqual(seen,['public_walkin_admit','public_walkin_finish']);
+  for(const headers of [{'Content-Length':'2049'},{'Content-Encoding':'gzip'},{'Content-Type':'text/plain'}]) {
+   seen.length=0;let cancelled=0;
+   const body=new ReadableStream({cancel(){cancelled++;return Promise.reject(new Error('synthetic cleanup failure'));}});
+   const invalid=new Request('https://edge.example.test',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json',...headers},body,duplex:'half'});
+   assert.equal((await run(invalid)).status,400);assert.equal(cancelled,1);
+   assert.deepEqual(seen,['public_walkin_admit','public_walkin_finish']);
+  }
+  seen.length=0;binding={status:'denied'};
+  assert.equal((await run(request({action:'lookup',capability}))).status,429);
+  assert.deepEqual(seen,['public_walkin_admit','public_walkin_bind','public_walkin_finish']);
+  seen.length=0;admission={status:'allowed',ticket:'invalid'};
+  assert.equal((await run(request({action:'lookup',capability}))).status,503);assert.deepEqual(seen,['public_walkin_admit']);
+ }finally{globalThis.Deno=oldDeno;globalThis.fetch=oldFetch;}
 });
 test('capability digest matches independently derived domain-separated bytes',async()=>{
   const expected=createHash('sha256').update(Buffer.concat([Buffer.from('gymforce:walkin-recovery:v1\0'),Buffer.alloc(32)])).digest('hex');

@@ -1,0 +1,18 @@
+{
+  "canonical": "UTF-8 LF",
+  "scope": "Phase 6.1B local-only; supersedes only the Phase 6.1 recovery handler; original manifests preserved",
+  "files": [
+    {
+      "file": "supabase/functions/public-walkin-recovery/index.ts",
+      "sha256": "63bbca8a9a9b68a4f719e62f57bc0dcdd88163557cfaf499c004418ae1c363be"
+    },
+    {
+      "file": "supabase/functions/_shared/walkin-ingress.ts",
+      "sha256": "c83a850b079122d8d03d43c57912d7b0391941d3754cb3def82679616f57f2c6"
+    },
+    {
+      "file": "supabase/recovery/phase61b/002-public-ingress.sql",
+      "sha256": "6b46a533005eb43e5a1dc2777ab51063d6e1b32c7ae7a4447795830eeb0ce7cb"
+    }
+  ]
+}

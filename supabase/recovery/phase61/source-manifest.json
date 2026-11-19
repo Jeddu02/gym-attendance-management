@@ -1,0 +1,23 @@
+{
+  "format": 1,
+  "canonical": "UTF-8 LF",
+  "scope": "Local-only Phase 6.1 additions; no hosted approval",
+  "files": [
+    {
+      "file": "supabase/functions/public-walkin-recovery/index.ts",
+      "sha256": "cdf9e2b1836878b67f79a89ddd1930a8d6d9837b93aeafbb60e960d9f206188b"
+    },
+    {
+      "file": "supabase/functions/_shared/walkin-recovery.ts",
+      "sha256": "cc3ae0f0c5c750305e49dda8b4abfe2e0f73e214ac6bc63fb2bab012d21c7fbb"
+    },
+    {
+      "file": "src/lib/walkin-recovery-store.ts",
+      "sha256": "3f65f431671a22572e7946a30b6e3e0981944b0d9d492bbb9026a1658abfe1b8"
+    },
+    {
+      "file": "supabase/recovery/phase61/001-public-walkin-recovery.sql",
+      "sha256": "abd015b369a7e3c78b269df9133ca1d3895afe109c292cf3c7b6e8b789955ab3"
+    }
+  ]
+}

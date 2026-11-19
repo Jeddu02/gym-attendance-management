@@ -6,7 +6,8 @@ function noCors(response: Response, label: string) {
   check(![...response.headers.keys()].some(key => key.startsWith("access-control-allow-")), label + ": CORS allow headers leaked");
   check(response.headers.get("Cache-Control") === "no-store", label + ": no-store missing");
 }
-Deno.test("all 21 entrypoints enforce preflight, exact origin, missing configuration, Auth and release gates", async () => {
+Deno.test("all original 21 plus recovery entrypoints enforce preflight, exact origin, missing configuration, Auth and release gates", async () => {
+  const coveredEndpoints = [...endpoints, "public-walkin-recovery"];
   const discovered: string[] = [];
   for await (const entry of Deno.readDir(new URL("../", import.meta.url))) {
     if (entry.isDirectory && entry.name !== "_shared") {
@@ -14,7 +15,7 @@ Deno.test("all 21 entrypoints enforce preflight, exact origin, missing configura
       discovered.push(entry.name);
     }
   }
-  check(discovered.length === 21 && JSON.stringify(discovered.sort()) === JSON.stringify([...endpoints].sort()), "Entrypoint inventory changed; update coverage");
+  check(discovered.length === 22 && JSON.stringify(discovered.sort()) === JSON.stringify([...coveredEndpoints].sort()), "Entrypoint inventory changed; update coverage");
   const serveDescriptor = Object.getOwnPropertyDescriptor(Deno, "serve")!;
   const envDescriptor = Object.getOwnPropertyDescriptor(Deno.env, "get")!;
   const originalFetch = globalThis.fetch;
@@ -29,7 +30,7 @@ Deno.test("all 21 entrypoints enforce preflight, exact origin, missing configura
       env = scenario === "missing-origin-config" ? {} : { APP_ORIGIN: origin };
       if (scenario === "configured") Object.assign(env, { SUPABASE_URL: "https://backend.example.test", SUPABASE_ANON_KEY: "synthetic-public", SUPABASE_SERVICE_ROLE_KEY: "synthetic-server" });
       else Object.assign(env, { PIN_SETUP_ENABLED: "true", PIN_RECOVERY_ENABLED: "true", PUBLIC_WALKIN_ENABLED: "true", PUBLIC_MEMBER_CHECKIN_ENABLED: "true", OWNER_OFFLINE_REVIEW_ENABLED: "true" });
-      for (const name of endpoints) {
+      for (const name of coveredEndpoints) {
         handler = undefined;
         await import(new URL("../" + name + "/index.ts?cors-regression=" + scenario, import.meta.url).href);
         const callback = handler as ((request: Request) => Response | Promise<Response>) | undefined;
@@ -52,7 +53,7 @@ Deno.test("all 21 entrypoints enforce preflight, exact origin, missing configura
         }
         const post = await callback(new Request("https://edge.example.test", { method: "POST", headers: { Origin: origin, "Content-Type": "application/json", ...(scenario === "origin-only" ? { Authorization: "Bearer synthetic-token" } : {}) }, body: "{}" }));
         if (scenario === "configured") {
-          const gated = ["member-checkin", "member-enroll-pin", "member-reset-pin", "public-walkin-request", "owner-create-pin-enrollment-token", "owner-create-pin-recovery-token", "owner-attendance-claims"].includes(name);
+          const gated = ["member-checkin", "member-enroll-pin", "member-reset-pin", "public-walkin-request", "public-walkin-recovery", "owner-create-pin-enrollment-token", "owner-create-pin-recovery-token", "owner-attendance-claims"].includes(name);
           check(post.status === (gated ? 503 : 401), label + ": Auth/release bypass " + post.status);
         } else check([500,503].includes(post.status), label + ": missing config allowed POST");
         if (scenario === "missing-origin-config") noCors(post,label);

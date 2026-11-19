@@ -8,12 +8,14 @@ import { fileURLToPath } from 'node:url';
 test('hosting diagnostics use only public GET/OPTIONS and reject broken CORS', async () => {
   let deny = false;
   let optionsCount = 0;
+  let recoveryPreflight = false;
   let unexpectedMethod = false;
   const server = createServer((request, response) => {
     unexpectedMethod ||= !['GET', 'OPTIONS'].includes(request.method);
     assert.equal(request.headers.authorization, undefined);
     if (request.method === 'OPTIONS') {
       optionsCount++;
+      recoveryPreflight ||= request.url === '/functions/v1/public-walkin-recovery';
       response.writeHead(204, {
         'Access-Control-Allow-Origin': deny ? 'https://wrong.example.test' : request.headers.origin,
         'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -32,7 +34,8 @@ test('hosting diagnostics use only public GET/OPTIONS and reject broken CORS', a
   try {
     const result = await run();
     assert.ok(result.stdout.includes('Auth, RPCs, RLS, release switches and business workflows remain unverified'));
-    assert.equal(optionsCount, 21);
+    assert.equal(optionsCount, 22);
+    assert.equal(recoveryPreflight, true);
     assert.equal(unexpectedMethod, false);
     deny = true;
     await assert.rejects(run(), (error) => error.code === 1 && error.stdout.includes('origin mismatch'));

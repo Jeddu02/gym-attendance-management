@@ -1,15 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { getSupabaseClient } from '../lib/supabase';
-
-type PaymentMethod = 'cash' | 'gcash' | 'bank_transfer';
-type WalkinRequest = {
-  id: string;
-  feePhp: string | number;
-  currency: 'PHP';
-  paymentMethod: PaymentMethod;
-  createdAt: string;
-  expiresAt: string;
-};
+import { parseWalkinRequest, type PaymentMethod, type WalkinRequest } from '../lib/public-entry-contract';
+import { formatPhp } from '../lib/money';
+import { activeWalkin } from '../lib/walkin-recovery-store';
 
 const methods: Record<PaymentMethod, string> = { cash: 'Cash', gcash: 'GCash', bank_transfer: 'Bank transfer' };
 
@@ -24,12 +17,30 @@ export function EntrancePage() {
   const [request, setRequest] = useState<WalkinRequest | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [uncertain, setUncertain] = useState(false);
+  const [storageReady, setStorageReady] = useState(false);
+  const [hasActive, setHasActive] = useState(false);
+  const [closed, setClosed] = useState(false);
+  const creationAttempted = useRef(false);
   const mounted = useRef(false);
   const inFlight = useRef(false);
   const checkinInFlight = useRef(false);
 
   useEffect(() => {
     mounted.current = true;
+    void activeWalkin().then(active => {
+      if (!mounted.current) return;
+      if (active) {
+        setPaymentMethod(active.paymentMethod);
+        setHasActive(true);
+        setUncertain(true);
+        creationAttempted.current = true;
+        setMessage('An existing request needs recovery. Do not submit or pay again. Recover it or ask the Owner to review it.');
+      }
+      setStorageReady(true);
+    }).catch(() => {
+      if (mounted.current) setMessage('Recovery storage is unavailable. No new request was submitted by this page. An earlier request may still exist; please speak with the Owner.');
+    });
     const updateConnection = () => setOnline(navigator.onLine);
     window.addEventListener('online', updateConnection);
     window.addEventListener('offline', updateConnection);
@@ -83,33 +94,66 @@ export function EntrancePage() {
 
   async function createRequest(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (inFlight.current || request || !navigator.onLine) return;
+    if (inFlight.current || creationAttempted.current || request || !navigator.onLine || !storageReady) return;
+    await submitWalkin('create');
+  }
+
+  async function submitWalkin(action: 'create' | 'lookup') {
+    if (inFlight.current || !navigator.onLine || !storageReady) return;
     inFlight.current = true;
     setBusy(true);
     setMessage('');
     try {
-      const { data, error } = await getSupabaseClient().functions.invoke('public-walkin-request', {
-        method: 'POST', body: { paymentMethod },
+      const client = getSupabaseClient();
+      const active = await activeWalkin(action === 'create' ? paymentMethod : undefined);
+      if (!active) throw new Error('No active operation');
+      if (!mounted.current) return;
+      setHasActive(true);
+      if (active.paymentMethod !== paymentMethod) {
+        setPaymentMethod(active.paymentMethod);
+        creationAttempted.current = true;
+        setUncertain(true);
+        setMessage('Another tab selected a different method. Recover the original request or speak with the Owner.');
+        return;
+      }
+      if (!navigator.onLine) throw new Error('Public recovery requires internet');
+      creationAttempted.current = true;
+      const { data, error } = await client.functions.invoke('public-walkin-recovery', {
+        method: 'POST', body: action === 'create'
+          ? { action, capability: active.capability, paymentMethod: active.paymentMethod }
+          : { action, capability: active.capability },
       });
       if (!mounted.current) return;
       if (error) {
         const context = 'context' in error ? error.context : undefined;
-        if (context instanceof Response && context.status === 503) {
-          setMessage('Walk-in requests are unavailable. Please speak with the Owner.');
-          return;
+        if (context instanceof Response && [404,409,410].includes(context.status)) {
+          const payload = await context.clone().json().catch(() => null);
+          const messages: Record<string,string> = {
+            RECOVERY_CLOSED: 'Recovery is closed. This does not confirm payment or attendance. Ask the Owner to review the original request before any replacement.',
+            OPERATION_CONFLICT: 'The saved request conflicts with this submission. Do not submit or pay again; speak with the Owner.',
+            NO_RECOVERABLE_OUTCOME: 'No recoverable outcome was found. An earlier request may still arrive. Keep the saved request and speak with the Owner or explicitly retry that same request.',
+          };
+          const expected: Record<number,string> = {404:'NO_RECOVERABLE_OUTCOME',409:'OPERATION_CONFLICT',410:'RECOVERY_CLOSED'};
+          if (payload?.error === expected[context.status]) {
+            setUncertain(true); setClosed(context.status === 410);
+            setMessage(messages[payload.error]); return;
+          }
         }
         throw error;
       }
-      const next = data?.request;
-      if (data?.success !== true || typeof next?.id !== 'string' || next.currency !== 'PHP'
-        || !['cash', 'gcash', 'bank_transfer'].includes(next.paymentMethod)
-        || !Number.isFinite(Number(next.feePhp)) || Number(next.feePhp) <= 0
-        || !Number.isFinite(new Date(next.createdAt).getTime()) || !Number.isFinite(new Date(next.expiresAt).getTime())) {
+      const next = parseWalkinRequest(data?.request, paymentMethod);
+      if (data?.success !== true || !next || !['PROVISIONAL_CREATED', 'PROVISIONAL_RECOVERED'].includes(data.classification)
+        || (action === 'lookup' && data.classification !== 'PROVISIONAL_RECOVERED')) {
         throw new Error('Invalid walk-in request response');
       }
-      setRequest(next as WalkinRequest);
+      setRequest(next);
     } catch {
-      if (mounted.current) setMessage('The request could not be completed. Speak with the Owner before retrying if you have already paid.');
+      if (mounted.current) {
+        setUncertain(creationAttempted.current);
+        setMessage(creationAttempted.current
+          ? 'The request outcome could not be verified. A walk-in request may already exist. Do not submit or pay again; recover the saved request or ask the Owner to review it. This message does not confirm payment or attendance.'
+          : 'Walk-in requests or recovery storage are unavailable. Nothing was dispatched by this attempt. An earlier request may still exist; please speak with the Owner.');
+      }
     } finally {
       inFlight.current = false;
       if (mounted.current) setBusy(false);
@@ -157,7 +201,7 @@ export function EntrancePage() {
           <section aria-label="Pending walk-in request">
             <h2>Awaiting Owner confirmation</h2>
             <dl>
-              <dt>Walk-in fee</dt><dd>{Number(request.feePhp).toLocaleString('en-PH', { style: 'currency', currency: request.currency })}</dd>
+              <dt>Walk-in fee</dt><dd>{formatPhp(request.feePhp)}</dd>
               <dt>Payment method</dt><dd>{methods[request.paymentMethod]}</dd>
               <dt>Request reference</dt><dd className="payment-reference">{request.id}</dd>
               <dt>Server expiry (Asia/Manila)</dt><dd>{new Date(request.expiresAt).toLocaleString('en-PH', { timeZone: 'Asia/Manila', dateStyle: 'medium', timeStyle: 'short' })}</dd>
@@ -169,13 +213,17 @@ export function EntrancePage() {
           <form onSubmit={createRequest}>
             <div className="field">
               <label htmlFor="walkin-payment-method">Walk-in payment method</label>
-              <select id="walkin-payment-method" value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as PaymentMethod)} disabled={busy}>
+              <select id="walkin-payment-method" value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as PaymentMethod)} disabled={busy || uncertain || !storageReady}>
                 {Object.entries(methods).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
             </div>
-            <button type="submit" className="primary-button" disabled={busy || !online}>{busy ? 'Requesting...' : 'Request a walk-in visit'}</button>
+            <button type="submit" className="primary-button" disabled={busy || uncertain || !online || !storageReady}>{busy ? 'Requesting...' : uncertain ? 'Owner review required' : 'Request a walk-in visit'}</button>
           </form>
         )}
+        {hasActive && !request && <div className="member-modal-actions">
+          <button type="button" className="secondary-button" disabled={busy || !online} onClick={() => void submitWalkin('lookup')}>Recover existing request</button>
+          <button type="button" className="secondary-button" disabled={busy || !online || closed} onClick={() => void submitWalkin('create')}>Retry same request</button>
+        </div>}
         {message && <p className="feedback" role="status" aria-live="polite">{message}</p>}
         </section>}
       </section>

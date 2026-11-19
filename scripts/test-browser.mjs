@@ -31,18 +31,23 @@ const server = spawn(process.execPath, ['node_modules/vite/bin/vite.js', ...(pro
 let browser; let socket; let sequence = 0;
 const pending = new Map(); const errors = []; const observed = []; let externalAttempts = 0;
 let paymentFailure = true; let walkinFailure = true; let publicUnavailable = true;
+let publicResponsePatch = null; let publicCalls = 0; let resetCalls = 0;
+const recoverySnapshots = new Map();
+let expectedResetToken = 'A'.repeat(43); let resetSuccess = false;
+let memberNetworkFailure = false;
+let publicNetworkFailure = false;
 const unavailableRoutes = new Set(['owner-list-members', 'owner-list-membership-plans', 'owner-list-membership-purchases', 'owner-attendance', 'owner-receipt-review', 'owner-cash', 'owner-attendance-claims']);
 async function until(check, description, timeout = 15000) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) { if (await check()) return; await delay(100); }
   throw Error(`Timed out: ${description}`);
 }
-function cdp(method, params = {}) {
+function cdp(method, params = {}, sessionId) {
   const id = ++sequence;
   return new Promise((resolveCall, reject) => {
     const timer = setTimeout(() => { pending.delete(id); reject(Error(`CDP timeout: ${method}; recent local events: ${observed.slice(-8).join(', ')}`)); }, method === 'Page.navigate' ? 45000 : 15000);
     pending.set(id, { resolve: (value) => { clearTimeout(timer); resolveCall(value); }, reject });
-    socket.send(JSON.stringify({ id, method, params }));
+    socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
   });
 }
 async function evaluate(expression) {
@@ -53,10 +58,20 @@ async function evaluate(expression) {
 async function navigate(path) { await cdp('Page.navigate', { url: origin + path }); }
 async function textIncludes(value) { return evaluate(`document.body?.innerText.includes(${JSON.stringify(value)}) ?? false`); }
 try {
-  await until(async () => { try { return (await fetch(origin)).ok; } catch { return false; } }, 'local Vite');
-  browser = spawn(browserPath, ['--headless=new', '--no-first-run', '--no-default-browser-check', '--disable-background-networking', '--disable-sync', '--disable-extensions', '--disable-component-update', '--remote-debugging-port=0', `--user-data-dir=${resolve(run, 'profile')}`, 'about:blank'], { windowsHide: true, stdio: 'ignore' });
+  await until(async () => { try { return (await fetch(origin, { signal: AbortSignal.timeout(2000) })).ok; } catch { return false; } }, 'local Vite');
+  await mkdir(resolve(run, 'profile'), { recursive: true });
+  browser = spawn(browserPath, ['--headless=new', '--no-first-run', '--no-default-browser-check', '--disable-background-networking', '--disable-sync', '--disable-extensions', '--disable-component-update', '--remote-debugging-port=0', `--user-data-dir=${resolve(run, 'profile')}`, 'about:blank'], { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
+  let startupStderr = '';
+  const captureStartup = (chunk) => { startupStderr = (startupStderr + chunk).slice(-8000); };
+  browser.stderr.on('data', captureStartup);
   let debugPort;
-  await until(async () => { try { debugPort = Number((await readFile(resolve(run, 'profile/DevToolsActivePort'), 'utf8')).split('\n')[0]); return debugPort > 0; } catch { return false; } }, 'isolated browser');
+  try {
+    await until(async () => { try { debugPort = Number((await readFile(resolve(run, 'profile/DevToolsActivePort'), 'utf8')).split('\n')[0]); return debugPort > 0; } catch { return false; } }, 'isolated browser');
+  } catch (error) {
+    // Startup is about:blank; never retain stderr from pages handling private inputs.
+    await writeFile(resolve(run, 'browser-startup-error.log'), startupStderr);
+    throw error;
+  } finally { browser.stderr.off('data', captureStartup); browser.stderr.resume(); }
   const targets = await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json();
   const target = targets.find((item) => item.type === 'page');
   assert.ok(target?.webSocketDebuggerUrl.startsWith(`ws://127.0.0.1:${debugPort}/`));
@@ -69,12 +84,13 @@ try {
       const item = pending.get(message.id); if (!item) return;
       pending.delete(message.id); if (message.error) item.reject(Error('CDP request rejected')); else item.resolve(message.result);
     } else if (message.method === 'Runtime.exceptionThrown') errors.push('Uncaught browser exception');
-    else if (message.method === 'Fetch.requestPaused') void handleRequest(message.params).catch(() => errors.push('Fixture routing failure'));
+    else if (message.method === 'Fetch.requestPaused') void handleRequest(message.params, message.sessionId).catch(() => errors.push('Fixture routing failure'));
   });
-  async function handleRequest({ requestId, request }) {
+  async function handleRequest({ requestId, request }, sessionId) {
+    const send = (method, params) => cdp(method, params, sessionId);
     const url = new URL(request.url);
-    if (url.origin !== origin) { externalAttempts++; await cdp('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' }); return; }
-    const respond = async (status, body) => cdp('Fetch.fulfillRequest', { requestId, responseCode: status, responseHeaders: [{ name: 'Content-Type', value: 'application/json' }, { name: 'Cache-Control', value: 'no-store' }], body: Buffer.from(JSON.stringify(body)).toString('base64') });
+    if (url.origin !== origin) { externalAttempts++; await send('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' }); return; }
+    const respond = async (status, body) => send('Fetch.fulfillRequest', { requestId, responseCode: status, responseHeaders: [{ name: 'Content-Type', value: 'application/json' }, { name: 'Cache-Control', value: 'no-store' }], body: Buffer.from(JSON.stringify(body)).toString('base64') });
     if (url.pathname.startsWith('/functions/v1/') && unavailableRoutes.has(url.pathname.split('/').at(-1))) { await respond(503, { error: 'SERVICE_UNAVAILABLE' }); return; }
     if (url.pathname === '/auth/v1/token') {
       const user = { id: '91000000-0000-4000-8000-000000000002', aud: 'authenticated', role: 'authenticated', email: 'owner@example.test', app_metadata: {}, user_metadata: {}, created_at: new Date().toISOString() };
@@ -104,20 +120,50 @@ try {
     else if (url.pathname === '/functions/v1/member-checkin') {
       const input = JSON.parse(request.postData);
       assert.deepEqual(Object.keys(input).sort(), ['identifier', 'pin']);
+      if (memberNetworkFailure) { await send('Fetch.failRequest', { requestId, errorReason: 'ConnectionReset' }); return; }
       await respond(400, { success: false, message: 'CHECKIN_UNAVAILABLE' });
-    } else if (url.pathname === '/functions/v1/public-walkin-request') {
-      assert.deepEqual(JSON.parse(request.postData), { paymentMethod: 'cash' });
+    } else if (url.pathname === '/functions/v1/public-walkin-recovery') {
+      const input = JSON.parse(request.postData);
+      assert.match(input.capability, /^[A-Za-z0-9_-]{43}$/);
+      assert.ok(['create','lookup'].includes(input.action));
+      const existing = recoverySnapshots.get(input.capability);
+      if (input.action === 'create') {
+        publicCalls++;
+        assert.deepEqual(Object.keys(input).sort(), ['action','capability','paymentMethod']);
+        assert.equal(input.paymentMethod, 'cash');
+        if (!existing) recoverySnapshots.set(input.capability, { id: '91000000-0000-4000-8000-000000000001', feePhp: '100.00', currency: 'PHP', paymentMethod: 'cash', createdAt: new Date().toISOString(), expiresAt: new Date(Date.now()+900000).toISOString() });
+      } else assert.deepEqual(Object.keys(input).sort(), ['action','capability']);
+      if (publicNetworkFailure) { await send('Fetch.failRequest', { requestId, errorReason: 'ConnectionReset' }); return; }
       if (publicUnavailable) { await respond(503, { error: 'REQUEST_UNAVAILABLE' }); return; }
-      await respond(200, { success: true, request: { id: '91000000-0000-4000-8000-000000000001', feePhp: '100.00', currency: 'PHP', paymentMethod: 'cash', createdAt: new Date().toISOString(), expiresAt: new Date(Date.now()+900000).toISOString() } });
+      const snapshot = recoverySnapshots.get(input.capability);
+      if (!snapshot) { await respond(404, {error:'NO_RECOVERABLE_OUTCOME'}); return; }
+      await respond(existing || input.action === 'lookup' ? 200 : 201, { success: true, classification: existing || input.action === 'lookup' ? 'PROVISIONAL_RECOVERED' : 'PROVISIONAL_CREATED', request: {...snapshot,...publicResponsePatch} });
+    } else if (url.pathname === '/functions/v1/member-reset-pin') {
+      resetCalls++;
+      assert.equal(JSON.parse(request.postData).token, expectedResetToken);
+      await respond(resetSuccess ? 200 : 503, resetSuccess ? { success: true } : { error: 'SERVICE_UNAVAILABLE' });
     } else if (url.pathname === '/functions/v1/member-enroll-pin') await respond(503, { error: 'SERVICE_UNAVAILABLE' });
     else if (url.pathname.startsWith('/functions/') || url.pathname.startsWith('/auth/')) await respond(503, { error: 'SYNTHETIC_UNAVAILABLE' });
-    else await cdp('Fetch.continueRequest', { requestId });
+    else await send('Fetch.continueRequest', { requestId });
   }
   await cdp('Page.enable'); await cdp('Runtime.enable');
   await cdp('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
   await cdp('Emulation.setDeviceMetricsOverride', { width: 375, height: 812, deviceScaleFactor: 1, mobile: true });
+  const browserVersion = await cdp('Browser.getVersion');
+  await cdp('Emulation.setUserAgentOverride', { userAgent: `Mozilla/5.0 (Linux; Android 14; Synthetic Test Device) AppleWebKit/537.36 (KHTML, like Gecko) ${browserVersion.product.replace('HeadlessChrome', 'Chrome')} Mobile Safari/537.36`, platform: 'Android' });
+  await cdp('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
   await navigate('/entrance');
-  await until(() => textIncludes('Member ID or registered mobile number'), 'entrance form');
+  try {
+    await until(() => textIncludes('Member ID or registered mobile number'), 'entrance form', production ? 15000 : 60000);
+  } catch (error) {
+    // Initial page only: before any identity/PIN/payment entry or Auth fixture.
+    await writeFile(resolve(run, 'entrance-startup.json'), JSON.stringify({
+      initialPage: await evaluate('({ title: document.title, text: document.body?.innerText.slice(0, 2000), scripts: document.scripts.length, ready: document.readyState, resources: performance.getEntriesByType("resource").map(item=>({path:new URL(item.name).pathname,duration:item.duration})) })'),
+      runtimeExceptions: errors.length, externalAttempts,
+    }, null, 2));
+    console.log(`Initial synthetic page diagnostic retained in .cache/${run.split(/[\\/]/).at(-1)}/entrance-startup.json`);
+    throw error;
+  }
   if (production) {
     // Prompt-mode workers do not claim the first document. Await activation,
     // then navigate once to become controlled before testing subsequent routes.
@@ -139,19 +185,145 @@ try {
   await evaluate(`(() => { const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; for (const [id,value] of [['checkin-identifier','MBR-ABCDEF123456'],['checkin-pin','123456']]) { const el=document.getElementById(id); set.call(el,value); el.dispatchEvent(new Event('input',{bubbles:true})); } })()`);
   await evaluate('document.querySelector("#entrance-member-panel form").requestSubmit()');
   await until(() => evaluate('document.querySelector("#checkin-pin").value === ""'), 'PIN cleared after denial');
-  await evaluate('document.getElementById("entrance-walkin-tab").click()');
+  memberNetworkFailure = true;
+  await evaluate(`(() => { const el=document.getElementById('checkin-pin'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,'123456');el.dispatchEvent(new Event('input',{bubbles:true})); })()`);
+  await evaluate('document.querySelector("#entrance-member-panel form").requestSubmit()');
+  await until(async () => await textIncludes('Reconnect and retry') && await evaluate('document.querySelector("#checkin-pin").value === "" && !document.querySelector("#entrance-member-panel button[type=submit]").disabled'), 'Interrupted request clears PIN and releases the form');
+  memberNetworkFailure = false;
+  const touchTarget = await evaluate('(() => { const r=document.getElementById("entrance-walkin-tab").getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()');
+  await cdp('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [touchTarget] });
+  await cdp('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   await until(() => textIncludes('Request a walk-in visit'), 'walk-in tab');
+  await until(()=>evaluate('!document.querySelector("#entrance-walkin-panel button[type=submit]").disabled'),'Recovery storage ready');
   await evaluate('document.querySelector("#entrance-walkin-panel form").requestSubmit()');
-  await until(() => textIncludes('Walk-in requests are unavailable'), 'disabled public service feedback');
+  async function assertUncertainCreation(previous) {
+    await until(async () => publicCalls === previous + 1 && await textIncludes('The request outcome could not be verified.')
+      && await evaluate('document.querySelector("#entrance-walkin-panel button[type=submit]").disabled'), 'Uncertain creation blocks another attempt');
+    assert.equal(await textIncludes('Awaiting Owner confirmation'), false);
+    await evaluate('document.querySelector("#entrance-walkin-panel form").requestSubmit(); document.querySelector("#entrance-walkin-panel form").requestSubmit()');
+    await delay(150);
+    assert.equal(publicCalls, previous + 1, 'Programmatic repeated submit must not dispatch again');
+  }
+  async function freshSyntheticWalkinPage() {
+    // Test-only fixture reset. Production never clears uncertain operations.
+    await evaluate(`new Promise((resolve,reject)=>{ const r=indexedDB.deleteDatabase('gymforce-walkin-recovery-v1'); r.onsuccess=()=>resolve(true); r.onerror=()=>reject(new Error('Synthetic storage reset failed')); })`);
+    await navigate('/entrance');
+    await until(() => textIncludes('Member ID or registered mobile number'), 'Fresh synthetic document');
+    await evaluate('document.getElementById("entrance-walkin-tab").click()');
+    await until(() => evaluate('Boolean(document.querySelector("#entrance-walkin-panel button[type=submit]")) && !document.querySelector("#entrance-walkin-panel button[type=submit]").disabled'), 'Fresh synthetic walk-in form/storage');
+  }
+  await assertUncertainCreation(0);
   assert.equal(await textIncludes('Awaiting Owner confirmation'), false);
   publicUnavailable = false;
+  for (const patch of [{ id: '' }, { feePhp: true }, { feePhp: '1.001' }, { paymentMethod: 'gcash' }, { expiresAt: '2000-01-01T00:00:00Z' }]) {
+    await freshSyntheticWalkinPage();
+    publicResponsePatch = patch;
+    const previous = publicCalls;
+    await evaluate('document.querySelector("#entrance-walkin-panel form").requestSubmit()');
+    await assertUncertainCreation(previous);
+  }
+  await freshSyntheticWalkinPage();
+  publicNetworkFailure = true;
+  const beforeLostResponse = publicCalls;
   await evaluate('document.querySelector("#entrance-walkin-panel form").requestSubmit()');
+  await assertUncertainCreation(beforeLostResponse);
+  await evaluate('document.getElementById("entrance-member-tab").click(); document.getElementById("entrance-walkin-tab").click()');
+  assert.equal(await evaluate('document.querySelector("#entrance-walkin-panel button[type=submit]").disabled'), true);
+  // A real second tab must recover the same durable operation, not create anew.
+  const secondTarget = await cdp('Target.createTarget', { url: 'about:blank' });
+  try {
+    const attached = await cdp('Target.attachToTarget', { targetId: secondTarget.targetId, flatten: true });
+    const secondSend = (method, params) => cdp(method, params, attached.sessionId);
+    const secondEvaluate = async expression => {
+      const result = await secondSend('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
+      assert.equal(result.exceptionDetails, undefined);
+      return result.result.value;
+    };
+    await secondSend('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
+    await secondSend('Page.navigate', { url: origin + '/entrance' });
+    await until(() => secondEvaluate('Boolean(document.getElementById("entrance-walkin-tab"))'), 'Second real tab entrance');
+    await secondEvaluate('document.getElementById("entrance-walkin-tab").click()');
+    await until(() => secondEvaluate('Boolean(document.querySelector("#entrance-walkin-panel form"))'), 'Second tab walk-in form');
+    const beforeSecondTab = publicCalls;
+    await until(() => secondEvaluate('Boolean([...document.querySelectorAll("button")].find(b=>b.textContent==="Recover existing request"))'), 'Persisted operation recovery');
+    await secondEvaluate('document.querySelector("#entrance-walkin-panel form").requestSubmit()');
+    await delay(150);
+    assert.equal(publicCalls,beforeSecondTab,'Second tab must not allocate a fresh operation');
+    publicNetworkFailure = false;
+    publicResponsePatch = null;
+    await secondEvaluate('[...document.querySelectorAll("button")].find(b=>b.textContent==="Recover existing request").click()');
+    await until(()=>secondEvaluate('document.body.innerText.includes("Awaiting Owner confirmation")'),'Second tab recovers original provisional outcome');
+    assert.equal(await evaluate('document.querySelector("#entrance-walkin-panel button[type=submit]").disabled'), true);
+    console.log('PASS: real second tab uses durable browser operation and lookup, no new creation; synthetic HTTP only.');
+    await freshSyntheticWalkinPage();
+    await secondSend('Page.navigate', {url:origin+'/entrance'});
+    await until(()=>secondEvaluate('Boolean(document.getElementById("entrance-walkin-tab"))'),'Second tab fresh allocation fixture');
+    await secondEvaluate('document.getElementById("entrance-walkin-tab").click()');
+    await until(()=>secondEvaluate('Boolean(document.querySelector("#entrance-walkin-panel button[type=submit]")) && !document.querySelector("#entrance-walkin-panel button[type=submit]").disabled'),'Both tabs ready to allocate');
+    const beforeRace=recoverySnapshots.size;
+    await Promise.all([
+      evaluate('document.querySelector("#entrance-walkin-panel form").requestSubmit()'),
+      secondEvaluate('document.querySelector("#entrance-walkin-panel form").requestSubmit()'),
+    ]);
+    await until(async()=>await textIncludes('Awaiting Owner confirmation') && await secondEvaluate('document.body.innerText.includes("Awaiting Owner confirmation")'),'Two-tab allocation/replay');
+    assert.equal(recoverySnapshots.size,beforeRace+1,'Atomic browser allocation must share one capability across tabs');
+    console.log('PASS: two real browser tabs racing initial allocation share one operation (synthetic HTTP; native SQL uniqueness tested separately).');
+  } finally {
+    await cdp('Target.closeTarget', { targetId: secondTarget.targetId });
+  }
+  publicNetworkFailure = false;
+  await navigate('/entrance');
+  await until(()=>textIncludes('Member ID or registered mobile number'),'Reloaded entrance');
+  await evaluate('document.getElementById("entrance-walkin-tab").click()');
+  publicResponsePatch = null;
+  const beforeReloadedAttempt = publicCalls;
+  await until(()=>textIncludes('Recover existing request'),'Reload recovery UI');
+  await evaluate('document.querySelector("#entrance-walkin-panel form").requestSubmit()');
+  await evaluate('[...document.querySelectorAll("button")].find(b=>b.textContent==="Recover existing request").click()');
   await until(() => textIncludes('Awaiting Owner confirmation'), 'provisional request');
+  assert.equal(publicCalls, beforeReloadedAttempt, 'Reload must not dispatch a new creation');
   assert.equal(await textIncludes('This request does not confirm payment or attendance.'), true);
   const image = await cdp('Page.captureScreenshot', { format: 'png' });
   await writeFile(resolve(run, 'entrance-mobile.png'), Buffer.from(image.data, 'base64'));
+  const storageFault = await cdp('Page.addScriptToEvaluateOnNewDocument', {source:'Object.defineProperty(globalThis,"indexedDB",{configurable:true,value:undefined});'});
+  const beforeStorageFailure=publicCalls;
+  await navigate('/entrance');
+  await until(()=>textIncludes('Member ID or registered mobile number'),'Storage-failure fixture entrance');
+  await evaluate('document.getElementById("entrance-walkin-tab").click()');
+  await until(()=>textIncludes('Recovery storage is unavailable.'),'Storage-unavailable safe feedback');
+  assert.equal(await evaluate('document.querySelector("#entrance-walkin-panel button[type=submit]").disabled'),true);
+  await evaluate('document.querySelector("#entrance-walkin-panel form").requestSubmit()');
+  await delay(100);
+  assert.equal(publicCalls,beforeStorageFailure,'Unavailable storage must not dispatch a creation');
+  await cdp('Page.removeScriptToEvaluateOnNewDocument',{identifier:storageFault.identifier});
+  console.log('PASS: unavailable browser recovery storage fails closed without dispatch.');
   await navigate('/pin-setup#token=' + 'A'.repeat(43));
   await until(() => evaluate('location.hash === "" && document.querySelectorAll("input[type=password]").length === 2'), 'setup fragment removed and masked PIN');
+  for (const size of [40, 42, 44, 128]) {
+    await navigate('/pin-reset#token=' + 'A'.repeat(size));
+    await until(async () => await textIncludes('Ask the Owner for a new private PIN link') && await evaluate('location.hash === ""'), 'invalid reset link rejected before form entry');
+    assert.equal(await evaluate('location.hash === "" && document.querySelectorAll("input[type=password]").length === 0'), true);
+    assert.equal(resetCalls, 0, 'Malformed reset tokens never cause requests');
+  }
+  await navigate('/pin-reset#token=' + 'A'.repeat(43));
+  await until(() => evaluate('location.hash === "" && document.querySelectorAll("input[type=password]").length === 2'), 'valid reset link accepted');
+  await evaluate(`(() => { const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set; for(const id of ['member-pin','confirm-member-pin']) { const el=document.getElementById(id);set.call(el,'123456');el.dispatchEvent(new Event('input',{bubbles:true})); } })()`);
+  await evaluate('document.querySelector("form").requestSubmit()');
+  await until(() => textIncludes('PIN service is unavailable'), 'reset failure is visible');
+  assert.equal(resetCalls, 1);
+  await until(() => evaluate('Array.from(document.querySelectorAll("input[type=password]")).every(input=>input.value==="")'), 'Reset failure clears both PIN fields');
+  await evaluate(`(() => { window.syntheticPageMarker = 'same-document'; const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set; for(const id of ['member-pin','confirm-member-pin']) { const el=document.getElementById(id);set.call(el,'123456');el.dispatchEvent(new Event('input',{bubbles:true})); } })()`);
+  expectedResetToken = 'B'.repeat(43);
+  await navigate('/pin-reset#token=' + expectedResetToken);
+  await until(() => evaluate('location.hash === "" && Array.from(document.querySelectorAll("input[type=password]")).every(input=>input.value==="") && !document.body.innerText.includes("PIN service is unavailable")'), 'Replacement private link clears stale fields and errors');
+  assert.equal(await evaluate('window.syntheticPageMarker'), 'same-document', 'Replacement must be handled without reloading the page');
+  resetSuccess = true;
+  await evaluate(`(() => { const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set; for(const id of ['member-pin','confirm-member-pin']) { const el=document.getElementById(id);set.call(el,'123456');el.dispatchEvent(new Event('input',{bubbles:true})); } })()`);
+  await evaluate('document.querySelector("form").requestSubmit()');
+  await until(() => textIncludes('Your PIN request is complete'), 'Replacement token reaches the actual frontend request');
+  assert.equal(resetCalls, 2);
+  await navigate('/pin-reset#token=' + 'C'.repeat(43));
+  await until(() => evaluate('location.hash === "" && document.querySelectorAll("input[type=password]").length === 2 && !document.body.innerText.includes("Your PIN request is complete")'), 'New private link clears prior completion state');
   await navigate('/');
   await until(() => textIncludes('Sign in'), 'signed-out Owner screen');
   assert.equal(await evaluate('document.querySelector(".dashboard") === null'), true);
@@ -210,15 +382,61 @@ try {
   await writeFile(resolve(run, 'owner-qr-desktop.png'), Buffer.from(ownerImage.data, 'base64'));
   if (production) {
     await until(() => evaluate('navigator.serviceWorker.controller !== null'), 'production shell service worker');
+    const manifest = await cdp('Page.getAppManifest');
+    assert.deepEqual(manifest.errors, [], 'Chrome must parse the generated manifest');
+    const manifestData = JSON.parse(manifest.data);
+    assert.equal(manifestData.display, 'standalone');
+    assert.equal(await evaluate('window.isSecureContext'), true, 'Loopback is a secure-context exception, not hosted HTTPS evidence');
+    const installability = await cdp('Page.getInstallabilityErrors');
+    assert.deepEqual(installability.installabilityErrors, [], 'No installability errors in this desktop Chrome emulation');
+    await writeFile(resolve(run, 'pwa-qualification.json'), JSON.stringify({ browser: browserVersion.product, emulation: 'Android UA, mobile viewport and touch; not physical Android', manifest: manifestData, installability }, null, 2));
     const cached = await evaluate(`(async () => { const found=[]; for (const key of await caches.keys()) { const cache=await caches.open(key); for (const request of await cache.keys()) found.push(new URL(request.url).pathname); } return found; })()`);
     assert.ok(cached.length > 0);
     assert.equal(cached.some((path) => /functions|auth|pin-setup|pin-reset|entrance/.test(path)), false, 'Sensitive/public submissions must not enter the app shell cache');
     assert.ok(cached.every((path) => path === '/index.html' || path === '/pwa.svg' || path === '/manifest.webmanifest' || path === '/registerSW.js' || path.startsWith('/assets/')), 'Only static app shell entries may be cached');
+    // Change only this run's generated worker. No force-activation message.
+    const workerPath = resolve(run, 'dist/sw.js');
+    const beforeUpdateForm = await evaluate('document.querySelector("input[type=url]").value');
+    await evaluate('window.phase58CurrentForm = true');
+    await writeFile(workerPath, (await readFile(workerPath, 'utf8')) + '\n// synthetic update qualification\n');
+    await evaluate('(async () => { const r=await navigator.serviceWorker.getRegistration(); await r.update(); })()');
+    await until(() => textIncludes('A GYMFORCE update is ready.'), 'Verified Owner sees waiting-update notice');
+    await cdp('Emulation.setDeviceMetricsOverride', { width: 375, height: 812, deviceScaleFactor: 1, mobile: true });
+    await evaluate('Array.from(document.querySelectorAll("button")).find(b=>b.textContent === "How to apply safely").click()');
+    assert.equal(await textIncludes('Finish or resolve pending operations first.'), true);
+    assert.equal(await evaluate('document.documentElement.scrollWidth <= window.innerWidth'), true, 'Update instructions fit the mobile viewport');
+    const updateImage = await cdp('Page.captureScreenshot', { format: 'png' });
+    await writeFile(resolve(run, 'owner-update-mobile.png'), Buffer.from(updateImage.data, 'base64'));
+    assert.equal(await evaluate('document.querySelector("input[type=url]").value'), beforeUpdateForm);
+    assert.equal(await evaluate('window.phase58CurrentForm'), true);
+    assert.equal(await evaluate('(async () => { const r=await navigator.serviceWorker.getRegistration(); return r.waiting?.state === "installed" && navigator.serviceWorker.controller?.state === "activated"; })()'), true);
+    await navigate('/entrance');
+    await until(() => textIncludes('Member ID or registered mobile number'), 'entrance before offline transition');
+    assert.equal(await textIncludes('A GYMFORCE update is ready.'), false, 'Public page must not show Owner update UI');
+    await cdp('Network.enable');
+    await cdp('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 });
+    await until(() => textIncludes('Nothing will be queued or confirmed offline.'), 'offline entrance notice');
+    assert.equal(await evaluate('navigator.onLine === false && document.querySelector("#entrance-member-panel button[type=submit]").disabled'), true);
+    const beforeOfflineWalkin = publicCalls;
+    await evaluate('document.getElementById("entrance-walkin-tab").click()');
+    await until(() => evaluate('document.querySelector("#entrance-walkin-panel button[type=submit]")?.disabled === true'), 'offline walk-in creation disabled');
+    assert.equal(publicCalls, beforeOfflineWalkin, 'Offline UI must not submit or queue public requests');
+    await evaluate('window.phase57BeforeNavigation = true');
+    await navigate('/entrance?synthetic-offline-navigation=1');
+    await until(() => evaluate('location.search === "?synthetic-offline-navigation=1" && window.phase57BeforeNavigation === undefined && navigator.onLine === false && document.body.innerText.includes("Nothing will be queued or confirmed offline.")'), 'Cold document navigation uses the offline static shell');
+    await cdp('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+    // Explicitly leave the only controlled document, as closing app windows does.
+    await cdp('Page.navigate', { url: 'about:blank' });
+    await delay(500);
+    await navigate('/entrance');
+    await until(() => evaluate('(async () => { const r=await navigator.serviceWorker.getRegistration(); return !r.waiting && r.active?.state === "activated" && navigator.serviceWorker.controller !== null; })()'), 'Waiting update activates naturally after clients leave');
+    console.log(`PASS: manifest parsed, secure loopback context, Android UA/touch emulation, interrupted request recovery, offline cold navigation, Owner-only waiting-update notice, preserved form and natural activation after clients leave. Installability diagnostic entries: ${installability.installabilityErrors.length}; details are synthetic local evidence.`);
+    console.log('PASS: browser offline transition disables public check-in/walk-in submissions; no request or offline queue created.');
     console.log('PASS: production shell worker controls the page; observed caches contain only static assets/index, no API/Auth/PIN/entrance submissions. Real-device install/update QA remains open.');
   }
   assert.equal(errors.length, 0, errors.join('; '));
   assert.equal(externalAttempts, 0, 'All app network must remain on the synthetic loopback origin');
-  console.log('PASS: mobile entrance/all Owner navigation without overflow, failed-list recovery and empty-state distinctions, public unavailability/retry, payable pagination, PIN clearing, provisional walk-in, setup fragment removal, signed-out screen, exact local QR preview and no external app requests. Synthetic API/Auth fixtures only; no Auth/RLS certification.');
+  console.log('PASS: mobile entrance/all Owner navigation without overflow, failed-list recovery and empty-state distinctions, seven uncertain public outcomes locked against repeated submit, five malformed walk-in snapshots rejected without false pending confirmation, payable pagination, PIN clearing, provisional walk-in, four invalid reset-link lengths blocked, valid reset failure/secret clearing, same-document replacement links clear stale fields/errors/completion and use the replacement token, fragment removal, signed-out screen, exact local QR preview and no external app requests. Synthetic API/Auth fixtures only; no Auth/RLS certification.');
   console.log(`Synthetic screenshot retained in .cache/${run.split(/[\\/]/).at(-1)}/entrance-mobile.png`);
 } finally {
   if (socket?.readyState === WebSocket.OPEN) { try { await cdp('Browser.close'); } catch { /* closing terminates its socket */ } socket.close(); }

@@ -1,4 +1,4 @@
-param([string] $PostgresBin, [switch] $CustomerCompatibility, [switch] $TestLegacyAuditRefusal)
+param([string] $PostgresBin, [switch] $CustomerCompatibility, [switch] $TestLegacyAuditRefusal, [switch] $PublicRecoveryTest)
 $ErrorActionPreference = 'Stop'
 if (-not $PostgresBin) {
     $portable = Join-Path $PSScriptRoot '../.cache/pg17-portable-17.12/pgsql/bin'
@@ -16,5 +16,5 @@ if ($LASTEXITCODE -ne 0 -or $version -notmatch 'PostgreSQL\) 17\.') {
     exit 2
 }
 Write-Output "PASS: selected PostgreSQL 17 runtime: $version"
-& (Join-Path $PSScriptRoot 'test-database.ps1') -PostgresBin $PostgresBin -RecoveryAudit -CustomerCompatibility:$CustomerCompatibility -TestLegacyAuditRefusal:$TestLegacyAuditRefusal
+& (Join-Path $PSScriptRoot 'test-database.ps1') -PostgresBin $PostgresBin -RecoveryAudit -CustomerCompatibility:$CustomerCompatibility -TestLegacyAuditRefusal:$TestLegacyAuditRefusal -PublicRecoveryTest:$PublicRecoveryTest
 exit $LASTEXITCODE

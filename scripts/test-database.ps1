@@ -3,6 +3,7 @@ param(
     [switch] $TestLegacyAuditRefusal,
     [switch] $RecoveryAudit,
     [switch] $CustomerCompatibility,
+    [switch] $PublicRecoveryTest,
     [ValidateSet('AfterCredential','BeforeInitdb','InitdbFailure','AfterInitdb','AfterStart')]
     [string] $FaultPoint
 )
@@ -490,6 +491,7 @@ try {
         }
         $finalAssertions = if ($CustomerCompatibility) { Get-CompatibilityFile 'final_security_assertions.sql' } else { Join-Path $repoRoot 'supabase/tests/final_security_assertions.sql' }
         Invoke-TestSqlFile $finalAssertions
+        Invoke-TestSqlFile (Join-Path $repoRoot 'supabase/tests/final_eligibility_boundaries.sql')
         if ($CustomerCompatibility) {
             $leak = Invoke-NativeTool $psql @('-X','-w','-v','ON_ERROR_STOP=1','-d',$connection,'-c','GRANT EXECUTE ON FUNCTION api.owner_list_payable_purchases(uuid,text,integer,integer) TO PUBLIC')
             if ($leak.ExitCode -ne 0) { throw 'PUBLIC ACL fixture failed.' }
@@ -559,6 +561,26 @@ try {
                 Invoke-TestSqlFile $diagnostic.FullName
             }
             Save-RecoveryCatalog 'final'
+        }
+    }
+    if ($PublicRecoveryTest) {
+        Invoke-TestSqlFile (Join-Path $repoRoot 'supabase/recovery/phase61/001-public-walkin-recovery.sql')
+        Invoke-TestSqlFile (Join-Path $repoRoot 'supabase/tests/public_walkin_recovery.sql')
+        try {
+            $env:GYMFORCE_TEST_RUN_ID=$runId
+            $env:GYMFORCE_TEST_PSQL=$psql
+            $env:GYMFORCE_TEST_CONNECTION=$connection
+            $env:GYMFORCE_TEST_DATA_DIRECTORY=$dataRoot
+            $raceArgs=@((Join-Path $repoRoot 'scripts/test-db-concurrency.mjs'),'--public-recovery')
+            if ($CustomerCompatibility) { $raceArgs += '--compatibility-fixture' }
+            $recoveryRaces=Invoke-NativeTool (Get-Command node.exe).Source $raceArgs
+            $recoveryRaces.Output | Set-Content -LiteralPath (Join-Path $runRoot 'public-recovery-concurrency.log')
+            $recoveryRaces.Output | ForEach-Object { Write-Output $_ }
+            if ($recoveryRaces.ExitCode -ne 0) { throw 'Public recovery concurrency failed.' }
+        } finally {
+            foreach ($entryName in @('GYMFORCE_TEST_RUN_ID','GYMFORCE_TEST_PSQL','GYMFORCE_TEST_CONNECTION','GYMFORCE_TEST_DATA_DIRECTORY')) {
+                Remove-Item -LiteralPath "Env:$entryName" -ErrorAction SilentlyContinue
+            }
         }
     }
     $testExit = 0

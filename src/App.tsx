@@ -12,6 +12,7 @@ import { ReceiptReviewPage } from './components/ReceiptReviewPage';
 import { CashDrawerPage } from './components/CashDrawerPage';
 import { ClaimReviewPage } from './components/ClaimReviewPage';
 import { ReportsPage } from './components/ReportsPage';
+import { OwnerUpdateNotice } from './components/OwnerUpdateNotice';
 import {
   getSupabaseClient,
   SupabaseConfigurationError,
@@ -407,6 +408,7 @@ export function App() {
         </header>
 
         <div className="dashboard-content">
+          <OwnerUpdateNotice />
           <section className="page-heading">
             <div>
               <p className="eyebrow">MANAGEMENT PORTAL</p>

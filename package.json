@@ -8,9 +8,11 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "typecheck": "tsc -b --pretty",
-    "test": "node --test tests/source-security.test.mjs tests/csv.test.mjs tests/entrance-link.test.mjs tests/money.test.mjs tests/operation-error.test.mjs tests/function-error.test.mjs tests/edge-handlers.test.mjs tests/hosting-diagnostics.test.mjs",
+    "test": "node --test tests/source-security.test.mjs tests/csv.test.mjs tests/entrance-link.test.mjs tests/money.test.mjs tests/operation-error.test.mjs tests/function-error.test.mjs tests/edge-handlers.test.mjs tests/hosting-diagnostics.test.mjs tests/public-entry-contract.test.mjs",
+    "test:recovery-request": "node --test tests/walkin-recovery.test.mjs",
     "test:security": "node scripts/check-source-security.mjs",
     "test:browser": "node scripts/test-browser.mjs",
+    "test:dev": "node --test tests/vite-development.test.mjs",
     "test:database": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-database.ps1"
   },
   "dependencies": {

@@ -1,6 +1,7 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { resolve, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { createHash } from 'node:crypto';
 
 // This is a deliberately conservative source regression gate, not a JS/TOML
 // parser, credential scanner, authorization proof, or hosted configuration test.
@@ -72,6 +73,14 @@ export function checkBrowserSource(text) {
   return [...new Set(issues)];
 }
 
+// B1 authorizes exactly this reviewed capability store, not general persistence.
+export function checkReviewedRecoveryStorage(text, expectedHash) {
+  const hash=createHash('sha256').update(text.replaceAll('\r\n','\n')).digest('hex');
+  const issues=checkBrowserSource(text);
+  return hash === expectedHash ? issues.filter(rule=>rule!=='browser-persistence-requires-review')
+    : [...issues,'browser-recovery-storage-fingerprint'];
+}
+
 export function checkPwaSource(text) {
   const issues = [];
   // Default VitePWA precaches the built shell only. Any custom runtime cache,
@@ -118,7 +127,13 @@ export async function inspectSourceSecurity(root) {
   await inspect(resolve(root, 'supabase/config.toml'), checkConfig);
   await inspect(resolve(root, 'vite.config.ts'), checkPwaSource);
   for (const folder of ['src', 'public']) {
-    for (const path of await sourceFiles(resolve(root, folder))) await inspect(path, checkBrowserSource);
+    for (const path of await sourceFiles(resolve(root, folder))) {
+      if (relative(root,path).replaceAll('\\','/') === 'src/lib/walkin-recovery-store.ts') {
+        const manifest=JSON.parse(await readFile(resolve(root,'supabase/recovery/phase61/source-manifest.json'),'utf8'));
+        const row=manifest.files.find(row=>row.file==='src/lib/walkin-recovery-store.ts');
+        await inspect(path,text=>checkReviewedRecoveryStorage(text,row?.sha256));
+      } else await inspect(path, checkBrowserSource);
+    }
   }
   await inspect(resolve(root, 'index.html'), checkBrowserSource);
   for (const entry of await readdir(resolve(root, 'supabase/functions'), { withFileTypes: true })) {

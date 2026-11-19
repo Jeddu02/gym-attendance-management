@@ -169,7 +169,47 @@ async function operationRaces() {
 
 try {
   await validateTarget();
-  if (process.argv.includes('--operations')) {
+  if (process.argv.includes('--public-recovery')) {
+    stage = 'public-recovery';
+    const digest = `decode(repeat('65',32),'hex')`;
+    const create = `SELECT api.public_create_walkin_request_v2(${digest},'cash',100)`;
+    const before = Number(await query('SELECT count(*) FROM private.walkin_requests'));
+    await query(`SET ROLE service_role; SELECT api.owner_set_walkin_fee('${owner}',125,'Synthetic recovery race fee')`);
+    await race('public-recovery-identical', `SELECT pg_advisory_xact_lock(hashtextextended('gymforce-walkin-recovery:v1:'||repeat('65',32),0))`, [create, create]);
+    const replay = JSON.parse(await query(`SET ROLE service_role; ${create}`));
+    if (replay.classification !== 'PROVISIONAL_RECOVERED' || Number(await query('SELECT count(*) FROM private.walkin_requests')) !== before + 1) throw Error('recovery race cardinality');
+    const lookup = JSON.parse(await query(`SET ROLE service_role; SELECT api.public_lookup_walkin_request(${digest})`));
+    if (JSON.stringify(lookup.request) !== JSON.stringify(replay.request)) throw Error('lost response recovery');
+    const conflict = JSON.parse(await query(`SET ROLE service_role; SELECT api.public_create_walkin_request_v2(${digest},'gcash',100)`));
+    if (conflict.classification !== 'OPERATION_CONFLICT') throw Error('conflict accepted');
+    await query(`BEGIN; SET LOCAL ROLE service_role; SELECT api.public_create_walkin_request_v2(decode(repeat('66',32),'hex'),'cash',100); ROLLBACK`);
+    if (await query("SELECT count(*) FROM private.walkin_creation_operations WHERE capability_digest=decode(repeat('66',32),'hex')") !== '0') throw Error('rollback binding');
+    const pending = start(`BEGIN; SET LOCAL ROLE service_role; SELECT api.public_create_walkin_request_v2(decode(repeat('70',32),'hex'),'cash',100);\n\\echo GYMFORCE_LOCK_READY`,{hold:true});
+    if(!await pending.ready)throw Error('uncommitted recovery setup');
+    pending.child.kill(); await pending.done;
+    if(await query("SELECT count(*) FROM private.walkin_creation_operations WHERE capability_digest=decode(repeat('70',32),'hex')")!=='0')throw Error('connection loss committed pending operation');
+    const blocker=start(`BEGIN; SELECT pg_advisory_xact_lock(hashtextextended('gymforce-walkin-recovery:v1:'||repeat('71',32),0));\n\\echo GYMFORCE_LOCK_READY`,{hold:true});
+    try {
+      if(!await blocker.ready)throw Error('recovery timeout blocker');
+      const timed=start("BEGIN; SET LOCAL statement_timeout='100ms'; SET LOCAL ROLE service_role; SELECT api.public_create_walkin_request_v2(decode(repeat('71',32),'hex'),'cash',100); COMMIT;");
+      const timeout=await timed.done;
+      if(timeout.code===0||!timeout.stderr.includes('57014'))throw Error('recovery timeout not refused');
+    } finally {blocker.child.stdin.end('ROLLBACK;\n');await blocker.done;}
+    if(await query("SELECT count(*) FROM private.walkin_creation_operations WHERE capability_digest=decode(repeat('71',32),'hex')")!=='0')throw Error('timed out operation persisted');
+    const confirmationOperation='61000000-0000-4000-8000-000000000001';
+    const confirmation=`SELECT api.owner_confirm_walkin('${owner}',${quote(replay.request.id)},'${confirmationOperation}',125,'cash',true)`;
+    stage='recovery-owner';
+    await race('recovery-owner',
+      `SELECT pg_advisory_xact_lock(hashtextextended('gymforce-walkin-recovery:v1:'||repeat('65',32),0)); SELECT id FROM private.walkin_requests WHERE id=${quote(replay.request.id)} FOR UPDATE`,
+      [create,confirmation]);
+    if(JSON.parse(await query(`SET ROLE service_role; SELECT api.public_lookup_walkin_request(${digest})`)).classification!=='RECOVERY_CLOSED')throw Error('confirmed recovery disclosure');
+    const ownerReplay=JSON.parse(await query(`SET ROLE service_role; ${confirmation}`));
+    if(ownerReplay.replayed!==true || await query(`SELECT count(*) FROM private.payment_records WHERE operation_id='${confirmationOperation}'`)!=='1'
+      || await query(`SELECT count(*) FROM private.attendance_checkins WHERE walkin_request_id=${quote(replay.request.id)}`)!=='1'
+      || await query(`SELECT count(*) FROM private.payment_allocations WHERE walkin_request_id=${quote(replay.request.id)}`)!=='1')throw Error('recovery/confirmation cardinality');
+    console.log('PASS: public recovery committed-row concurrency, conflict, lost-response lookup and rollback (synthetic SQL transport).');
+    console.log('PASS: pre-commit psql connection loss and statement timeout leave no recovery binding.');
+  } else if (process.argv.includes('--operations')) {
     await operationRaces();
   } else {
   // Administrator fixture creation is intentionally separate from application

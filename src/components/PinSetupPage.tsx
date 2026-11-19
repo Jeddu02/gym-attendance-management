@@ -1,14 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { getSupabaseClient } from '../lib/supabase';
+import { privatePinToken } from '../lib/public-entry-contract';
 
 type Props = { purpose: 'enrollment' | 'reset' };
 
 export function PinSetupPage({ purpose }: Props) {
-  const [token, setToken] = useState(() => {
-    const values = new URLSearchParams(window.location.hash.slice(1));
-    const candidate = values.get('token') ?? '';
-    return /^[A-Za-z0-9_-]{40,128}$/.test(candidate) ? candidate : '';
-  });
+  const [token, setToken] = useState(() => privatePinToken(window.location.hash, purpose));
   const [pin, setPin] = useState('');
   const [confirmation, setConfirmation] = useState('');
   const [busy, setBusy] = useState(false);
@@ -19,8 +16,24 @@ export function PinSetupPage({ purpose }: Props) {
 
   useLayoutEffect(() => {
     // Remove the capability before paint. It is never read from query strings.
-    window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}`);
-  }, []);
+    const removeFragment = () => window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}`);
+    const receivePrivateLink = () => {
+      const next = privatePinToken(window.location.hash, purpose);
+      removeFragment();
+      if (inFlight.current) {
+        setMessage('A PIN request is in progress. Wait for its result before opening another private link.');
+        return;
+      }
+      setToken(next);
+      setPin('');
+      setConfirmation('');
+      setComplete(false);
+      setMessage('');
+    };
+    removeFragment();
+    window.addEventListener('hashchange', receivePrivateLink);
+    return () => window.removeEventListener('hashchange', receivePrivateLink);
+  }, [purpose]);
 
   useEffect(() => {
     mounted.current = true;

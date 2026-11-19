@@ -404,3 +404,35 @@ one BLOCKED all-attempt ingress case. Actual Auth/Edge/PostgREST/browser-to-SQL
 integration and physical Android remain NOT VERIFIED. Local core GO for Owner
 code review; complete integrated acceptance NO-GO. Production NO-GO. No hosted
 connection/SQL, historical migration edit, commit, push, merge or deployment.
+
+## Phase 6.1A ingress Owner decision package - 2026-11-19
+
+See [the ingress decision package](GYMFORCE-PHASE-6-1A-INGRESS-OWNER-DECISION.md).
+Documentation and review only, starting from local checkpoint `01ceeab` on
+master. Inspected the actual recovery handler, shared body/CORS/key boundaries,
+SQL candidate, creation limiter, capability storage and relevant acceptance tests.
+The loopback checks at public-walkin-recovery/index.ts:13 and :21 remain intact.
+
+Proposed independent committed admission before body parsing, separately charged
+key/lookup budgets, bounded fixed-state concurrency leases and admission-required
+service-only wrappers. Business request/binding effects remain atomic; downstream
+rollback cannot refund prior admission. Explicitly distinguishes cheap preflight/
+Origin/config rejection from counted POST attempts, and application work limits
+from unverified upstream invocation/queue protection. No broad grants, new roles,
+provider privilege assumption or A02 design change is authorized.
+
+Prepared proposed T1-T9 numeric limits, privacy/abuse policy, threat analysis,
+all-15-case acceptance mapping and separate I1/P1/L61B/V61B Owner decisions.
+All new thresholds and authorizations remain PENDING. Prior Phase 6.1 results
+are historical: #8 loss after commit and #9 timeout remain PARTIAL; #14 remains
+BLOCKED. New ingress/runtime/persisted HTTP tests were specified, NOT RUN.
+Official public provider/PostgreSQL documentation was researched without project
+authentication; no hosted target or private evidence was accessed.
+
+File-scope and whitespace checks PASS (`git diff --check`, including a separate
+new-file check). Only this progress entry and the new decision package changed;
+runtime source, SQL candidates, manifests, historical migrations and diagnostic
+evidence remain unchanged. No SQL execution, environment, install, staging,
+commit, push or deployment. Phase 6.1B implementation NO-GO pending explicit
+architecture/threshold/privacy and local implementation/integration authorization.
+A02 remains PENDING OWNER DECISION. Production remains NO-GO.

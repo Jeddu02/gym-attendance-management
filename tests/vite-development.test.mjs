@@ -45,8 +45,8 @@ test('real Vite serves CSS and the SDK without watching generated private test a
       if (response.status === 200) {
         assert.match(response.headers.get('content-type') ?? '', /^text\/html(?:;|$)/i,
           `Only an HTML SPA fallback may return 200 for ${path}`);
-        assert.match(body, /<html\\b/i, `Expected HTML fallback for ${path}`);
-        assert.match(body, /<div\\s+id=["']root["']/i, `Expected app shell for ${path}`);
+        assert.match(body, /<html\b/i, `Expected HTML fallback for ${path}`);
+        assert.match(body, /<div\s+id=["']root["']/i, `Expected app shell for ${path}`);
       } else {
         assert.ok([403, 404].includes(response.status),
           `Unexpected private artifact response ${response.status} for ${path}`);

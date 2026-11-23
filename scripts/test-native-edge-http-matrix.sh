@@ -22,7 +22,7 @@ check() {
 start() {
  local name="$1"
  : > "$log"
- setsid env APP_ORIGIN="$origin" GYMFORCE_HTTP_TEST_PORT="$port" "${deno_cmd[@]}" run --no-check --allow-net=0.0.0.0:18744,127.0.0.1 --allow-env=APP_ORIGIN,GYMFORCE_HTTP_TEST_PORT --allow-read "supabase/functions/$name/index.ts" >"$log" 2>&1 &
+ setsid env APP_ORIGIN="$origin" GYMFORCE_HTTP_TEST_PORT="$port" "${deno_cmd[@]}" run --no-check --allow-net=0.0.0.0:18744,127.0.0.1 --allow-env=APP_ORIGIN,GYMFORCE_HTTP_TEST_PORT,SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY,SUPABASE_ANON_KEY,SUPABASE_PUBLISHABLE_KEY,PUBLIC_MEMBER_CHECKIN_ENABLED,PUBLIC_CHECKIN_LOOKUP_HMAC_KEY_B64,MEMBER_MOBILE_HMAC_KEY_B64,CHECKIN_GLOBAL_LIMIT_PER_MINUTE,CHECKIN_IDENTIFIER_LIMIT_PER_MINUTE,DUMMY_PIN_HASH,PUBLIC_WALKIN_ENABLED,WALKIN_REQUEST_LIMIT_PER_MINUTE --allow-read "supabase/functions/$name/index.ts" >"$log" 2>&1 &
  pid=$!
  local ready=0
  for _ in $(seq 1 45); do

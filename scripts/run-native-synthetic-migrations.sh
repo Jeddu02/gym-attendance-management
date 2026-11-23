@@ -34,7 +34,7 @@ for file in "${migrations[@]:resume}"; do
   # SQL migrations already contain their own BEGIN/COMMIT boundaries.
   # Guard and file share one psql invocation; a failure halts the sequence.
   if { printf '%s\n' "DO \$guard\$ BEGIN IF current_database() <> 'gymforce_integration_test' OR current_user <> 'postgres' OR current_setting('listen_addresses') <> '' OR current_setting('data_directory') <> '$root/data' THEN RAISE EXCEPTION 'Synthetic migration identity mismatch'; END IF; END \$guard\$;"; if [[ "$(head -c 3 "$file" | od -An -tx1 | tr -d ' \n')" == "efbbbf" ]]; then
-    echo "INFO: removing UTF-8 BOM from execution stream for $(basename "$file")"
+    echo "INFO: removing UTF-8 BOM from execution stream for $(basename "$file")" >&2
     tail -c +4 "$file"
   else
     cat "$file"

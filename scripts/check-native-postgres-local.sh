@@ -12,7 +12,11 @@ printf '%s\n' "$cluster"
 if ! printf '%s\n' "$cluster" | awk '$1=="17" && $2=="main" && $3=="5432" && $4=="online" {found=1} END{exit !found}'; then
   echo "BLOCKED: PostgreSQL 17/main must be online at port 5432"; exit 2
 fi
-if [[ "$(sudo -n /usr/sbin/pg_conftool 17 main show listen_addresses | tr -d '[:space:]')" != "listen_addresses=localhost" ]]; then
+pg_conftool_bin="$(command -v pg_conftool || true)"
+if [[ -z "$pg_conftool_bin" || ! -x "$pg_conftool_bin" ]]; then
+  echo "BLOCKED: pg_conftool unavailable"; exit 2
+fi
+if [[ "$(sudo -n "$pg_conftool_bin" 17 main show listen_addresses | tr -d '[:space:]')" != "listen_addresses=localhost" ]]; then
   echo "BLOCKED: listen_addresses must be localhost"; exit 2
 fi
 # Explicit absolute executable and empty PG environment, Unix socket peer auth.

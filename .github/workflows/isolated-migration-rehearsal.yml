@@ -5,7 +5,9 @@ on:
   pull_request:
     paths:
       - 'supabase/migrations/**'
-      - 'docs/STAGING-EXECUTOR-CATALOG-VERIFICATION-2026-11-23.md'
+      - 'supabase/recovery/**'
+      - 'scripts/recovery/**'
+      - 'tools/recovery-parser/**'
       - 'supabase/tests/staging_privilege_regression.sql'
       - '.github/workflows/isolated-migration-rehearsal.yml'
 
@@ -25,6 +27,16 @@ jobs:
       - uses: supabase/setup-cli@v1
         with:
           version: 3.3.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify reviewed migration artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --prefix tools/recovery-parser --ignore-scripts --no-audit --no-fund
+          node scripts/recovery/build-compatibility.mjs
+          git diff --exit-code -- supabase/recovery/compatibility/review
       - name: Check migration inventory
         shell: bash
         run: |
@@ -43,60 +55,43 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/gymforce-later-migrations
-          mv supabase/migrations/20261110*.sql /tmp/gymforce-later-migrations/
-          supabase start -x studio,imgproxy,logflare,vector,analytics
-          mv /tmp/gymforce-later-migrations/*.sql supabase/migrations/
-      - name: Diagnose reserved role creation in disposable transaction
+          pending="$(mktemp -d)"
+          trap 'mv "$pending"/*.sql supabase/migrations/; rmdir "$pending"' EXIT
+          mv supabase/migrations/20261110*.sql "$pending/"
+          # The startup banner contains disposable keys. Publish migration
+          # progress and SQL errors without printing the credential banner.
+          startup_log="$(mktemp)"
+          result=0
+          supabase start -x studio,imgproxy,logflare,vector,analytics >"$startup_log" 2>&1 || result=$?
+          sed -nE '/^Applying migration |^ERROR:|^At statement:|^Failed to /p' "$startup_log"
+          rm -f "$startup_log"
+          exit "$result"
+      - name: Rehearse 13 compatibility migrations and verify final security
         shell: bash
         run: |
           set -euo pipefail
           DB_URL="$(supabase status -o env | sed -n 's/^DB_URL=//p' | tr -d '"')"
-          if [[ "$DB_URL" != *"127.0.0.1"* && "$DB_URL" != *"localhost"* ]]; then
-            echo "Refusing non-local database" >&2
-            exit 1
-          fi
-          psql "$DB_URL" -X -v ON_ERROR_STOP=1 <<'SQL'
-          BEGIN;
-          CREATE ROLE gym_data_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
-          CREATE ROLE gym_owner_executor NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
-          CREATE ROLE gym_public_executor NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
-          SELECT granted.rolname AS granted_role, member.rolname AS member_role, grantor.rolname AS grantor_role
-          FROM pg_auth_members m
-          JOIN pg_roles granted ON granted.oid=m.roleid
-          JOIN pg_roles member ON member.oid=m.member
-          JOIN pg_roles grantor ON grantor.oid=m.grantor
-          WHERE granted.rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor')
-             OR member.rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor')
-          ORDER BY 1,2;
-          SELECT current_user, session_user, pg_has_role(current_user, 'supabase_admin', 'SET') AS can_set_supabase_admin;
-          SELECT granted.rolname, member.rolname, grantor.rolname, m.admin_option, m.inherit_option, m.set_option
-          FROM pg_auth_members m JOIN pg_roles granted ON granted.oid=m.roleid
-          JOIN pg_roles member ON member.oid=m.member JOIN pg_roles grantor ON grantor.oid=m.grantor
-          WHERE granted.rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor')
-          ORDER BY granted.rolname;
-          SELECT count(*) AS remaining_reserved_membership_edges
-          FROM pg_auth_members m
-          JOIN pg_roles reserved ON reserved.oid=m.roleid OR reserved.oid=m.member
-          WHERE reserved.rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor');
-          ROLLBACK;
-          SQL
-      - name: Replay migrations on disposable local database
-        shell: bash
-        run: |
-          set -euo pipefail
-          supabase db reset --local --yes
-      - name: Check final browser-role privilege boundaries
-        shell: bash
-        run: |
-          set -euo pipefail
-          # supabase status returns a local DB URL; never accept a hosted hostname.
-          DB_URL="$(supabase status -o env | sed -n 's/^DB_URL=//p' | tr -d '"')"
-          if [[ "$DB_URL" != *"127.0.0.1"* && "$DB_URL" != *"localhost"* ]]; then
-            echo "Refusing to connect to a non-local database" >&2
-            exit 1
-          fi
-          psql "$DB_URL" -X -v ON_ERROR_STOP=1 -f supabase/tests/staging_privilege_regression.sql
+          case "$DB_URL" in
+            postgresql://postgres:*@127.0.0.1:54322/postgres) ;;
+            *) echo "Unexpected disposable database URL" >&2; exit 1 ;;
+          esac
+          apply_sql() {
+            psql "$DB_URL" -X -q -v ON_ERROR_STOP=1 -f "$1"
+          }
+          review=supabase/recovery/compatibility/review
+          count=0
+          for migration in supabase/migrations/20261110*.sql; do
+            name="${migration##*/}"
+            echo "Rehearsing reviewed compatibility artifact for $name"
+            apply_sql "$review/$name"
+            count=$((count + 1))
+            if [[ "$name" = '20261110100000_executor_hardening.sql' ]]; then
+              apply_sql "$review/executor_hardening_assertions.sql"
+            fi
+          done
+          test "$count" -eq 13
+          apply_sql "$review/final_security_assertions.sql"
+          apply_sql supabase/tests/staging_privilege_regression.sql
       - name: Stop disposable stack
         if: always()
         run: supabase stop --no-backup || true

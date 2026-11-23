@@ -24,15 +24,9 @@ BEGIN
             RAISE EXCEPTION 'Unsafe existing reserved role %; refusing to change attributes',role_name;
         END IF;
     END LOOP;
-    IF EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members e
-        JOIN pg_catalog.pg_roles reserved ON reserved.oid=e.member OR reserved.oid=e.roleid
-        WHERE reserved.rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor')
-        AND NOT (
-            e.roleid IN (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor'))
-            AND e.member=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='postgres')
-            AND e.grantor=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='supabase_admin')
-            AND e.admin_option AND NOT e.inherit_option AND NOT e.set_option
-        )) THEN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles r
+        ON r.oid=m.roleid OR r.oid=m.member
+        WHERE r.rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor')) THEN
         RAISE EXCEPTION 'Reserved role membership exists; refusing membership changes';
     END IF;
 END;
@@ -137,13 +131,7 @@ BEGIN
     END LOOP;
     IF EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members e
         JOIN pg_catalog.pg_roles reserved ON reserved.oid=e.member OR reserved.oid=e.roleid
-        WHERE reserved.rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor')
-        AND NOT (
-            e.roleid IN (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor'))
-            AND e.member=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='postgres')
-            AND e.grantor=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='supabase_admin')
-            AND e.admin_option AND NOT e.inherit_option AND NOT e.set_option
-        )) THEN
+        WHERE reserved.rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor')) THEN
         RAISE EXCEPTION 'Reserved-role membership edge exists';
     END IF;
     IF (SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
@@ -191,8 +179,8 @@ BEGIN
         END IF;
         -- No direct browser/service/dormant-login access, including column grants.
         FOREACH caller IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
-            IF target AND (pg_catalog.has_table_privilege(caller,relation_oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-              OR pg_catalog.has_any_column_privilege(caller,relation_oid,'SELECT,INSERT,UPDATE,REFERENCES')) THEN
+            IF pg_catalog.has_table_privilege(caller,relation_oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+              OR pg_catalog.has_any_column_privilege(caller,relation_oid,'SELECT,INSERT,UPDATE,REFERENCES') THEN
                 RAISE EXCEPTION 'Direct protected relation access: % / %',caller,r.name;
             END IF;
         END LOOP;
@@ -353,7 +341,7 @@ BEGIN
                 RAISE EXCEPTION 'Unexpected table-wide destructive privilege: % / %',caller,r.name;
             END IF;
         END LOOP;
-        IF target AND EXISTS (SELECT 1 FROM pg_catalog.pg_class c,
+        IF EXISTS (SELECT 1 FROM pg_catalog.pg_class c,
             LATERAL pg_catalog.aclexplode(COALESCE(c.relacl,pg_catalog.acldefault('r',c.relowner))) a
             WHERE c.oid=relation_oid AND a.grantee<>c.relowner
             AND NOT (target AND r.name='private.pin_enrollment_global_rate_limit_events'
@@ -361,7 +349,7 @@ BEGIN
                      AND a.privilege_type='DELETE' AND NOT a.is_grantable)) THEN
             RAISE EXCEPTION 'Unreviewed relation ACL principal/grant: %',r.name;
         END IF;
-        IF target AND EXISTS (SELECT 1 FROM pg_catalog.pg_attribute col,
+        IF EXISTS (SELECT 1 FROM pg_catalog.pg_attribute col,
             LATERAL pg_catalog.aclexplode(col.attacl) a
             WHERE col.attrelid=relation_oid AND col.attnum>0
               AND a.grantee<>(SELECT relowner FROM pg_catalog.pg_class WHERE oid=relation_oid)
@@ -599,7 +587,7 @@ BEGIN
     IF (SELECT count(*) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
         WHERE n.nspname IN ('private','api'))<>25 THEN RAISE EXCEPTION 'Routine inventory drift'; END IF;
     FOR r IN SELECT * FROM (VALUES
-        ('api.append_audit_event(text, uuid, text, text, text, jsonb)','d1f9e4cf2ddf617d9d2b8e7ce44a1ffc','gym_owner_executor','true','true','service_role,gym_public_executor'),
+        ('api.append_audit_event(text, uuid, text, text, text, jsonb)','7a05ca54592137c75b9adda7023516a8','gym_owner_executor','true','true','service_role,gym_public_executor'),
         ('api.is_active_owner_for_user(uuid)','830f29066e37d9f2593c3cd99878ae93','gym_owner_executor','true','true','service_role'),
         ('api.member_enroll_pin(text, text)','6bf1d4a963b2b853ba9cdc7cb582c342','gym_public_executor','true','true','service_role'),
         ('api.owner_confirm_membership_payment(uuid, uuid, boolean)','ce58f4473d75469ef2676f232794dce0','gym_owner_executor','true','true','service_role'),
@@ -614,15 +602,15 @@ BEGIN
         ('api.owner_reject_membership_payment(uuid, uuid, text)','b55e7879cbae6d9074264826ed75eac0','gym_owner_executor','true','true','service_role'),
         ('api.owner_save_membership_plan(uuid, uuid, text, numeric, boolean)','c128144cda372362b26ec91dc64fd6fa','gym_owner_executor','true','true','service_role'),
         ('api.reserve_pin_enrollment_request()','ed1a67d4a3cd30fed31a0ee36222eb5b','gym_public_executor','true','true','service_role'),
-        ('api.verify_audit_stream(text)','382d90fe8125def52b27917b872fd1c0','gym_owner_executor','true','true','service_role'),
-        ('private.audit_events_chain_insert()','cb739f637f4a259d96527622dc5b3f6a','gym_data_owner','false','true','gym_owner_executor'),
-        ('private.compute_audit_event_hash(bigint, text, text, uuid, text, text, text, jsonb, timestamp with time zone)','e461be9fed7efb15a3269349b40fff29','gym_data_owner','false','false','gym_owner_executor'),
+        ('api.verify_audit_stream(text)','f7c5cdb53ec4cf2d845e38f404df5fb9','gym_owner_executor','true','true','service_role'),
+        ('private.audit_events_chain_insert()','6fa6a434395de93250213752513ffb34','gym_data_owner','false','true','gym_owner_executor'),
+        ('private.compute_audit_event_hash(bigint, text, text, uuid, text, text, text, jsonb, timestamp with time zone)','a0635caf0c329b24571bd68df684f69f','gym_data_owner','false','false','gym_owner_executor'),
         ('private.guard_membership_payment_allocation()','4836529309d8c518d42d24b9d191d6d5','gym_data_owner','false','true','gym_owner_executor'),
         ('private.guard_membership_payment_record_insert()','edaae9f3a89330d4e55ce37d7d16d074','gym_data_owner','false','true','gym_owner_executor'),
         ('private.guard_membership_payment_record_update()','9386192bae0b7aec6e34fce2e2aadbda','gym_data_owner','false','true','gym_owner_executor'),
         ('private.guard_purchase_pending_activation()','c3467a65c399cf75243d4e3e9e31b36c','gym_data_owner','false','true','gym_owner_executor'),
-        ('private.is_active_owner()','1f23b47e0a37c34f714b9da1966e4429','gym_data_owner','false','false',''),
-        ('private.prevent_audit_event_mutation()','18e24a4ca134b1abae14661b114ac73d','gym_data_owner','false','true','gym_owner_executor'),
+        ('private.is_active_owner()','76af3203b0fe03c30e1eb6d8264a04e6','gym_data_owner','false','false',''),
+        ('private.prevent_audit_event_mutation()','d835b9b2db211d2439e03ec9d8a6337d','gym_data_owner','false','true','gym_owner_executor'),
         ('private.prevent_payment_history_mutation()','0ad4feeac81403c334c6665ff018485e','gym_data_owner','false','true','gym_owner_executor')
     ) v(signature,body_md5,target_owner,target_definer,baseline_definer,callers) LOOP
         routine_oid := pg_catalog.to_regprocedure(r.signature);
@@ -1246,13 +1234,7 @@ BEGIN
     END LOOP;
     IF EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members e
         JOIN pg_catalog.pg_roles reserved ON reserved.oid=e.member OR reserved.oid=e.roleid
-        WHERE reserved.rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor')
-        AND NOT (
-            e.roleid IN (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor'))
-            AND e.member=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='postgres')
-            AND e.grantor=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='supabase_admin')
-            AND e.admin_option AND NOT e.inherit_option AND NOT e.set_option
-        )) THEN
+        WHERE reserved.rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor')) THEN
         RAISE EXCEPTION 'Reserved-role membership edge exists';
     END IF;
     IF (SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
@@ -1300,8 +1282,8 @@ BEGIN
         END IF;
         -- No direct browser/service/dormant-login access, including column grants.
         FOREACH caller IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
-            IF target AND (pg_catalog.has_table_privilege(caller,relation_oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-              OR pg_catalog.has_any_column_privilege(caller,relation_oid,'SELECT,INSERT,UPDATE,REFERENCES')) THEN
+            IF pg_catalog.has_table_privilege(caller,relation_oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+              OR pg_catalog.has_any_column_privilege(caller,relation_oid,'SELECT,INSERT,UPDATE,REFERENCES') THEN
                 RAISE EXCEPTION 'Direct protected relation access: % / %',caller,r.name;
             END IF;
         END LOOP;
@@ -1462,7 +1444,7 @@ BEGIN
                 RAISE EXCEPTION 'Unexpected table-wide destructive privilege: % / %',caller,r.name;
             END IF;
         END LOOP;
-        IF target AND EXISTS (SELECT 1 FROM pg_catalog.pg_class c,
+        IF EXISTS (SELECT 1 FROM pg_catalog.pg_class c,
             LATERAL pg_catalog.aclexplode(COALESCE(c.relacl,pg_catalog.acldefault('r',c.relowner))) a
             WHERE c.oid=relation_oid AND a.grantee<>c.relowner
             AND NOT (target AND r.name='private.pin_enrollment_global_rate_limit_events'
@@ -1470,7 +1452,7 @@ BEGIN
                      AND a.privilege_type='DELETE' AND NOT a.is_grantable)) THEN
             RAISE EXCEPTION 'Unreviewed relation ACL principal/grant: %',r.name;
         END IF;
-        IF target AND EXISTS (SELECT 1 FROM pg_catalog.pg_attribute col,
+        IF EXISTS (SELECT 1 FROM pg_catalog.pg_attribute col,
             LATERAL pg_catalog.aclexplode(col.attacl) a
             WHERE col.attrelid=relation_oid AND col.attnum>0
               AND a.grantee<>(SELECT relowner FROM pg_catalog.pg_class WHERE oid=relation_oid)
@@ -1708,7 +1690,7 @@ BEGIN
     IF (SELECT count(*) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
         WHERE n.nspname IN ('private','api'))<>25 THEN RAISE EXCEPTION 'Routine inventory drift'; END IF;
     FOR r IN SELECT * FROM (VALUES
-        ('api.append_audit_event(text, uuid, text, text, text, jsonb)','d1f9e4cf2ddf617d9d2b8e7ce44a1ffc','gym_owner_executor','true','true','service_role,gym_public_executor'),
+        ('api.append_audit_event(text, uuid, text, text, text, jsonb)','7a05ca54592137c75b9adda7023516a8','gym_owner_executor','true','true','service_role,gym_public_executor'),
         ('api.is_active_owner_for_user(uuid)','830f29066e37d9f2593c3cd99878ae93','gym_owner_executor','true','true','service_role'),
         ('api.member_enroll_pin(text, text)','6bf1d4a963b2b853ba9cdc7cb582c342','gym_public_executor','true','true','service_role'),
         ('api.owner_confirm_membership_payment(uuid, uuid, boolean)','ce58f4473d75469ef2676f232794dce0','gym_owner_executor','true','true','service_role'),
@@ -1723,15 +1705,15 @@ BEGIN
         ('api.owner_reject_membership_payment(uuid, uuid, text)','b55e7879cbae6d9074264826ed75eac0','gym_owner_executor','true','true','service_role'),
         ('api.owner_save_membership_plan(uuid, uuid, text, numeric, boolean)','c128144cda372362b26ec91dc64fd6fa','gym_owner_executor','true','true','service_role'),
         ('api.reserve_pin_enrollment_request()','ed1a67d4a3cd30fed31a0ee36222eb5b','gym_public_executor','true','true','service_role'),
-        ('api.verify_audit_stream(text)','382d90fe8125def52b27917b872fd1c0','gym_owner_executor','true','true','service_role'),
-        ('private.audit_events_chain_insert()','cb739f637f4a259d96527622dc5b3f6a','gym_data_owner','false','true','gym_owner_executor'),
-        ('private.compute_audit_event_hash(bigint, text, text, uuid, text, text, text, jsonb, timestamp with time zone)','e461be9fed7efb15a3269349b40fff29','gym_data_owner','false','false','gym_owner_executor'),
+        ('api.verify_audit_stream(text)','f7c5cdb53ec4cf2d845e38f404df5fb9','gym_owner_executor','true','true','service_role'),
+        ('private.audit_events_chain_insert()','6fa6a434395de93250213752513ffb34','gym_data_owner','false','true','gym_owner_executor'),
+        ('private.compute_audit_event_hash(bigint, text, text, uuid, text, text, text, jsonb, timestamp with time zone)','a0635caf0c329b24571bd68df684f69f','gym_data_owner','false','false','gym_owner_executor'),
         ('private.guard_membership_payment_allocation()','4836529309d8c518d42d24b9d191d6d5','gym_data_owner','false','true','gym_owner_executor'),
         ('private.guard_membership_payment_record_insert()','edaae9f3a89330d4e55ce37d7d16d074','gym_data_owner','false','true','gym_owner_executor'),
         ('private.guard_membership_payment_record_update()','9386192bae0b7aec6e34fce2e2aadbda','gym_data_owner','false','true','gym_owner_executor'),
         ('private.guard_purchase_pending_activation()','c3467a65c399cf75243d4e3e9e31b36c','gym_data_owner','false','true','gym_owner_executor'),
-        ('private.is_active_owner()','1f23b47e0a37c34f714b9da1966e4429','gym_data_owner','false','false',''),
-        ('private.prevent_audit_event_mutation()','18e24a4ca134b1abae14661b114ac73d','gym_data_owner','false','true','gym_owner_executor'),
+        ('private.is_active_owner()','76af3203b0fe03c30e1eb6d8264a04e6','gym_data_owner','false','false',''),
+        ('private.prevent_audit_event_mutation()','d835b9b2db211d2439e03ec9d8a6337d','gym_data_owner','false','true','gym_owner_executor'),
         ('private.prevent_payment_history_mutation()','0ad4feeac81403c334c6665ff018485e','gym_data_owner','false','true','gym_owner_executor')
     ) v(signature,body_md5,target_owner,target_definer,baseline_definer,callers) LOOP
         routine_oid := pg_catalog.to_regprocedure(r.signature);

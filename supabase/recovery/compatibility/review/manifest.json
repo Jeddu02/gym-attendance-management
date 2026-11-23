@@ -230,7 +230,7 @@
     {
       "file": "20261110100000_executor_hardening.sql",
       "originalSha256": "b524b698e1bb2d58d79231e498cee0db47694dc231f49cd9d0430e0544417b9d",
-      "compatibilitySha256": "7af4b0d4fcc4480319474f9167b54a732cec1db2009ab7c7a4279505dec2fe53",
+      "compatibilitySha256": "0dc08666e438f617d38a3a8ee4bc812b041518f137c867458b16bbf2b4ca060b",
       "membershipPredicates": 3,
       "functionBodiesPreserved": true,
       "historyAction": "NONE",
@@ -357,7 +357,7 @@
       "file": "executor_hardening_assertions.sql",
       "assertionVariant": true,
       "originalSha256": "fca5ffd02e456090b4f4a1113b0c827cedc37a0cbfd92f389f83b37340c1d33c",
-      "compatibilitySha256": "9db40fd78a69be77746c02fe5252ba9244d02a60ad89ec7eedc2adc31ccee249",
+      "compatibilitySha256": "81e5928d820857bc865fa9b91cb10df976aa77512f752db48aad83f9116196ef",
       "membershipPredicates": 1
     },
     {

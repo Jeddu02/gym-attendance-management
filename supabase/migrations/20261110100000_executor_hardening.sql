@@ -24,9 +24,15 @@ BEGIN
             RAISE EXCEPTION 'Unsafe existing reserved role %; refusing to change attributes',role_name;
         END IF;
     END LOOP;
-    IF EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles r
-        ON r.oid=m.roleid OR r.oid=m.member
-        WHERE r.rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor')) THEN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members e
+        JOIN pg_catalog.pg_roles reserved ON reserved.oid=e.member OR reserved.oid=e.roleid
+        WHERE reserved.rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor')
+        AND NOT (
+            e.roleid IN (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor'))
+            AND e.member=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='postgres')
+            AND e.grantor=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='supabase_admin')
+            AND e.admin_option AND NOT e.inherit_option AND NOT e.set_option
+        )) THEN
         RAISE EXCEPTION 'Reserved role membership exists; refusing membership changes';
     END IF;
 END;
@@ -131,7 +137,13 @@ BEGIN
     END LOOP;
     IF EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members e
         JOIN pg_catalog.pg_roles reserved ON reserved.oid=e.member OR reserved.oid=e.roleid
-        WHERE reserved.rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor')) THEN
+        WHERE reserved.rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor')
+        AND NOT (
+            e.roleid IN (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor'))
+            AND e.member=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='postgres')
+            AND e.grantor=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='supabase_admin')
+            AND e.admin_option AND NOT e.inherit_option AND NOT e.set_option
+        )) THEN
         RAISE EXCEPTION 'Reserved-role membership edge exists';
     END IF;
     IF (SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
@@ -1234,7 +1246,13 @@ BEGIN
     END LOOP;
     IF EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members e
         JOIN pg_catalog.pg_roles reserved ON reserved.oid=e.member OR reserved.oid=e.roleid
-        WHERE reserved.rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor')) THEN
+        WHERE reserved.rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor')
+        AND NOT (
+            e.roleid IN (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor'))
+            AND e.member=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='postgres')
+            AND e.grantor=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='supabase_admin')
+            AND e.admin_option AND NOT e.inherit_option AND NOT e.set_option
+        )) THEN
         RAISE EXCEPTION 'Reserved-role membership edge exists';
     END IF;
     IF (SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace

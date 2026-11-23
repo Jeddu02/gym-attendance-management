@@ -17,7 +17,7 @@ let generation = 0;
 async function loadHandler(name, env) {
   const file = new URL(`../supabase/functions/${name}/index.ts`, import.meta.url);
   let handler;
-  globalThis.Deno = { env: { get: (key) => env[key] }, serve: (callback) => { handler = callback; } };
+  globalThis.Deno = { env: { get: (key) => env[key] }, serve: (optionsOrCallback, callback) => { if (typeof optionsOrCallback === 'function') { assert.equal(callback, undefined); handler = optionsOrCallback; } else { assert.equal(typeof optionsOrCallback, 'object'); assert.ok(Number.isInteger(optionsOrCallback.port) && optionsOrCallback.port > 0 && optionsOrCallback.port <= 65535, 'Invalid Deno HTTP port'); handler = callback; } assert.equal(typeof handler, 'function', 'Deno.serve requires a request handler'); } };
   let source = stripTypeScriptTypes(await readFile(file, 'utf8'));
   source = source.replace(/from\s+(["'])([^"']+)\1/g, (_match, _quote, specifier) => {
     const target = specifier.startsWith('npm:')

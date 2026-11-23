@@ -22,7 +22,7 @@ if [[ "$existing" != "0" ]]; then
     resume=15
     echo "Verified known migration-15 checkpoint; resuming at migration 16"
   else
-    checkpoint24="$("${psql[@]}" -At -c "select (to_regprocedure('api.owner_record_membership_payment(uuid,uuid,uuid,numeric,text,text)') is not null)::int::text || '|' || (to_regprocedure('api.owner_list_membership_payments(uuid,text,text,integer,integer)') is not null)::int::text || '|' || (to_regprocedure('api.owner_create_pin_enrollment_token(uuid,uuid,text,timestamp with time zone)') is not null)::int::text || '|' || (to_regprocedure('api.append_audit_event(text,uuid,text,text,text,jsonb)') is not null)::int::text || '|' || (select count(*) from pg_roles where rolname in ('gym_data_owner','gym_owner_executor','gym_public_executor'))::text")
+    checkpoint24="$("${psql[@]}" -At -c "select (to_regprocedure('api.owner_record_membership_payment(uuid,uuid,uuid,numeric,text,text)') is not null)::int::text || '|' || (to_regprocedure('api.owner_list_membership_payments(uuid,text,text,integer,integer)') is not null)::int::text || '|' || (to_regprocedure('api.owner_create_pin_enrollment_token(uuid,uuid,text,timestamp with time zone)') is not null)::int::text || '|' || (to_regprocedure('api.append_audit_event(text,uuid,text,text,text,jsonb)') is not null)::int::text || '|' || (select count(*) from pg_roles where rolname in ('gym_data_owner','gym_owner_executor','gym_public_executor'))::text")"
     [[ "$checkpoint24" == "1|1|1|1|0" ]] || { echo "BLOCKED: unexpected partial migration checkpoint ($checkpoint / $checkpoint24)"; exit 2; }
     resume=24
     echo "Verified known migration-24 checkpoint; resuming at migration 25"

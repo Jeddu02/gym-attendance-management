@@ -1,0 +1,44 @@
+name: GYMFORCE source quality gates
+
+on:
+  push:
+    branches:
+      - main
+      - 'fix/**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: source-quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-quality:
+    name: Lint, types, security, unit tests and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Source security gate
+        run: npm run test:security
+      - name: Unit and source contract tests
+        run: npm test
+      - name: Recovery request tests
+        run: npm run test:recovery-request
+      - name: Ingress monitor tests
+        run: npm run test:ingress-monitor
+      - name: Production build
+        run: npm run build

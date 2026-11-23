@@ -353,7 +353,7 @@ BEGIN
                 RAISE EXCEPTION 'Unexpected table-wide destructive privilege: % / %',caller,r.name;
             END IF;
         END LOOP;
-        IF EXISTS (SELECT 1 FROM pg_catalog.pg_class c,
+        IF target AND EXISTS (SELECT 1 FROM pg_catalog.pg_class c,
             LATERAL pg_catalog.aclexplode(COALESCE(c.relacl,pg_catalog.acldefault('r',c.relowner))) a
             WHERE c.oid=relation_oid AND a.grantee<>c.relowner
             AND NOT (target AND r.name='private.pin_enrollment_global_rate_limit_events'
@@ -361,7 +361,7 @@ BEGIN
                      AND a.privilege_type='DELETE' AND NOT a.is_grantable)) THEN
             RAISE EXCEPTION 'Unreviewed relation ACL principal/grant: %',r.name;
         END IF;
-        IF EXISTS (SELECT 1 FROM pg_catalog.pg_attribute col,
+        IF target AND EXISTS (SELECT 1 FROM pg_catalog.pg_attribute col,
             LATERAL pg_catalog.aclexplode(col.attacl) a
             WHERE col.attrelid=relation_oid AND col.attnum>0
               AND a.grantee<>(SELECT relowner FROM pg_catalog.pg_class WHERE oid=relation_oid)
@@ -1462,7 +1462,7 @@ BEGIN
                 RAISE EXCEPTION 'Unexpected table-wide destructive privilege: % / %',caller,r.name;
             END IF;
         END LOOP;
-        IF EXISTS (SELECT 1 FROM pg_catalog.pg_class c,
+        IF target AND EXISTS (SELECT 1 FROM pg_catalog.pg_class c,
             LATERAL pg_catalog.aclexplode(COALESCE(c.relacl,pg_catalog.acldefault('r',c.relowner))) a
             WHERE c.oid=relation_oid AND a.grantee<>c.relowner
             AND NOT (target AND r.name='private.pin_enrollment_global_rate_limit_events'
@@ -1470,7 +1470,7 @@ BEGIN
                      AND a.privilege_type='DELETE' AND NOT a.is_grantable)) THEN
             RAISE EXCEPTION 'Unreviewed relation ACL principal/grant: %',r.name;
         END IF;
-        IF EXISTS (SELECT 1 FROM pg_catalog.pg_attribute col,
+        IF target AND EXISTS (SELECT 1 FROM pg_catalog.pg_attribute col,
             LATERAL pg_catalog.aclexplode(col.attacl) a
             WHERE col.attrelid=relation_oid AND col.attnum>0
               AND a.grantee<>(SELECT relowner FROM pg_catalog.pg_class WHERE oid=relation_oid)

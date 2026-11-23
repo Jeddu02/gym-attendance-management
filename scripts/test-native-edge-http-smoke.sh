@@ -16,13 +16,13 @@ for file in supabase/functions/member-checkin/index.ts supabase/functions/owner-
  "${deno_cmd[@]}" fmt --check "$file" || echo "INFO: formatting differs in $file (not a runtime failure)"
 done
 echo "=== Native fail-closed HTTP smoke: owner-status ==="
-port=18743
+port=8000
 log="$(mktemp)"
 pid=""
 cleanup() { [[ -z "$pid" ]] || { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; }; rm -f "$log"; }
 trap cleanup EXIT
 if curl -fsS --max-time 2 "http://127.0.0.1:$port/" >/dev/null 2>&1; then echo "BLOCKED: local test port already in use"; exit 2; fi
-APP_ORIGIN="http://127.0.0.1:5173" "${deno_cmd[@]}" run --allow-net=127.0.0.1 --allow-env=APP_ORIGIN --allow-read --no-check supabase/functions/owner-status/index.ts --port "$port" >"$log" 2>&1 &
+APP_ORIGIN="http://127.0.0.1:5173" "${deno_cmd[@]}" run --allow-net=127.0.0.1 --allow-env=APP_ORIGIN --allow-read --no-check supabase/functions/owner-status/index.ts >"$log" 2>&1 &
 pid=$!
 ready=0
 for _ in $(seq 1 40); do

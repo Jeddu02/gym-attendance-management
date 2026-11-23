@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 [[ -z "${DATABASE_URL:-}${SUPABASE_DB_URL:-}${SUPABASE_URL:-}${SUPABASE_SERVICE_ROLE_KEY:-}${SUPABASE_ANON_KEY:-}${SUPABASE_PUBLISHABLE_KEY:-}" ]] || { echo "BLOCKED: inherited service/database credentials"; exit 2; }
 if command -v deno >/dev/null 2>&1; then deno_cmd=(deno); else deno_cmd=(npm exec --yes --package=deno -- deno); fi
-port=8000
+port=18743
 origin=http://127.0.0.1:5173
 log="$(mktemp)"
 pid=""
@@ -21,7 +21,7 @@ check() {
 start() {
  local name="$1"
  : > "$log"
- APP_ORIGIN="$origin" "${deno_cmd[@]}" run --no-check --allow-net=0.0.0.0:8000,127.0.0.1 --allow-env=APP_ORIGIN --allow-read "supabase/functions/$name/index.ts" >"$log" 2>&1 &
+ APP_ORIGIN="$origin" DENO_SERVE_PORT="$port" "${deno_cmd[@]}" run --no-check --allow-net=0.0.0.0:18743,127.0.0.1 --allow-env=APP_ORIGIN,DENO_SERVE_PORT --allow-read "supabase/functions/$name/index.ts" >"$log" 2>&1 &
  pid=$!
  local ready=0
  for _ in $(seq 1 45); do

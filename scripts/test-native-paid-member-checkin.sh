@@ -25,7 +25,6 @@ BEGIN
  VALUES(member,'synthetic-nonproduction-hash',credential_version);
  INSERT INTO private.membership_plans(id,name,price_php) VALUES(plan,'Synthetic Paid Plan',500);
  INSERT INTO private.membership_purchases(id,member_id,plan_id,price_php) VALUES(purchase,member,plan,500);
- PERFORM pg_catalog.set_config('role','service_role',true);
  response:=api.owner_approve_member(actor,member,'Approved for synthetic paid membership test');
  IF response->>'status'<>'active' THEN RAISE EXCEPTION 'Member approval failed: %',response; END IF;
  RAISE NOTICE 'PASS: owner approved member';

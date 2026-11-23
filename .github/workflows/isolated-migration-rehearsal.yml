@@ -1,0 +1,57 @@
+name: GYMFORCE isolated migration rehearsal
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'supabase/migrations/**'
+      - 'supabase/tests/staging_privilege_regression.sql'
+      - '.github/workflows/isolated-migration-rehearsal.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  disposable-supabase:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      SUPABASE_ACCESS_TOKEN: ''
+      SUPABASE_DB_PASSWORD: ''
+      SUPABASE_PROJECT_ID: ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Check migration inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(find supabase/migrations -maxdepth 1 -name '*.sql' | wc -l)" -eq 37
+          test -f supabase/tests/staging_privilege_regression.sql
+          echo "Found 37 migration files. No remote Supabase project is configured."
+      - name: Start disposable local Supabase stack
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase start
+      - name: Replay migrations on disposable local database
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase db reset --local --yes
+      - name: Check final browser-role privilege boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          # supabase status returns a local DB URL; never accept a hosted hostname.
+          DB_URL="$(supabase status -o env | sed -n 's/^DB_URL=//p' | tr -d '"')"
+          if [[ "$DB_URL" != *"127.0.0.1"* && "$DB_URL" != *"localhost"* ]]; then
+            echo "Refusing to connect to a non-local database" >&2
+            exit 1
+          fi
+          psql "$DB_URL" -X -v ON_ERROR_STOP=1 -f supabase/tests/staging_privilege_regression.sql
+      - name: Stop disposable stack
+        if: always()
+        run: supabase stop --no-backup || true

@@ -117,13 +117,14 @@ for(const fn of names){
  const body=await res.text();
  let parsed;try{parsed=JSON.parse(body)}catch{parsed=null}
  assert.notEqual(parsed?.code,'PGRST202',fn+' did not resolve in PostgREST schema cache: '+body.slice(0,300));
- assert.notEqual(parsed?.code,'42501',fn+' unexpectedly denied by database: '+body.slice(0,300));
+ const ownerGuard=fn.startsWith('owner_') && parsed?.code==='42501' && parsed?.message==='OWNER_ACCESS_REQUIRED';
+ assert.ok(parsed?.code!=='42501'||ownerGuard,fn+' unexpected SQL privilege failure: '+body.slice(0,300));
  assert.ok(res.status!==404,fn+' returned HTTP 404: '+body.slice(0,300));
- assert.ok(res.status!==401&&res.status!==403,fn+' returned auth error: '+body.slice(0,300));
+ assert.ok(res.status!==401&&(res.status!==403||ownerGuard),fn+' returned unexpected auth error: '+body.slice(0,300));
  // Synthetic values may fail business validation; this stage checks dispatch only.
- console.log('PASS: '+fn+' service-role valid-signature RPC dispatched (HTTP '+res.status+', code '+(parsed?.code??'none')+')');
+ console.log('PASS: '+fn+' service-role RPC '+(ownerGuard?'reached owner access guard':'dispatched')+' (HTTP '+res.status+', code '+(parsed?.code??'none')+')');
 }
-console.log('PASS: 7 service-role RPC dispatch checks; PostgREST configured to roll back every transaction');
+console.log('PASS: 7 service-role RPC dispatch/owner-guard checks; PostgREST configured to roll back every transaction');
 NODE
 echo 'PASS: disposable service-role HTTP RPC dispatch checks; transactions configured for rollback; no source or production changes.'
 echo 'NOT VERIFIED: successful business operations, full payment/check-in workflows, real Supabase Auth, or production.'

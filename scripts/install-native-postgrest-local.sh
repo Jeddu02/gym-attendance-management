@@ -21,9 +21,10 @@ if ! curl --fail --silent --show-error --location --retry 2 --max-time 30 \
   -H 'User-Agent: GYMFORCE-local-postgrest-installer' \
   'https://api.github.com/repos/PostgREST/postgrest/releases/latest' -o "$metadata"; then
   echo 'BLOCKED: GitHub release metadata request failed. No binary installed.'
+  echo 'Retry once later; inspect scripts/diagnose-postgrest-download-access.sh if it persists.'
   exit 2
 fi
-mapfile -t asset < <(python3 - "$metadata" <<'PY'
+asset_text="$(python3 - "$metadata" <<'PY'
 import json,sys
 r=json.load(open(sys.argv[1]))
 items=[a for a in r.get('assets',[]) if a.get('name','').endswith('.tar.xz') and 'linux' in a.get('name','').lower() and any(x in a.get('name','').lower() for x in ('static-x64','x86_64','linux-x64'))]
@@ -35,7 +36,8 @@ url=a.get('browser_download_url','')
 if not url.startswith('https://github.com/PostgREST/postgrest/releases/download/'): raise SystemExit('BLOCKED: unexpected download origin')
 print(r['tag_name']);print(a['name']);print(url);print(digest[7:])
 PY
-)
+)" || { echo 'BLOCKED: release metadata validation failed'; exit 2; }
+mapfile -t asset <<< "$asset_text"
 [[ "${#asset[@]}" == 4 ]] || { echo 'BLOCKED: incomplete asset metadata'; exit 2; }
 echo "Official PostgREST release: ${asset[0]} / ${asset[1]}"
 echo "=== Downloading verified release asset: ${asset[1]} ==="
@@ -46,7 +48,8 @@ if ! curl --fail --silent --show-error --location --retry 2 --max-time 180 \
   exit 2
 fi
 printf '%s  %s\n' "${asset[3]}" "$archive" | sha256sum --check --status || { echo 'BLOCKED: SHA256 mismatch'; exit 2; }
-mapfile -t entries < <(tar -tJf "$archive")
+entries_text="$(tar -tJf "$archive")" || { echo 'BLOCKED: archive listing failed'; exit 2; }
+mapfile -t entries <<< "$entries_text"
 [[ "${#entries[@]}" == 1 && ("${entries[0]}" == postgrest || "${entries[0]}" == ./postgrest) ]] || { echo 'BLOCKED: unexpected archive entries'; exit 2; }
 tar -xJOf "$archive" "${entries[0]}" > "$target/postgrest.tmp"
 chmod 700 "$target/postgrest.tmp"

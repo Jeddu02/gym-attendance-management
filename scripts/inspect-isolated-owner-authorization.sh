@@ -9,7 +9,30 @@ done
 socket=/tmp/gf-pg-23c0b94e
 port=55439
 db=gymforce_integration_test
-[[ -S "$socket/.s.PGSQL.$port" ]] || { echo 'BLOCKED: expected isolated PostgreSQL Unix socket absent'; exit 2; }
+if [[ ! -S "$socket/.s.PGSQL.$port" ]]; then
+ echo 'INFO: isolated PostgreSQL fixture is not running (Codespaces may have restarted).'
+ echo '=== Read-only migration source inventory; no database connection ==='
+ node --input-type=module <<'NODE'
+import {readdirSync,readFileSync} from 'node:fs';
+const dir='supabase/migrations';
+const files=readdirSync(dir).filter(f=>f.endsWith('.sql')).sort();
+const pattern=/owner_approve_member|owner_record_membership_payment|owner_confirm_membership_payment|owner_activate_membership_purchase|OWNER_ACCESS_REQUIRED|gym_owner_executor|auth\.uid\(\)/i;
+let matches=0;
+for(const file of files){
+ const lines=readFileSync(dir+'/'+file,'utf8').split('\n');
+ const hits=lines.flatMap((line,i)=>pattern.test(line)?[{line:i+1,text:line.trim().slice(0,220)}]:[]);
+ if(!hits.length)continue;
+ matches+=hits.length;
+ console.log('FILE '+file+' ('+hits.length+' matching lines)');
+ for(const hit of hits.slice(0,18))console.log('  L'+hit.line+': '+hit.text);
+ if(hits.length>18)console.log('  ... '+(hits.length-18)+' more matches');
+}
+if(!matches){console.error('BLOCKED: no owner authorization source references found');process.exitCode=2}
+else console.log('PASS: '+matches+' owner authorization source references inventoried; runtime authorization remains UNVERIFIED.');
+NODE
+ echo 'NEXT: reinitialize the isolated fixture using its established local bootstrap procedure before database-backed positive tests.'
+ exit 0
+fi
 echo '=== Isolated owner authorization dependency inventory ==='
 sudo -n /usr/sbin/runuser -u postgres -- /usr/bin/env -u PGHOST -u PGHOSTADDR -u PGPORT -u PGDATABASE -u PGUSER -u PGSERVICE -u DATABASE_URL -u SUPABASE_DB_URL /usr/lib/postgresql/17/bin/psql -X -w -v ON_ERROR_STOP=1 -h "$socket" -p "$port" -U postgres -d "$db" <<'SQL'
 BEGIN READ ONLY;

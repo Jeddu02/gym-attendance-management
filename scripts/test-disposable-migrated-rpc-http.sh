@@ -92,13 +92,19 @@ for(const fn of functions){
  }
  // Missing required arguments must fail before any RPC executes; 404/400 indicates schema visibility.
  const res=await fetch(base+'/rpc/'+fn,{method:'POST',headers:{Authorization:'Bearer '+jwt('service_role'),'Content-Type':'application/json'},body:'{}'});
- assert.ok([400,404].includes(res.status),fn+' service role unexpected '+res.status+' '+(await res.text()).slice(0,250));
- console.log('PASS: '+fn+' service-role request reached argument validation ('+res.status+')');
+ const body=await res.text();
+ let parsed; try { parsed=JSON.parse(body); } catch { parsed=null; }
+ // An empty JSON object does not match the required named RPC arguments.
+ // PostgREST returns PGRST202/404 at schema-cache argument matching, before execution.
+ assert.equal(res.status,404,fn+' service-role unexpected HTTP '+res.status+' '+body.slice(0,250));
+ assert.equal(parsed?.code,'PGRST202',fn+' expected argument-signature mismatch, got '+body.slice(0,250));
+ assert.ok(String(parsed?.message??'').includes(fn),fn+' response did not identify the RPC');
+ console.log('PASS: '+fn+' service-role RPC signature mismatch confirmed (404/PGRST202; not executed)');
 }
 const invalid=await fetch(base+'/rpc/commit_member_checkin',{method:'POST',headers:{Authorization:'Bearer not-a-jwt','Content-Type':'application/json'},body:'{}'});
 assert.equal(invalid.status,401,'invalid JWT');
 console.log('PASS: invalid JWT rejected (401)');
-console.log('PASS: 22 migration-backed HTTP access assertions');
+console.log('PASS: 22 migration-backed HTTP request checks (14 access denials, 7 signature checks, 1 invalid JWT)');
 NODE
-echo 'PASS: disposable migration-backed HTTP authorization test; no source or production changes.'
-echo 'NOT VERIFIED: actual RPC execution with valid arguments, Supabase Auth, full payment/check-in workflows, or production.'
+echo 'PASS: disposable migration-backed HTTP denial and signature checks; no source or production changes.'
+echo 'NOT VERIFIED: service-role execution of migrated RPCs with valid arguments, Supabase Auth, full payment/check-in workflows, or production.'

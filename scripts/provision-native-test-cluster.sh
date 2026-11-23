@@ -20,7 +20,7 @@ sudo -n chown postgres:postgres "$root"
 sudo -n /usr/sbin/runuser -u postgres -- /usr/lib/postgresql/17/bin/initdb -D "$root/data" -A peer -U postgres --no-instructions >/dev/null
 cat > "$root/postgresql.test.conf" <<EOF
 listen_addresses = ''
-port = 0
+port = 55439
 unix_socket_directories = '$root'
 fsync = on
 EOF

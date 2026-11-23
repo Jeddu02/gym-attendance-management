@@ -20,7 +20,7 @@ BEGIN
  INSERT INTO auth.users(id) VALUES(actor);
  INSERT INTO private.owner_access(user_id,is_active) VALUES(actor,true);
  INSERT INTO private.members(id,member_code,full_name,mobile_lookup_hash,mobile_encrypted)
- VALUES(member,'MBR-'||upper(substr(replace(member::text,'-',''),1,12)),'Synthetic Approved Member',digest(member::text,'sha256'),decode('010203','hex'));
+ VALUES(member,'MBR-'||upper(substr(replace(member::text,'-',''),1,12)),'Synthetic Approved Member',decode(md5(member::text)||md5('gymforce-synthetic:'||member::text),'hex'),decode('010203','hex'));
  INSERT INTO private.membership_plans(id,name,price_php) VALUES(plan,'Synthetic Owner Test Plan',500);
  INSERT INTO private.membership_purchases(id,member_id,plan_id,price_php) VALUES(purchase,member,plan,500);
  PERFORM pg_catalog.set_config('role','service_role',true);

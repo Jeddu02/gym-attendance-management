@@ -30,43 +30,14 @@ CREATE ROLE authenticated NOLOGIN;
 CREATE ROLE service_role NOLOGIN;
 CREATE ROLE authenticator NOLOGIN;
 SQL
-# Copy only application executor ROLE NAMES from the isolated source catalog.
-# Never copy passwords, memberships, privileges, or login capabilities.
+# Bootstrap source executor role names without login or grants.
 echo '=== Bootstrap application executor role names (NOLOGIN only) ==='
-mapfile -t executor_roles < <(
- sudo -n /usr/sbin/runuser -u postgres -- /usr/bin/env -u PGHOST -u PGHOSTADDR -u PGPORT -u PGDATABASE -u PGUSER -u PGSERVICE -u DATABASE_URL -u SUPABASE_DB_URL "$pgbin/psql" -X -w -A -t -v ON_ERROR_STOP=1 -h /tmp/gf-pg-23c0b94e -p 55439 -U postgres -d gymforce_integration_test -c "SELECT rolname FROM pg_roles WHERE rolname ~ '^gym_[a-z0-9_]+_executor -h "$work" -p 55459 -U "$(id -un)" gymforce_restore_test
-echo '=== Restore migration-backed schema/data with no owner or ACL replay ==='
-if ! "$pgbin/pg_restore" --exit-on-error --no-owner --no-acl -h "$work" -p 55459 -U "$(id -un)" -d gymforce_restore_test "$work/fixture.dump" >"$work/restore.log" 2>&1; then
- echo 'BLOCKED: disposable restore failed; last diagnostics:'
- tail -n 24 "$work/restore.log"
- exit 1
-fi
-echo '=== Validate restored GYMFORCE RPC definitions ==='
-"$pgbin/psql" -X -w -v ON_ERROR_STOP=1 -h "$work" -p 55459 -U "$(id -un)" -d gymforce_restore_test <<'SQL'
-DO $$
-DECLARE n integer; d integer;
-BEGIN
- IF current_database()<>'gymforce_restore_test' OR current_setting('listen_addresses')<>'' THEN
-  RAISE EXCEPTION 'Disposable restore identity mismatch';
- END IF;
- SELECT count(*),count(*) FILTER (WHERE p.prosecdef) INTO n,d
- FROM pg_proc p JOIN pg_namespace s ON s.oid=p.pronamespace
- WHERE s.nspname='api' AND p.proname=ANY(ARRAY[
- 'prepare_member_checkin','commit_member_checkin','reserve_member_checkin_request',
- 'owner_approve_member','owner_record_membership_payment',
- 'owner_confirm_membership_payment','owner_activate_membership_purchase']);
- IF n<>7 OR d<>7 THEN RAISE EXCEPTION 'Restored sensitive RPC count % or definer count % mismatch',n,d; END IF;
- RAISE NOTICE 'PASS: 7/7 migration-backed sensitive RPCs restored with SECURITY DEFINER';
-END $$;
-SQL
-echo 'PASS: disposable migration-backed database restored; no TCP listener; temporary cluster removed on exit.'
-echo 'NOTE: --no-acl omits source grants. RPC HTTP authorization still requires a separately verified disposable grant bootstrap.'
-echo 'NOT VERIFIED: migration-backed PostgREST HTTP behavior, full payment/check-in workflows, real Supabase Auth or production.'
- ORDER BY rolname"
-)
-(( ${#executor_roles[@]} > 0 )) || { echo 'BLOCKED: no application executor roles found in isolated source'; exit 2; }
+roles_file="$work/executor_roles.txt"
+sudo -n /usr/sbin/runuser -u postgres -- /usr/bin/env -u PGHOST -u PGHOSTADDR -u PGPORT -u PGDATABASE -u PGUSER -u PGSERVICE -u DATABASE_URL -u SUPABASE_DB_URL "$pgbin/psql" -X -w -A -t -v ON_ERROR_STOP=1 -h /tmp/gf-pg-23c0b94e -p 55439 -U postgres -d gymforce_integration_test -c "SELECT rolname FROM pg_roles WHERE rolname LIKE 'gym_%_executor' ORDER BY rolname" >"$roles_file"
+mapfile -t executor_roles <"$roles_file"
+(( ${#executor_roles[@]} > 0 )) || { echo 'BLOCKED: no executor roles found in isolated source'; exit 2; }
 for role in "${executor_roles[@]}"; do
- [[ "$role" =~ ^gym_[a-z0-9_]+_executor$ ]] || { echo 'BLOCKED: unexpected source role name'; exit 2; }
+ [[ "$role" =~ ^gym_[a-z0-9_]+_executor$ ]] || { echo 'BLOCKED: unexpected executor role'; exit 2; }
  "${psql[@]}" -c "CREATE ROLE $role NOLOGIN;" >/dev/null
  echo "BOOTSTRAPPED: $role (NOLOGIN)"
 done

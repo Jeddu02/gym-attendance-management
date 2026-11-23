@@ -7,7 +7,14 @@ bash scripts/check-native-postgres-local.sh
 [[ -z "${DATABASE_URL:-}${SUPABASE_DB_URL:-}${PGHOST:-}${PGHOSTADDR:-}${PGSERVICE:-}${PGDATABASE:-}${PGUSER:-}${PGPORT:-}" ]] || { echo "BLOCKED: inherited DB connection override"; exit 2; }
 runid="23c0b94e3cec48efa403ab08a37a4937"
 root="$(pwd -P)/.cache/gymforce-native-$runid"
-[[ ! -L .cache && ! -L "$root" && -d "$root/data" && -f "$root/postgresql.test.conf" ]] || { echo "BLOCKED: expected isolated cluster absent or redirected"; exit 2; }
+[[ ! -L .cache && ! -L "$root" ]] || { echo "BLOCKED: isolated path redirected"; exit 2; }
+[[ -d "$root" ]] || { echo "BLOCKED: expected isolated cluster root absent"; exit 2; }
+# postgres owns this directory with mode 0700. The codespace user cannot
+# traverse it; test its children as postgres rather than using shell -d/-f.
+sudo -n /usr/sbin/runuser -u postgres -- test -d "$root/data" || { echo "BLOCKED: isolated data directory absent"; exit 2; }
+sudo -n /usr/sbin/runuser -u postgres -- test -f "$root/postgresql.test.conf" || { echo "BLOCKED: isolated configuration absent"; exit 2; }
+sudo -n /usr/sbin/runuser -u postgres -- test ! -L "$root/data" || { echo "BLOCKED: redirected data directory"; exit 2; }
+sudo -n /usr/sbin/runuser -u postgres -- test ! -L "$root/postgresql.test.conf" || { echo "BLOCKED: redirected configuration"; exit 2; }
 [[ "$(sudo -n stat -c '%U:%G' "$root")" == postgres:postgres ]] || { echo "BLOCKED: unexpected cluster ownership"; exit 2; }
 [[ "$(sudo -n stat -c '%U:%G' "$root/data")" == postgres:postgres ]] || { echo "BLOCKED: unexpected data ownership"; exit 2; }
 [[ "$(sudo -n /usr/sbin/runuser -u postgres -- /usr/lib/postgresql/17/bin/pg_controldata "$root/data" | sed -n 's/^Database cluster state: *//p')" == "shut down" ]] || { echo "BLOCKED: cluster not cleanly shut down (may already be running)"; exit 2; }

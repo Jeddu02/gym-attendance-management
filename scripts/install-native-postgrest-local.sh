@@ -15,9 +15,14 @@ target="$root/.cache/gymforce-postgrest"
 metadata="$(mktemp)"
 archive="$(mktemp)"
 trap 'rm -f "$metadata" "$archive"' EXIT
-curl --fail --silent --show-error --location --retry 2 --max-time 30 \
+echo '=== Fetching official release metadata ==='
+if ! curl --fail --silent --show-error --location --retry 2 --max-time 30 \
   -H 'Accept: application/vnd.github+json' \
-  'https://api.github.com/repos/PostgREST/postgrest/releases/latest' -o "$metadata"
+  -H 'User-Agent: GYMFORCE-local-postgrest-installer' \
+  'https://api.github.com/repos/PostgREST/postgrest/releases/latest' -o "$metadata"; then
+  echo 'BLOCKED: GitHub release metadata request failed. No binary installed.'
+  exit 2
+fi
 mapfile -t asset < <(python3 - "$metadata" <<'PY'
 import json,sys
 r=json.load(open(sys.argv[1]))
@@ -33,7 +38,13 @@ PY
 )
 [[ "${#asset[@]}" == 4 ]] || { echo 'BLOCKED: incomplete asset metadata'; exit 2; }
 echo "Official PostgREST release: ${asset[0]} / ${asset[1]}"
-curl --fail --silent --show-error --location --retry 2 --max-time 180 "${asset[2]}" -o "$archive"
+echo "=== Downloading verified release asset: ${asset[1]} ==="
+if ! curl --fail --silent --show-error --location --retry 2 --max-time 180 \
+  -H "User-Agent: GYMFORCE-local-postgrest-installer" "${asset[2]}" -o "$archive"; then
+  echo "BLOCKED: official GitHub release asset download failed (possibly network policy)."
+  echo "No alternate unverified mirror was used. No binary installed."
+  exit 2
+fi
 printf '%s  %s\n' "${asset[3]}" "$archive" | sha256sum --check --status || { echo 'BLOCKED: SHA256 mismatch'; exit 2; }
 mapfile -t entries < <(tar -tJf "$archive")
 [[ "${#entries[@]}" == 1 && ("${entries[0]}" == postgrest || "${entries[0]}" == ./postgrest) ]] || { echo 'BLOCKED: unexpected archive entries'; exit 2; }

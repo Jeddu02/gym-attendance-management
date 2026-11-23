@@ -124,7 +124,30 @@ for(const fn of names){
  // Synthetic values may fail business validation; this stage checks dispatch only.
  console.log('PASS: '+fn+' service-role RPC '+(ownerGuard?'reached owner access guard':'dispatched')+' (HTTP '+res.status+', code '+(parsed?.code??'none')+')');
 }
-console.log('PASS: 7 service-role RPC dispatch/owner-guard checks; PostgREST configured to roll back every transaction');
+// A forged identity claim is not proof of an approved owner. Verify owner RPCs
+// continue to enforce the database owner guard, even with a syntactically valid JWT.
+const forged=(()=>{
+ const p=enc({alg:'HS256',typ:'JWT'})+'.'+enc({
+  role:'service_role',sub:'00000000-0000-0000-0000-000000000001',
+  email:'synthetic-owner@example.invalid',
+  app_metadata:{role:'owner'},user_metadata:{role:'owner'},
+  exp:Math.floor(Date.now()/1000)+300
+ });
+ return p+'.'+createHmac('sha256',process.env.PGRST_JWT_SECRET).update(p).digest('base64url');
+})();
+for(const fn of names.filter(x=>x.startsWith('owner_'))){
+ const res=await fetch(base+'/rpc/'+fn,{
+  method:'POST',headers:{Authorization:'Bearer '+forged,'Content-Type':'application/json'},
+  body:JSON.stringify(args[fn])
+ });
+ const body=await res.text();
+ let parsed;try{parsed=JSON.parse(body)}catch{parsed=null}
+ assert.equal(res.status,403,fn+' forged owner claim unexpectedly passed guard: '+body.slice(0,300));
+ assert.equal(parsed?.code,'42501',fn+' unexpected forged-claim response: '+body.slice(0,300));
+ assert.equal(parsed?.message,'OWNER_ACCESS_REQUIRED',fn+' owner guard message changed: '+body.slice(0,300));
+ console.log('PASS: '+fn+' forged owner metadata/sub denied by database (403/42501)');
+}
+console.log('PASS: 7 service-role dispatch/guard checks + 4 forged-owner-claim denial checks; every HTTP transaction configured to roll back');
 NODE
-echo 'PASS: disposable service-role HTTP RPC dispatch checks; transactions configured for rollback; no source or production changes.'
+echo 'PASS: disposable service-role HTTP RPC dispatch and forged-owner-claim checks; transactions configured for rollback; no source or production changes.'
 echo 'NOT VERIFIED: successful business operations, full payment/check-in workflows, real Supabase Auth, or production.'

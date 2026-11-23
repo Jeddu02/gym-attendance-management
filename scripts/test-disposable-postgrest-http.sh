@@ -64,7 +64,7 @@ const expired=token({role:'authenticated',exp:now-60});
 const tampered=good.slice(0,-4)+'xxxx';
 const cases=[
  ['anonymous public RPC', '/rpc/ping',null,200],
- ['anonymous restricted RPC denied','/rpc/restricted',null,403],
+ ['anonymous restricted RPC denied','/rpc/restricted',null,401],
  ['authenticated restricted RPC','/rpc/restricted',good,200],
  ['expired JWT rejected','/rpc/ping',expired,401],
  ['tampered JWT rejected','/rpc/ping',tampered,401],

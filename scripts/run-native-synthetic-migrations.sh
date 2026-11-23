@@ -59,6 +59,7 @@ PY
     else
       cat "$file"
     fi
+  fi
   fi; } | "${psql[@]}" -q -f -; then
     passed=$((passed+1))
     echo "PASS [$passed/37] $(basename "$file")"

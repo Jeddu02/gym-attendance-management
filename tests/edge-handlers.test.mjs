@@ -17,7 +17,7 @@ let generation = 0;
 async function loadHandler(name, env) {
   const file = new URL(`../supabase/functions/${name}/index.ts`, import.meta.url);
   let handler;
-  globalThis.Deno = { env: { get: (key) => env[key] }, serve: (callback) => { handler = callback; } };
+  globalThis.Deno = { env: { get: (key) => env[key] }, serve: (optionsOrCallback, callback) => { if (typeof optionsOrCallback === 'function') { assert.equal(callback, undefined); handler = optionsOrCallback; } else { assert.equal(typeof optionsOrCallback, 'object'); assert.ok(Number.isInteger(optionsOrCallback.port) && optionsOrCallback.port > 0 && optionsOrCallback.port <= 65535, 'Invalid Deno HTTP port'); handler = callback; } assert.equal(typeof handler, 'function', 'Deno.serve requires a request handler'); } };
   let source = stripTypeScriptTypes(await readFile(file, 'utf8'));
   source = source.replace(/from\s+(["'])([^"']+)\1/g, (_match, _quote, specifier) => {
     const target = specifier.startsWith('npm:')
@@ -34,9 +34,66 @@ function request(body, options = {}) {
     method: options.method ?? 'POST',
     headers: { Origin: options.origin ?? origin, 'Content-Type': 'application/json',
       ...(options.auth === false ? {} : { Authorization: 'Bearer synthetic-owner-token' }) },
-    ...(options.method === 'OPTIONS' ? {} : { body: JSON.stringify(body) }),
+    ...(['OPTIONS', 'GET', 'HEAD'].includes(options.method) ? {} : { body: JSON.stringify(body) }),
   });
 }
+
+test('owner-status grants only verified active owners and fails closed', async () => {
+  const originalDeno = globalThis.Deno;
+  const originalFetch = globalThis.fetch;
+  let authorized = true;
+  let authValid = true;
+  let malformed = false;
+  let rpcCalls = 0;
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(typeof input === 'string' ? input : input.url ?? input.href);
+    assert.equal(url.origin, baseEnv.SUPABASE_URL);
+    if (url.pathname === '/auth/v1/user')
+      return Response.json(authValid ? { id: actor } : { message: 'invalid session' }, { status: authValid ? 200 : 401 });
+    assert.equal(url.pathname, '/rest/v1/rpc/is_active_owner_for_user');
+    assert.equal(new Headers(init.headers).get('Content-Profile'), 'api');
+    assert.equal(new Headers(init.headers).get('apikey'), baseEnv.SUPABASE_SERVICE_ROLE_KEY);
+    assert.deepEqual(JSON.parse(init.body), { p_user_id: actor });
+    rpcCalls++;
+    return Response.json(malformed ? { unexpected: true } : authorized);
+  };
+  try {
+    const handler = await loadHandler('owner-status', baseEnv);
+    assert.equal((await handler(request({}, { method: 'OPTIONS' }))).status, 204);
+    assert.equal((await handler(request({}, { origin: 'https://untrusted.example.test' }))).status, 403);
+    assert.equal((await handler(request({}, { method: 'GET' }))).status, 405);
+    assert.equal(rpcCalls, 0, 'Preflight, foreign origins and wrong methods must not reach authorization RPC');
+    const unconfigured = await loadHandler('owner-status', { APP_ORIGIN: origin });
+    assert.equal((await unconfigured(request({}))).status, 503);
+    assert.equal(rpcCalls, 0, 'Missing backend configuration must fail closed');
+    // Each synthetic handler reads the process-global Deno.env at request time.
+    // Restore the configured environment before exercising the original handler.
+    globalThis.Deno = { env: { get: (key) => baseEnv[key] } };
+    assert.equal((await handler(request({}, { auth: false }))).status, 401);
+    assert.equal(rpcCalls, 0);
+    authValid = false;
+    assert.equal((await handler(request({}))).status, 401);
+    assert.equal(rpcCalls, 0);
+    authValid = true;
+    authorized = false;
+    const denied = await handler(request({}));
+    assert.equal(denied.status, 200);
+    assert.deepEqual(await denied.json(), { authenticated: true, isActiveOwner: false, authorizationReady: true });
+    authorized = true;
+    const allowed = await handler(request({}));
+    assert.equal(allowed.status, 200);
+    assert.deepEqual(await allowed.json(), { authenticated: true, isActiveOwner: true, authorizationReady: true });
+    malformed = true;
+    const unavailable = await handler(request({}));
+    assert.equal(unavailable.status, 503);
+    assert.equal((await unavailable.text()).includes('unexpected'), false);
+    assert.equal(unavailable.headers.get('Cache-Control'), 'no-store');
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalDeno === undefined) delete globalThis.Deno;
+    else globalThis.Deno = originalDeno;
+  }
+});
 
 test('A05 Owner lists preserve arrays and reject malformed RPC successes without details', async () => {
   const originalDeno = globalThis.Deno;

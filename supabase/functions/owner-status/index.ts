@@ -22,7 +22,7 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-Deno.serve(withBrowserCors(allowedOrigin, async (request: Request) => {
+Deno.serve({ port: Number(Deno.env.get("GYMFORCE_HTTP_TEST_PORT") ?? "8000") }, withBrowserCors(allowedOrigin, async (request: Request) => {
   if (!allowedOrigin) {
     return new Response(
       JSON.stringify({ error: "Authorization service unavailable" }),

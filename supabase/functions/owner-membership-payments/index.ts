@@ -107,7 +107,7 @@ function paymentError(error: { code?: string; message?: string }): Response {
   return respond(500, { error: "MEMBERSHIP_PAYMENT_UNAVAILABLE" });
 }
 
-Deno.serve(withBrowserCors(allowedOrigin, async (request: Request) => {
+Deno.serve({ port: Number(Deno.env.get("GYMFORCE_HTTP_TEST_PORT") ?? "8000") }, withBrowserCors(allowedOrigin, async (request: Request) => {
   const early = checkRequest(request);
   if (early) return early;
 

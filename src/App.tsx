@@ -96,6 +96,13 @@ export function App() {
         } catch {
           if (active && ticket === authGeneration.current) {
             setMessage('Unable to verify owner access. Please sign in again.');
+            // Fail closed on network/authorization errors as well as explicit denials.
+            // This runs outside the Auth callback to avoid the Supabase Auth lock.
+            try {
+              await supabase.auth.signOut({ scope: 'local' });
+            } catch {
+              // The owner view was already cleared by scheduleVerification.
+            }
           }
         } finally {
           if (active && ticket === authGeneration.current) setAuthReady(true);

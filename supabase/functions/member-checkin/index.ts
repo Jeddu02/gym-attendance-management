@@ -30,7 +30,7 @@ const headers = {
 };
 const respond = (status: number, accepted = false, extra: Record<string, string> = {}) => new Response(JSON.stringify(publicMemberCheckinOutcome(accepted)), { status, headers: { ...headers, ...extra } });
 
-Deno.serve(withBrowserCors(appOrigin, async (request: Request): Promise<Response> => {
+Deno.serve({ port: Number(Deno.env.get("GYMFORCE_HTTP_TEST_PORT") ?? "8000") }, withBrowserCors(appOrigin, async (request: Request): Promise<Response> => {
   if (!appOrigin) return respond(503);
   if (request.headers.get("Origin") !== appOrigin) return respond(403);
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers });

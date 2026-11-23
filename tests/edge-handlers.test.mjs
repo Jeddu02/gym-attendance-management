@@ -66,6 +66,9 @@ test('owner-status grants only verified active owners and fails closed', async (
     const unconfigured = await loadHandler('owner-status', { APP_ORIGIN: origin });
     assert.equal((await unconfigured(request({}))).status, 503);
     assert.equal(rpcCalls, 0, 'Missing backend configuration must fail closed');
+    // Each synthetic handler reads the process-global Deno.env at request time.
+    // Restore the configured environment before exercising the original handler.
+    globalThis.Deno = { env: { get: (key) => baseEnv[key] } };
     assert.equal((await handler(request({}, { auth: false }))).status, 401);
     assert.equal(rpcCalls, 0);
     authValid = false;

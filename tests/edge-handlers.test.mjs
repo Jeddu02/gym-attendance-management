@@ -38,6 +38,53 @@ function request(body, options = {}) {
   });
 }
 
+test('owner-status grants only verified active owners and fails closed', async () => {
+  const originalDeno = globalThis.Deno;
+  const originalFetch = globalThis.fetch;
+  let authorized = true;
+  let authValid = true;
+  let malformed = false;
+  let rpcCalls = 0;
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(typeof input === 'string' ? input : input.url ?? input.href);
+    assert.equal(url.origin, baseEnv.SUPABASE_URL);
+    if (url.pathname === '/auth/v1/user')
+      return Response.json(authValid ? { id: actor } : { message: 'invalid session' }, { status: authValid ? 200 : 401 });
+    assert.equal(url.pathname, '/rest/v1/rpc/is_active_owner_for_user');
+    assert.equal(new Headers(init.headers).get('Content-Profile'), 'api');
+    assert.equal(new Headers(init.headers).get('apikey'), baseEnv.SUPABASE_SERVICE_ROLE_KEY);
+    assert.deepEqual(JSON.parse(init.body), { p_user_id: actor });
+    rpcCalls++;
+    return Response.json(malformed ? { unexpected: true } : authorized);
+  };
+  try {
+    const handler = await loadHandler('owner-status', baseEnv);
+    assert.equal((await handler(request({}, { auth: false }))).status, 401);
+    assert.equal(rpcCalls, 0);
+    authValid = false;
+    assert.equal((await handler(request({}))).status, 401);
+    assert.equal(rpcCalls, 0);
+    authValid = true;
+    authorized = false;
+    const denied = await handler(request({}));
+    assert.equal(denied.status, 200);
+    assert.deepEqual(await denied.json(), { authenticated: true, isActiveOwner: false, authorizationReady: true });
+    authorized = true;
+    const allowed = await handler(request({}));
+    assert.equal(allowed.status, 200);
+    assert.deepEqual(await allowed.json(), { authenticated: true, isActiveOwner: true, authorizationReady: true });
+    malformed = true;
+    const unavailable = await handler(request({}));
+    assert.equal(unavailable.status, 503);
+    assert.equal((await unavailable.text()).includes('unexpected'), false);
+    assert.equal(unavailable.headers.get('Cache-Control'), 'no-store');
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalDeno === undefined) delete globalThis.Deno;
+    else globalThis.Deno = originalDeno;
+  }
+});
+
 test('A05 Owner lists preserve arrays and reject malformed RPC successes without details', async () => {
   const originalDeno = globalThis.Deno;
   const originalFetch = globalThis.fetch;

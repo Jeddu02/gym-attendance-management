@@ -4,11 +4,12 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 [[ -z "${DATABASE_URL:-}${SUPABASE_DB_URL:-}${SUPABASE_URL:-}${SUPABASE_SERVICE_ROLE_KEY:-}${SUPABASE_ANON_KEY:-}${SUPABASE_PUBLISHABLE_KEY:-}" ]] || { echo "BLOCKED: inherited service/database credentials"; exit 2; }
 if command -v deno >/dev/null 2>&1; then deno_cmd=(deno); else deno_cmd=(npm exec --yes --package=deno -- deno); fi
-port=18743
+port=18744
 origin=http://127.0.0.1:5173
+command -v setsid >/dev/null || { echo 'BLOCKED: setsid required for safe process-group cleanup'; exit 2; }
 log="$(mktemp)"
 pid=""
-cleanup() { if [[ -n "$pid" ]]; then kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; fi; rm -f "$log"; }
+cleanup() { if [[ -n "$pid" ]]; then kill -- "-$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; fi; rm -f "$log"; }
 trap cleanup EXIT
 if [[ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "http://127.0.0.1:$port/" || true)" != "000" ]]; then echo "BLOCKED: local port $port already occupied"; exit 2; fi
 check() {
@@ -21,7 +22,7 @@ check() {
 start() {
  local name="$1"
  : > "$log"
- APP_ORIGIN="$origin" GYMFORCE_HTTP_TEST_PORT="$port" "${deno_cmd[@]}" run --no-check --allow-net=0.0.0.0:18743,127.0.0.1 --allow-env=APP_ORIGIN,GYMFORCE_HTTP_TEST_PORT --allow-read "supabase/functions/$name/index.ts" >"$log" 2>&1 &
+ setsid env APP_ORIGIN="$origin" GYMFORCE_HTTP_TEST_PORT="$port" "${deno_cmd[@]}" run --no-check --allow-net=0.0.0.0:18744,127.0.0.1 --allow-env=APP_ORIGIN,GYMFORCE_HTTP_TEST_PORT --allow-read "supabase/functions/$name/index.ts" >"$log" 2>&1 &
  pid=$!
  local ready=0
  for _ in $(seq 1 45); do
@@ -33,7 +34,7 @@ start() {
  echo "=== $name native HTTP ==="
 }
 stop() {
- kill "$pid" 2>/dev/null || true
+ kill -- "-$pid" 2>/dev/null || true
  wait "$pid" 2>/dev/null || true
  pid=""
  for _ in $(seq 1 30); do

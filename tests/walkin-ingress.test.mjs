@@ -12,8 +12,16 @@ test('actual slow-body cancellation is bounded and cancels the reader',async()=>
  let cancelled=false;
  const body=new ReadableStream({cancel(){cancelled=true;}});
  const request=new Request('http://127.0.0.1',{method:'POST',headers:{'Content-Type':'application/json'},body,duplex:'half'});
- await assert.rejects(readIngressBody(request,AbortSignal.timeout(30)),{name:'AbortError'});
- assert.equal(cancelled,true);
+ const controller=new AbortController();
+ // A referenced timer keeps Node's event loop alive while the stream is pending.
+ // AbortSignal.timeout() may use an unref'd timer and cancel the test prematurely.
+ const timer=setTimeout(()=>controller.abort(),30);
+ try {
+  await assert.rejects(readIngressBody(request,controller.signal),{name:'AbortError'});
+  assert.equal(cancelled,true);
+ } finally {
+  clearTimeout(timer);
+ }
 });
 
 test('early rejection attempts cancellation without awaiting failing or stalled cleanup',async()=>{

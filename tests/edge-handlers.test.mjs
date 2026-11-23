@@ -34,7 +34,7 @@ function request(body, options = {}) {
     method: options.method ?? 'POST',
     headers: { Origin: options.origin ?? origin, 'Content-Type': 'application/json',
       ...(options.auth === false ? {} : { Authorization: 'Bearer synthetic-owner-token' }) },
-    ...(options.method === 'OPTIONS' ? {} : { body: JSON.stringify(body) }),
+    ...(['OPTIONS', 'GET', 'HEAD'].includes(options.method) ? {} : { body: JSON.stringify(body) }),
   });
 }
 

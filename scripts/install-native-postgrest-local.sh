@@ -27,7 +27,7 @@ fi
 asset_text="$(python3 - "$metadata" <<'PY'
 import json,sys
 r=json.load(open(sys.argv[1]))
-items=[a for a in r.get('assets',[]) if a.get('name','').endswith('.tar.xz') and 'linux' in a.get('name','').lower() and any(x in a.get('name','').lower() for x in ('static-x64','x86_64','linux-x64'))]
+items=[a for a in r.get('assets',[]) if a.get('name','').endswith('.tar.xz') and 'linux' in a.get('name','').lower() and any(x in a.get('name','').lower() for x in ('linux-static-x86-64','linux-static-x64','linux-x86_64','linux-x64'))]
 if len(items)!=1: raise SystemExit('BLOCKED: cannot unambiguously select official Linux x86_64 tarball: '+repr([a.get('name') for a in r.get('assets',[])]))
 a=items[0]
 digest=a.get('digest','')

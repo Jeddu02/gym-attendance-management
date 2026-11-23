@@ -19,7 +19,9 @@ sudo -n /usr/sbin/runuser -u postgres -- test ! -L "$root/postgresql.test.conf" 
 [[ "$(sudo -n stat -c '%U:%G' "$root/data")" == postgres:postgres ]] || { echo "BLOCKED: unexpected data ownership"; exit 2; }
 [[ "$(sudo -n /usr/sbin/runuser -u postgres -- /usr/lib/postgresql/17/bin/pg_controldata "$root/data" | sed -n 's/^Database cluster state: *//p')" == "shut down" ]] || { echo "BLOCKED: cluster not cleanly shut down (may already be running)"; exit 2; }
 config="$(sudo -n /usr/sbin/runuser -u postgres -- cat "$root/postgresql.test.conf")"
-grep -Fxq "listen_addresses = ''" <<<"$config" || { echo "BLOCKED: TCP listen configuration"; exit 2; }
+echo "Isolated PostgreSQL config (escaped for diagnosis):"
+printf '%s\n' "$config" | sed -n l
+grep -Fxq "listen_addresses = ''" <<<"$config" || { echo "BLOCKED: expected listen_addresses = two single quotes; configuration differs"; exit 2; }
 grep -Fxq "port = 55439" <<<"$config" || { echo "BLOCKED: unexpected port"; exit 2; }
 grep -Fxq "unix_socket_directories = '$root'" <<<"$config" || { echo "BLOCKED: unexpected socket directory"; exit 2; }
 [[ ! -e "$root/.s.PGSQL.55439" && ! -e "$root/.s.PGSQL.55439.lock" ]] || { echo "BLOCKED: existing socket or lock"; exit 2; }

@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - 'supabase/migrations/**'
+      - 'docs/STAGING-EXECUTOR-CATALOG-VERIFICATION-2026-11-23.md'
       - 'supabase/tests/staging_privilege_regression.sql'
       - '.github/workflows/isolated-migration-rehearsal.yml'
 
@@ -31,6 +32,13 @@ jobs:
           test "$(find supabase/migrations -maxdepth 1 -name '*.sql' | wc -l)" -eq 37
           test -f supabase/tests/staging_privilege_regression.sql
           echo "Found 37 migration files. No remote Supabase project is configured."
+      - name: Verify runner prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker info >/dev/null
+          supabase --version
+          psql --version
       - name: Start disposable local Supabase stack
         shell: bash
         run: |

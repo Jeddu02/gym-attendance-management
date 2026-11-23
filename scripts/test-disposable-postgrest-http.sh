@@ -23,7 +23,7 @@ cleanup(){
 trap cleanup EXIT
 "$pgbin/initdb" -D "$work/data" --auth-local=trust --auth-host=trust --no-instructions >/dev/null
 # Isolated unprivileged cluster and loopback-only listener; fail if ports occupied.
-sudo -n -u postgres "$pgbin/pg_ctl" -D "$work/data" -o "-c listen_addresses=127.0.0.1 -p $pgport -c unix_socket_directories=$work" -w start >/dev/null
+"$pgbin/pg_ctl" -D "$work/data" -o "-c listen_addresses=127.0.0.1 -p $pgport -c unix_socket_directories=$work" -w start >/dev/null
 pgpid=started
 psql=("$pgbin/psql" -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -p "$pgport" -U "$(id -un)" -d postgres)
 "${psql[@]}" >/dev/null <<'SQL'

@@ -29,6 +29,8 @@ CREATE ROLE anon NOLOGIN;
 CREATE ROLE authenticated NOLOGIN;
 CREATE ROLE service_role NOLOGIN;
 CREATE ROLE authenticator NOLOGIN;
+-- Referenced by migrated check-in RLS policies; never granted LOGIN.
+CREATE ROLE gym_checkin_executor NOLOGIN;
 SQL
 "$pgbin/createdb" -h "$work" -p 55459 -U "$(id -un)" gymforce_restore_test
 echo '=== Restore migration-backed schema/data with no owner or ACL replay ==='

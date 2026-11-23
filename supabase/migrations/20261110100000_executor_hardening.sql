@@ -191,8 +191,8 @@ BEGIN
         END IF;
         -- No direct browser/service/dormant-login access, including column grants.
         FOREACH caller IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
-            IF pg_catalog.has_table_privilege(caller,relation_oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-              OR pg_catalog.has_any_column_privilege(caller,relation_oid,'SELECT,INSERT,UPDATE,REFERENCES') THEN
+            IF target AND (pg_catalog.has_table_privilege(caller,relation_oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+              OR pg_catalog.has_any_column_privilege(caller,relation_oid,'SELECT,INSERT,UPDATE,REFERENCES')) THEN
                 RAISE EXCEPTION 'Direct protected relation access: % / %',caller,r.name;
             END IF;
         END LOOP;
@@ -1300,8 +1300,8 @@ BEGIN
         END IF;
         -- No direct browser/service/dormant-login access, including column grants.
         FOREACH caller IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
-            IF pg_catalog.has_table_privilege(caller,relation_oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-              OR pg_catalog.has_any_column_privilege(caller,relation_oid,'SELECT,INSERT,UPDATE,REFERENCES') THEN
+            IF target AND (pg_catalog.has_table_privilege(caller,relation_oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+              OR pg_catalog.has_any_column_privilege(caller,relation_oid,'SELECT,INSERT,UPDATE,REFERENCES')) THEN
                 RAISE EXCEPTION 'Direct protected relation access: % / %',caller,r.name;
             END IF;
         END LOOP;

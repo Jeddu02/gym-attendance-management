@@ -87,7 +87,7 @@ def psql(session, sql):
     host, user, port, sslmode, password = session
     env = {name: value for name, value in os.environ.items() if not name.startswith("PG")}
     env.update(PGPASSWORD=password, PGSSLMODE=sslmode, PGCONNECT_TIMEOUT="10",
-               PGSSLROOTCERT="/etc/ssl/certs/ca-certificates.crt")
+               PGSSLROOTCERT=str(ROOT / "scripts/recovery/certs/supabase-root-2021-ca.crt"))
     subprocess.run(
         ["psql", "-X", "-w", "-qAt", "-v", "ON_ERROR_STOP=1", "-v", "VERBOSITY=sqlstate",
          "-h", host, "-p", port, "-U", user, "-d", "postgres", "--file=-"],

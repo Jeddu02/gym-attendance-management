@@ -69,7 +69,10 @@ jobs:
           WHERE granted.rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor')
              OR member.rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor')
           ORDER BY 1,2;
+          SELECT current_user, session_user, pg_has_role(current_user, 'supabase_admin', 'SET') AS can_set_supabase_admin;
+          SET LOCAL ROLE supabase_admin;
           REVOKE gym_data_owner, gym_owner_executor, gym_public_executor FROM postgres;
+          RESET ROLE;
           SELECT count(*) AS remaining_reserved_membership_edges
           FROM pg_auth_members m
           JOIN pg_roles reserved ON reserved.oid=m.roleid OR reserved.oid=m.member

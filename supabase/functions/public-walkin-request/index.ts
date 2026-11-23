@@ -19,7 +19,7 @@ const headers = {
 };
 const respond = (status: number, body: Record<string, unknown>) => new Response(JSON.stringify(body), { status, headers });
 
-Deno.serve(withBrowserCors(appOrigin, async (request: Request): Promise<Response> => {
+Deno.serve({ port: Number(Deno.env.get("GYMFORCE_HTTP_TEST_PORT") ?? "8000") }, withBrowserCors(appOrigin, async (request: Request): Promise<Response> => {
   if (!appOrigin) return respond(503, { error: "REQUEST_UNAVAILABLE" });
   if (request.headers.get("Origin") !== appOrigin) return respond(403, { error: "REQUEST_UNAVAILABLE" });
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers });

@@ -59,6 +59,13 @@ test('owner-status grants only verified active owners and fails closed', async (
   };
   try {
     const handler = await loadHandler('owner-status', baseEnv);
+    assert.equal((await handler(request({}, { method: 'OPTIONS' }))).status, 204);
+    assert.equal((await handler(request({}, { origin: 'https://untrusted.example.test' }))).status, 403);
+    assert.equal((await handler(request({}, { method: 'GET' }))).status, 405);
+    assert.equal(rpcCalls, 0, 'Preflight, foreign origins and wrong methods must not reach authorization RPC');
+    const unconfigured = await loadHandler('owner-status', { APP_ORIGIN: origin });
+    assert.equal((await unconfigured(request({}))).status, 503);
+    assert.equal(rpcCalls, 0, 'Missing backend configuration must fail closed');
     assert.equal((await handler(request({}, { auth: false }))).status, 401);
     assert.equal(rpcCalls, 0);
     authValid = false;

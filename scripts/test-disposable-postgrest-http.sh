@@ -68,14 +68,18 @@ const cases=[
  ['authenticated restricted RPC','/rpc/restricted',good,200],
  ['expired JWT rejected','/rpc/ping',expired,401],
  ['tampered JWT rejected','/rpc/ping',tampered,401],
- ['unknown role rejected','/rpc/ping',token({role:'service_role',exp:now+300}),401]
+ ['unknown role rejected','/rpc/ping',token({role:'service_role',exp:now+300}),401],
+ ['future nbf rejected','/rpc/ping',token({role:'authenticated',nbf:now+300,exp:now+600}),401],
+ ['unsigned token rejected','/rpc/ping',encode({alg:'none',typ:'JWT'})+'.'+encode({role:'authenticated',exp:now+300})+'.',401],
+ ['malformed token rejected','/rpc/ping','not-a-jwt',401],
+ ['authenticated public RPC','/rpc/ping',good,200]
 ];
 for(const [label,path,jwt,expected] of cases){
  const res=await fetch(base+path,{method:'POST',headers:jwt?{Authorization:'Bearer '+jwt}:{}});
  assert.equal(res.status,expected,label+' HTTP '+res.status+' expected '+expected+' body '+(await res.text()).slice(0,250));
  console.log('PASS: '+label+' ('+expected+')');
 }
-console.log('PASS: 6/6 real local PostgREST JWT and RPC HTTP assertions');
+console.log('PASS: 10/10 real local PostgREST JWT and RPC HTTP assertions');
 NODE
 echo 'PASS: disposable PG17 + PostgREST HTTP integration; cleanup on exit; no existing database accessed.'
 echo 'NOT VERIFIED: real Supabase Auth, GYMFORCE migration RPCs, production deployment.'

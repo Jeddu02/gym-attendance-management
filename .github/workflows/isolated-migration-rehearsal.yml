@@ -75,23 +75,9 @@ jobs:
             postgresql://postgres:*@127.0.0.1:54322/postgres) ;;
             *) echo "Unexpected disposable database URL" >&2; exit 1 ;;
           esac
-          apply_sql() {
-            psql "$DB_URL" -X -q -v ON_ERROR_STOP=1 -f "$1"
-          }
-          review=supabase/recovery/compatibility/review
-          count=0
-          for migration in supabase/migrations/20261110*.sql; do
-            name="${migration##*/}"
-            echo "Rehearsing reviewed compatibility artifact for $name"
-            apply_sql "$review/$name"
-            count=$((count + 1))
-            if [[ "$name" = '20261110100000_executor_hardening.sql' ]]; then
-              apply_sql "$review/executor_hardening_assertions.sql"
-            fi
-          done
-          test "$count" -eq 13
-          apply_sql "$review/final_security_assertions.sql"
-          apply_sql supabase/tests/staging_privilege_regression.sql
+          credentials="${DB_URL#postgresql://postgres:}"
+          GYMFORCE_DISPOSABLE_DB_PASSWORD="${credentials%@127.0.0.1:54322/postgres}" \
+            python3 scripts/recovery/rehearse-or-deploy-staging.py disposable
       - name: Stop disposable stack
         if: always()
         run: supabase stop --no-backup || true

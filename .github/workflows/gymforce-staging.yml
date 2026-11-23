@@ -1,0 +1,52 @@
+name: GYMFORCE hosted staging
+
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: gymforce-yucmfsjvjskefrxfhtbd
+  cancel-in-progress: false
+
+jobs:
+  staging:
+    if: >-
+      github.repository == 'Jeddu02/gym-attendance-management' &&
+      github.event.number == 2 &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'fix/staging-privilege-regression-audit' &&
+      contains(fromJSON('["verify-gymforce-staging","deploy-gymforce-staging"]'), github.event.label.name)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: gymforce-staging
+    steps:
+      - name: Require a passing rehearsal for this exact commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVIEWED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/isolated-migration-rehearsal.yml/runs" \
+            -f head_sha="$REVIEWED_HEAD" -f status=success \
+            --jq '[.workflow_runs[] | select(.event == "pull_request" and .conclusion == "success")] | length' \
+            | awk '$1 > 0 {ok = 1} END {exit !ok}'
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Verify or apply on the staging PostgreSQL connection
+        env:
+          GYMFORCE_STAGING_DB_URL: ${{ secrets.GYMFORCE_STAGING_DB_URL }}
+          STAGING_EVENT_LABEL: ${{ github.event.label.name }}
+        run: |
+          set -euo pipefail
+          case "$STAGING_EVENT_LABEL" in
+            verify-gymforce-staging) mode=staging-preflight ;;
+            deploy-gymforce-staging) mode=staging-apply ;;
+            *) exit 1 ;;
+          esac
+          python3 scripts/recovery/rehearse-or-deploy-staging.py "$mode"

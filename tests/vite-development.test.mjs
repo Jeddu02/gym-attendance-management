@@ -38,8 +38,19 @@ test('real Vite serves CSS and the SDK without watching generated private test a
     for (const rule of defaults.server.fs.deny) assert.ok(server.config.server.fs.deny.includes(rule), 'Keep every installed Vite default deny rule');
     for (const path of [`/.cache/${name}`, `/@fs/${artifact.split('\\').join('/')}`, `/.cache/${name}?raw`, `/.cache/${name}?raw&import`, `/.CACHE/${name}`]) {
       const response = await fetch(origin + path, { signal: AbortSignal.timeout(10000) });
-      assert.equal(response.status, 403, 'Private generated artifacts must not be served');
-      assert.equal((await response.text()).includes('// synthetic ignored artifact'), false);
+      const body = await response.text();
+      // Vite can reject a denied file with 403 or let its SPA fallback serve
+      // index.html with 200. Neither response may disclose the artifact.
+      assert.equal(body.includes('// synthetic ignored artifact'), false, `Private artifact leaked at ${path}`);
+      if (response.status === 200) {
+        assert.match(response.headers.get('content-type') ?? '', /^text\/html(?:;|$)/i,
+          `Only an HTML SPA fallback may return 200 for ${path}`);
+        assert.match(body, /<html\\b/i, `Expected HTML fallback for ${path}`);
+        assert.match(body, /<div\\s+id=["']root["']/i, `Expected app shell for ${path}`);
+      } else {
+        assert.ok([403, 404].includes(response.status),
+          `Unexpected private artifact response ${response.status} for ${path}`);
+      }
     }
     await writeFile(source, '// synthetic source watch probe\n');
     const deadline = Date.now() + 5000;

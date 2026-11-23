@@ -54,6 +54,21 @@ jobs:
           fi
           psql "$DB_URL" -X -v ON_ERROR_STOP=1 -c "SELECT rolname, rolcanlogin FROM pg_roles WHERE rolname LIKE 'gym_%' ORDER BY rolname"
           psql "$DB_URL" -X -v ON_ERROR_STOP=1 -c "SELECT granted.rolname AS granted_role, member.rolname AS member_role, grantor.rolname AS grantor_role FROM pg_auth_members m JOIN pg_roles granted ON granted.oid=m.roleid JOIN pg_roles member ON member.oid=m.member JOIN pg_roles grantor ON grantor.oid=m.grantor WHERE granted.rolname LIKE 'gym_%' OR member.rolname LIKE 'gym_%' ORDER BY 1,2"
+          psql "$DB_URL" -X -v ON_ERROR_STOP=1 <<'SQL'
+          BEGIN;
+          CREATE ROLE gym_data_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
+          CREATE ROLE gym_owner_executor NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
+          CREATE ROLE gym_public_executor NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
+          SELECT granted.rolname AS granted_role, member.rolname AS member_role, grantor.rolname AS grantor_role
+          FROM pg_auth_members m
+          JOIN pg_roles granted ON granted.oid=m.roleid
+          JOIN pg_roles member ON member.oid=m.member
+          JOIN pg_roles grantor ON grantor.oid=m.grantor
+          WHERE granted.rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor')
+             OR member.rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor')
+          ORDER BY 1,2;
+          ROLLBACK;
+          SQL
           supabase stop --no-backup
       - name: Start disposable local Supabase stack
         shell: bash

@@ -1,0 +1,20 @@
+{
+  "name": "GYMFORCE - synthetic frontend development",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:5.2.5-24-bookworm",
+  "remoteUser": "node",
+  "postCreateCommand": ["npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"],
+  "forwardPorts": [5173],
+  "portsAttributes": {
+    "5173": {
+      "label": "GYMFORCE frontend - keep Private",
+      "onAutoForward": "notify",
+      "protocol": "http"
+    }
+  },
+  "otherPortsAttributes": { "onAutoForward": "ignore" },
+  "customizations": {
+    "vscode": {
+      "settings": { "remote.autoForwardPorts": false }
+    }
+  }
+}

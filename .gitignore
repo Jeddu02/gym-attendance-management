@@ -84,3 +84,22 @@ system-identifier.txt
 # Controlled-pilot local approval, backup evidence, observations and test output
 /docs/drafts/foundation-2026-11-06/controlled-pilot/local/
 /docs/drafts/foundation-2026-11-06/controlled-pilot/*.local.json
+
+# Local runtimes, signing material, process state and browser profiles
+*.exe
+*.dll
+*.so
+*.dylib
+*.pid
+*.pid.lock
+*.pem
+*.key
+*.p12
+*.pfx
+*.jwk
+*.jwks
+/browser-profile/
+/browser-profiles/
+/chrome-profile/
+/pgdata/
+/npm-empty-cache/

@@ -222,7 +222,7 @@ Missing integration/maintenance evidence, physical Android, A02 authority/decisi
 A03/A04/A07 hosted reconciliation, backup/restore/RPO/RTO, privacy and separate
 release approvals remain gates. **Production remains NO-GO.**
 
-## Phase 6.1B.1 — local acceptance hardening (2026-11-19)
+## Phase 6.1B.1 ï¿½ local acceptance hardening (2026-11-19)
 
 Owner scope: local corrections and existing synthetic test components only. This
 section supplements the earlier Phase 6.1B evidence; it does not replace failed
@@ -260,7 +260,7 @@ runs with historical PASS results. HEAD remains
   coverage is extended with stale-finish/renewed-generation (ABA) assertions.
   These are native database clients, not concurrent Edge isolates.
 
-### Operational implementation proposal — NOT OPERATIONAL
+### Operational implementation proposal ï¿½ NOT OPERATIONAL
 
 No scheduler, alert destination, worker credential or infrastructure has been
 installed or provisioned. The current minute ring has exactly 2,880 rows and
@@ -422,3 +422,466 @@ builds/logs/databases/browser profiles remain ignored. No commit, push, hosted
 SQL, deployment or historical migration edit. Recommended milestone: Owner
 review of this hardening, followed by separately authorized persisted local HTTP
 qualification and operational scheduler/alert design approval. Production NO-GO.
+
+## Phase 6.1B.3C ï¿½ persisted local HTTP and operational controls (2026-11-20)
+
+Starting baseline: `5283e35dcb64a72bbe96c89637f9167508401ffa`, branch `master`,
+clean tree. Owner's batch authorization permits synthetic local SQL, processes,
+JWTs and source/test changes only. No hosted access, deployment or commit.
+A02 is still pending; the continuing provider ADMIN trust model is not approved.
+
+### Implemented architecture and authority
+
+`npm.cmd run test:http` invokes the existing PG17 customer compatibility runner
+with `-IngressTest -HttpIntegration`. It creates a guarded fresh synthetic cluster
+and applies the existing reviewed stages before the new HTTP test hook. Every
+administrative SQL session checks the exact synthetic database, loopback address,
+port, actor, run UUID, data directory and server version 170012. The harness
+refuses inherited PG/PGRST settings, foreign connection envelopes and malformed
+targets. A regression verifies refusal does not delete unrelated artifacts.
+
+The persisted chain is real Chrome -> loopback routing -> actual
+`public-walkin-recovery/index.ts` module in Deno -> PostgREST 16.6 -> PG17.12.
+The Deno bootstrap changes only Deno.serve listener options to an explicit
+127.0.0.1/dynamic-port real server; no handler, fetch, SDK or SQL response is
+mocked. Routing forwards actual HTTP bytes. Fault modes close connections before
+dispatch or discard actual committed responses. Existing CDP fixture browser
+suites remain a separate class of evidence.
+
+Preflight pins the PostgREST executable hash, PG17 libpq/OpenSSL/intl/iconv hashes,
+checks for unexpected application DLLs/System32 overrides, and verifies runtime
+versions. These DLL hashes preserve prior local qualification; they are not new
+publisher signatures. PostgreSQL libraries are added to the PostgREST child's
+PATH only. Parent/user/machine settings are unchanged. Actual browser, Node,
+Deno and PostgreSQL paths use already available components; no installation.
+
+The new LOGIN transport role has NOINHERIT/NOSUPERUSER/NOBYPASSRLS and no
+CREATEDB/CREATEROLE authority. Only SET access to service_role and anon is granted,
+with INHERIT false. No reserved executor membership or object ownership is added.
+Synthetic JWTs and a random transport password remain in memory/a restricted
+short-lived PostgREST config; none is exported to source or command arguments.
+Only api is exposed. SQL timers are established on the actual pool connections
+(1s statement, 100ms lock), not simulated inside a business function. All REST
+transactions commit normally; business failures roll back their own transaction.
+
+A temporary test-only SECURITY INVOKER sleep RPC, service-only and synthetic-target
+guarded, exercises the two-slot pool under the same 1s SQL timer. It reads no
+application data and is dropped during cleanup. The transport role and its
+memberships are removed after all HTTP sessions close. Config and browser
+capability profiles are removed; parent runner stops PG and removes its own
+credential files. Abrupt process/OS termination is not certified by normal
+cleanup evidence; no persistent Windows service/job/schedule was installed.
+
+### New operational source candidate
+
+`supabase/recovery/phase61b/003-local-operational-controls.sql` is an additive
+local review candidate, not a historical migration or hosted command. Its only
+new API is service-only `api.public_walkin_maintenance()`, SECURITY DEFINER under
+gym_public_executor with empty search_path and explicit ACL closure. It uses
+existing bounded column grants and FORCE RLS policies; it adds no table grants,
+roles, memberships, schema CREATE or maintenance bypass policy.
+
+An explicit tick reclaims unlocked expired leases, skips locked leases, clears
+aggregate bins older than 48 hours, and returns at most two minutes of counters.
+It never removes C1 recovery bindings or financial/audit/member/attendance rows.
+
+`IngressMonitor` validates strictly shaped aggregate input, detects local-test
+thresholds (20 denials, any unavailable event, five timeouts per minute), emits
+only minute/category/count/idempotency key, and deduplicates acknowledged alerts.
+Its in-memory journal has a 48h/11,520-entry bound across four categories.
+Delivery is disabled by default. An explicit callback is used only by local tests;
+no external endpoint or secrets are configured. Cleanup/delivery failure is
+surfaced with a sanitized health category and no automatic business retry.
+
+Actual HTTP operational tests cover idle aggregate expiry, anonymous denial,
+thresholds/deduplication, cleanup lock timeout with rollback and recovery, and
+locked-expired-lease handling. Unit tests cover malformed/private input, clock
+regression, failed delivery, 48h journal bounds and no unsafe retry. This is an
+explicit local scheduler adapter, not an operational hosted scheduler.
+
+### Acceptance scope
+
+The persisted harness executes numbered scenarios 1-15 and records their exact
+local assertions. A passing assertion is not a declaration of complete acceptance:
+
+| # | Scenario | Qualification boundary |
+| --- | --- | --- |
+| 1 | First submission | Real Edge/REST/SQL commit and binding count. |
+| 2 | Identical replay | Same HTTP key preserves one binding. |
+| 3 | Conflicting payload | HTTP 409 and preserved original. |
+| 4 | Concurrent requests | Two concurrent real HTTP calls; one creation and one replay. Not Supabase isolate equivalence. |
+| 5 | Two tabs | Two real Chrome tabs recover one persisted binding. |
+| 6 | Reload | Real browser reload retains capability and recovers original. |
+| 7 | Pre-commit connection loss | Proxy pre-dispatch loss and direct incomplete-body disconnect; native SQL interrupted-transaction coverage supplements this. Mid-business Edge/REST connection loss remains partial. |
+| 8 | Dropped acknowledgement | Actual committed Edge response discarded by proxy; same capability recovers original. |
+| 9 | Timeout/cancellation | Real lock timeout, two pool calls cancelled by SQL timer, reader disconnect and subsequent pool recovery. Arbitrary commit-boundary HTTP cancellation remains partial. |
+| 10 | Business rollback | Capacity refusal leaves no orphan request while earlier admission/key transactions persist. |
+| 11 | Expiry | Actual lease denial/reclamation plus HTTP 410 lookup/replay for a valid expired historical synthetic request; no replacement binding created. |
+| 12 | Unauthorized lookup | Actual anonymous/legacy RPC denial and generic unknown-capability lookup. |
+| 13 | Owner reconciliation | Actual service-only RPC, invalid actor refusal and active Owner confirmation/replay. Owner Auth -> Owner Edge is not included. |
+| 14 | Admission limits | Actual HTTP burst, minute, daily, key/lookup and eight-lease limits; native final-token/clock/race tests supplement this. Comprehensive load/cutover qualification remains partial. |
+| 15 | Financial uniqueness | Replayed Owner confirmation preserves one receipt and attendance. Existing native financial/audit guards also run. |
+
+Pool pressure is demonstrated, but a pool-acquisition timeout specifically depends
+on timer ordering (a queued request may succeed as a timed-out slot frees).
+Neither this behavior nor Deno process behavior certifies hosted pool/Edge limits.
+
+Remaining operational requirements: production scheduler and independent heartbeat,
+durable cross-restart alert delivery/deduplication and approved destination,
+cleanup-lag/outage policy, and real external delivery qualification. In-memory
+alert deduplication does not survive restart; no durable outbox is claimed.
+Runtime telemetry is best effort, not an independent availability monitor.
+Physical Android, hosted Auth/Edge/PostgREST acceptance, recovery/backup evidence
+and A02/A03/A04/A07 production gates remain pending. Production remains NO-GO.
+
+### Fresh Phase 6.1B.3C execution evidence and closing decision
+
+Final frozen source passed the complete guarded profile. The recorded harness
+SHA-256 was independently compared with the current file and matched. No source
+was changed during that final HTTP execution. Commands below actually ran on
+Windows with Node 24.21.0, Deno 2.9.8, PostgREST 16.6, Chrome and PG17.12/170012.
+
+| Command / evidence class | Fresh result |
+| --- | --- |
+| `npm.cmd run lint`, `npm.cmd run typecheck`, `npm.cmd run test:security` | PASS, exit 0; final checks repeated after harness changes. |
+| `npm.cmd test` | 45 passed, 0 failed/skipped; existing application/handler regressions. |
+| `npm.cmd run test:recovery-request` | 10 passed, 0 failed/skipped; actual reader/handler with synthetic fetch, not persisted integration. |
+| `npm.cmd run test:ingress-monitor` | 6 passed, 0 failed/skipped (five monitor cases plus malformed-target safety case). |
+| Cached Deno shared tests | 109 passed, 0 failed, exit 0. |
+| Cached Deno entrypoint/bootstrap checks | All 22 actual entrypoints and `scripts/recovery/serve-local-edge.ts`, exit 0. |
+| `npm.cmd run build` | PASS production/PWA, 9 static precaches / 611.30 KiB. Slow PWA callback warning (273s); exit 0. |
+| Six recovery Node files from earlier command table | 27 passed, 0 failed/skipped. |
+| `npm.cmd run test:dev` | 1 passed, 0 failed/skipped. |
+| `node scripts/test-browser.mjs` | PASS development CDP fixture suite, exit 0; synthetic Auth/API, separate from new integration. |
+| `node scripts/test-browser.mjs --production` | PASS production/PWA fixture suite, exit 0; Android emulation, not physical acceptance. |
+| `node scripts/recovery/validate-source.mjs` | PASS: original 75 inputs and separate additive/operational fingerprints, PG17/18 grammar. |
+| `node scripts/recovery/validate-hosted-package.mjs` | PASS original 30 diagnostic hashes/order/scope. |
+| `node docs/production-preflight/sql-editor/validate.cjs` | PASS original 16-file diagnostic package static validation. |
+| `npm.cmd run test:http` / equivalent direct PowerShell command | PASS final exit 0; real committed HTTP transactions, 15 numbered scoped scenarios, additional pool/body/operational checks and actual browser recovery. |
+| Native suite inside the HTTP command | PASS: 37 historical stages, 11 legacy refusals, two ownership rollback probes, ACL/default/inheritance screens, original nine races, two recovery races, six ingress SQL groups and strengthened ingress races. |
+| `git diff --check`, credential/artifact/source scope checks | PASS; no staging or original source/evidence drift. |
+
+The exact final HTTP invocation was:
+`powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-recovery-pg17.ps1 -CustomerCompatibility -IngressTest -HttpIntegration`.
+Deno used the cached commands documented in Phase 6.1B.1, with the bootstrap
+added to the typecheck list. No download or installation was performed.
+
+Final native/HTTP evidence:
+`.cache/security-test-20d8fa43670e4dbc8d9ae6fec9bbd7b8/`:
+`runtime.json`, `persisted-http.log`, `persisted-http-results.json` (15 distinct
+scenario IDs and source hash), native SQL/race logs. Summary:
+`.cache/phase61b3c-expiry-acceptance.log`.
+Browser fixture screenshots/logs:
+`.cache/browser-test-e0ad1a37-6e3b-4f2f-b2f7-c7ef815fbd1d` (development),
+`.cache/browser-test-5b5993e9-b054-4a3f-9a94-06d493ef8b92` (production).
+Other local command summaries use `.cache/phase61b3c-*.log`.
+
+Intermediate failures remain failures: the first attempt stopped during customer
+bootstrap; a later attempt hit the unchanged five-second connection timeout at a
+local audit screen. No SQL/security refusal was overridden. Sanitized bootstrap
+reporting was added, heavy checks were allowed to finish and later guarded runs
+succeeded. The precise cause of the first intermittent environment failure was
+not established. Failed runs are retained separately from final evidence.
+
+Cleanup was independently checked across all seven database attempts: no plaintext
+bootstrap password, passfile, actor-bootstrap SQL, PostgREST credential config,
+server PID or HTTP browser profile remained. Process inspection found zero
+matching batch processes. The two fixture-browser profiles were also removed;
+screenshots/logs and stopped synthetic database evidence remain ignored.
+The HTTP transport role/memberships and temporary sleep RPC were removed before
+PG shutdown. No production records, credentials or private evidence were used.
+
+Local acceptance classifications after these results:
+
+- PASS for the defined local HTTP scopes of 1-6, 8, 10-12 and 15.
+- PARTIAL for 7 (mid-business network-loss chain), 9 (arbitrary commit-boundary
+  cancellation), 13 (Owner Auth/Edge path),
+  and 14 (full stress/cutover/operational availability campaign).
+- Real public persisted integration is now demonstrated; it is no longer
+  BLOCKED by absent PostgREST. Hosted equivalence remains NOT VERIFIED.
+- Local operational cleanup/evaluation/deduplication/failure tests PASS. Durable
+  external alerting, independent heartbeat and production scheduling remain
+  NOT IMPLEMENTED / REQUIRES OWNER APPROVAL.
+
+Exact changed-file inventory for this batch, relative to 5283e35:
+
+Modified:
+`docs/GYMFORCE-PHASE-6-1B-INGRESS-IMPLEMENTATION.md`,
+`docs/GYMFORCE-DEVELOPMENT-PROGRESS.md`, `package.json`,
+`scripts/recovery/validate-source.mjs`, `scripts/test-database.ps1`,
+`scripts/test-recovery-pg17.ps1`.
+
+New:
+`scripts/recovery/ingress-monitor.mjs`,
+`scripts/recovery/serve-local-edge.ts`, `scripts/test-persisted-http.mjs`,
+`supabase/recovery/phase61b/003-local-operational-controls.sql`,
+`supabase/recovery/phase61b/operational-manifest.json`,
+`tests/ingress-monitor.test.mjs`, `tests/persisted-http-guard.test.mjs`.
+
+Six modified and seven new files. Application components, actual Edge handler,
+historical migrations, original compatibility artifacts and approved diagnostics
+are unchanged. No source credentials/private evidence/generated files staged.
+Local integration milestone: qualified for the explicit tested scope and Owner
+review, not complete release acceptance. Next batch: close the remaining Owner
+Auth/commit-boundary fault cases and separately decide durable operations
+and physical Android acceptance. A02 remains pending. Production NO-GO.
+
+Closing hardening: transport role creation and grants are one explicit transaction.
+A controlled missing-role grant probe confirms its role creation rolls back with
+no residual membership. The final frozen run includes this probe. Prior successful
+HTTP iterations remain retained separately, including
+`.cache/security-test-10bd22097a5a4b41a0730b1e151e9bab`; their source snapshots are
+not substituted for the final matching hash. Abrupt harness/OS termination and
+port-collision cleanup remain outside the fault cases qualified here.
+
+Expiry gap closed in the final run: a valid historical synthetic fee/request/
+replay binding was inserted without modifying existing snapshots or any financial
+or attendance record. Its expiry is exactly creation plus 15 minutes. The actual
+HTTP lookup and same-key create both returned 410, and no replacement binding
+was created. This is a historical fixture, not a claim that the test waited 15
+wall-clock minutes. Scenario 11 is now scoped local HTTP PASS. Prior successful
+atomic-authority run remains at `.cache/security-test-4eea3cf5676b404085837708a804d904`.
+
+
+## Batch 4 - Acceptance gap closure, 2026-11-20 (fresh local evidence)
+
+Checkpoint: master at 5283e35dcb64a72bbe96c89637f9167508401ffa. All 13
+pre-existing uncommitted Batch 3C files were preserved. No staging, commit,
+push, hosted connection, deployment, historical migration change or application
+source change occurred. A02 remains PENDING OWNER DECISION. Production NO-GO.
+
+### Implemented qualification and operational changes
+
+- scripts/recovery/qualify-http-faults.mjs installs guarded synthetic-only
+  invoker triggers, retaining every existing integrity trigger and RLS rule.
+  A BEFORE trigger pauses inside business processing; a deferred constraint
+  trigger pauses at COMMIT. A separate guarded administrator session observes
+  the owned transport backend waiting, then terminates that backend. All hooks
+  are removed in finally blocks on the successful campaign. No hook is a
+  deployment candidate or a historical migration edit.
+- Three public-request fault cases exercise mid-business disconnect, pre-commit
+  disconnect and statement timeout. Each checks actual binding counts, preserved
+  membership/ledger/attendance/audit snapshots, independently committed admission
+  charges, absence lookup, explicit retry and identical replay.
+- Two financial fault cases interrupt actual Owner confirmation mid-payment and
+  at deferred attendance commit. Protected receipt/allocation/event/attendance/
+  audit-head snapshots remain identical after rollback. The same operation's
+  actual RPC retry and replay leave exactly one payment and one attendance.
+- Dropped acknowledgement is injected only after receiving the actual committed
+  upstream response. The binding is independently counted, idle transport
+  connections are terminated, bounded health probes qualify reconnection, and
+  lookup returns the original request. This is an observed post-commit window,
+  not precision instrumentation of PostgreSQL's commit-record write or WAL fsync.
+- A second, synthetic one-slot PostgREST probe produces PGRST003 deterministically.
+  Only its test-only sleep RPC uses a 6s statement timer. Protected business RPCs
+  refuse that configuration with SQLSTATE 55000. The application pool retains
+  1s statement / 100ms lock timers; no business timeout was increased.
+- Two independent Deno processes load the unchanged actual Edge module. Shared
+  HTTP creation/replay races use one database. New real HTTP tests exercise
+  2047/2048-byte accepted bodies, 2049-byte refusal, malformed JSON/schema/header
+  charges, disallowed Origin and method denial, prior-day reset, backward-clock
+  refusal, 59/61s windows and simultaneous final-token binds. Seeded timestamps
+  are clock-relative fixtures, not a replaceable production clock.
+- scripts/recovery/durable-ingress-ops.mjs adds opt-in serialized cleanup ticks,
+  a disk-backed aggregate queue, fsynced temporary-file replacement, durable
+  acknowledgements, same-key delivery retries and separate worker/watchdog/sink
+  journals. No capabilities, tickets, IPs, request bodies or personal identifiers
+  enter these journals. Replay bindings and C1 retention are untouched.
+- The actual maintenance RPC -> scheduled worker -> durable queue -> real loopback
+  HTTP sink path passes. Restarted queues do not redeliver acknowledged alerts.
+  Four new Node tests also exercise HTTP failure, dropped delivery acknowledgement,
+  restarted sender/sink deduplication, an independent watchdog process, interrupted
+  worker lock, malformed state, stale temporary file, retention, backward clock,
+  destination restrictions and non-overlapping scheduler failure/recovery/stop.
+- HTTP result records now distinguish scoped-check PASS from scenario acceptance:
+  scenarios 13 and 14 explicitly remain PARTIAL. The harness and four helper
+  sources are hashed and rechecked before a successful result is written.
+
+### Fresh test evidence (all final commands exit 0)
+
+Final PG17 command:
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-recovery-pg17.ps1 -CustomerCompatibility -IngressTest -HttpIntegration
+
+Frozen final evidence: .cache/security-test-a898ce36e55c44799cba752fa39f9b70;
+summary .cache/batch4-pg17-final.log. Server is PostgreSQL 17.12 / 170012,
+PostgREST 16.6, Deno 2.9.8, Node 24.21.0, local Chrome 157. Synthetic records
+only, dynamically allocated loopback ports and guarded fresh-cluster runner.
+The harness raw-byte SHA-256 is
+027fe64a180ccd7fe449e73c374b52134c439fc6dc386b5ca63fca5ef0b3604c.
+Its four recorded helper hashes independently match the final working files.
+This hash identifies this executed working file; original repository integrity
+continues to use its explicitly defined Git-blob/LF contracts.
+
+| Fresh command/check | Actual result |
+| --- | --- |
+| npm.cmd run lint | PASS, exit 0 |
+| npm.cmd run typecheck | PASS, exit 0 |
+| npm.cmd run test:security | PASS, exit 0 |
+| npm.cmd test | 45 passed, 0 failed/skipped |
+| npm.cmd run test:recovery-request | 10 passed, 0 failed/skipped |
+| npm.cmd run test:ingress-monitor | 10 passed, 0 failed/skipped (4 new durable tests) |
+| node --test tests/recovery.test.mjs tests/recovery-sql.test.mjs tests/hosted-package.test.mjs tests/recovery-compatibility.test.mjs tests/recovery-integrity.test.mjs tests/recovery-tooling.test.mjs | 27 passed, 0 failed/skipped |
+| Installed Deno: test --cached-only --node-modules-dir=manual --allow-read=supabase/functions --allow-env=MEMBER_MOBILE_ENCRYPTION_KEY_B64,MEMBER_MOBILE_HMAC_KEY_B64 supabase/functions/_shared | 109 passed, 0 failed |
+| Installed Deno: check --cached-only --node-modules-dir=manual (all 22 index.ts paths plus scripts/recovery/serve-local-edge.ts) | 23 checks PASS |
+| npm.cmd run test:dev | 1 passed, 0 failed/skipped |
+| npm.cmd run build | PASS; PWA 9 precache entries, 611.30 KiB |
+| node scripts/test-browser.mjs | PASS; synthetic Auth/API development suite |
+| node scripts/test-browser.mjs --production | PASS; synthetic production/PWA suite, Android UA/touch emulation, static-only caches and offline/update restrictions |
+| node scripts/recovery/validate-source.mjs | PASS; original 75/75 HEAD blobs, historical SQL and separate candidate hashes; PG17/18 grammar |
+| node scripts/recovery/validate-hosted-package.mjs | PASS; original 30 diagnostic hashes/order/read-only static contracts |
+| node docs/production-preflight/sql-editor/validate.cjs | PASS; original 16 SQL-editor variants and hashes |
+| PG17 customer/ingress/HTTP command above | PASS; 37 migration stages, 11 real legacy refusals, 2 ownership rollback probes, ACL/default/inherited refusals, 9 original races, 2 recovery races, ingress clock/capacity/lease and contention tests |
+| git diff --check; changed-file sensitive-path/key/JWT scan | PASS; 16 candidate files, no matched credential patterns |
+
+The Deno binary is the existing WinGet installation; no package/software was
+installed. Node counted suites total 93 tests; Deno separately counts 109.
+Browser scripts and PG SQL groups are not added to those counts as invented
+individual assertions. Full hosted Auth/integration has not been run.
+
+Earlier evidence is not relabelled: four new fault-harness iterations failed
+before a complete run. Corrections included recognizing COMMIT-phase backend
+queries, separating statement-timeout injection from deferred COMMIT timing,
+and allowing explicit pool health qualification after deliberately severing
+idle connections. The prior successful iteration is retained at
+.cache/security-test-e2d0d94f040046aaa685bf76b126e61b. Final source/reporting and
+full durable sink wiring were rerun in the frozen final directory above.
+The early deferred-COMMIT sleep did not establish a COMMIT-duration bound; no
+such guarantee is claimed. An interim lint read during a validator rewrite
+failed parsing; frozen lint and node syntax validation subsequently passed.
+
+### Updated fifteen-scenario acceptance
+
+PASS below means the specified isolated local scope, never hosted acceptance.
+
+| # | Acceptance scenario | Current result and evidence |
+| --- | --- | --- |
+| 1 | First valid submission | PASS: real Edge/PostgREST commit and one binding |
+| 2 | Identical retry | PASS: same binding and original outcome |
+| 3 | Payload conflict | PASS: 409, original preserved |
+| 4 | Concurrent creation | PASS: two independent Deno handlers; one 201, one 200, one binding |
+| 5 | Two tabs | PASS: real Chrome tabs and persisted database recovery |
+| 6 | Reload | PASS: durable browser capability and same persisted outcome |
+| 7 | Loss before commit | PASS: pre-dispatch loss plus mid-business/pre-commit backend interruption; no binding, safe explicit retry |
+| 8 | Loss after commit | PASS: dropped acknowledgement and severed idle DB connection; observed committed binding recovered |
+| 9 | Timeout | PASS: statement/lock timeout, deterministic separate pool acquisition refusal and recovery; unqualified business timers refused |
+| 10 | Rollback | PASS: independent admission persists; public and financial state/audit preservation assertions |
+| 11 | Expired record | PASS: actual HTTP 410 for valid expired snapshot; no replacement or revival |
+| 12 | Unauthorized lookup | PASS: unknown capability, valid anon and ungated RPC denial; malformed/expired JWT rejection at real PostgREST |
+| 13 | Owner reconciliation | PARTIAL: actual Owner SQL RPC, non-Owner denial and preserved/replayed financial effects pass; real Auth -> Owner Edge chain unavailable |
+| 14 | All-attempt limits | PARTIAL: real HTTP representative limits/body boundaries, two Deno processes and native final-capacity/token/lease/ABA tests pass; exact live cutovers, full stress/fairness and provider-isolate campaign remain unverified |
+| 15 | Payment/attendance uniqueness | PASS: actual RPC replay after two financial interruption phases; one payment and one attendance, native races supplement |
+
+### Operational acceptance and remaining infrastructure
+
+Local delivery components PASS their exercised scopes. The scheduler defaults to
+60s, runs serially, reports sanitized failure and performs no automatic business
+retry. The local watchdog test treats a heartbeat older than two minute bins as
+stale; that is an explicit test/control proposal, not approved production policy.
+Separate watchdog locking detects a stale heartbeat even when the worker's lock
+remains after interruption. Journals expire aggregates at 2880 minutes and allow
+at most 14400 unique minute/category records per lane; input reads are capped at
+4 MiB. Disk write/lock/corruption failure refuses operation. No stale lock or
+partial temporary file is silently stolen/deleted. Owner-local recovery must
+inspect interrupted writes and reconcile sink acknowledgement keys before restart.
+File fsync plus rename is not claimed to prove Windows power-loss durability.
+
+Production still needs separately approved supervised worker/watchdog scheduling,
+protected storage/ACLs and capacity, a genuinely independent failure detector,
+qualified alert destination and reviewer, transport credentials/TLS, receiver
+idempotency, heartbeat thresholds, delivery/retry/backoff/retention/privacy policy,
+backup/restore and process-restart/power-loss qualification. Source has no external
+alert credentials and configures no Windows service, scheduler or firewall rule.
+Two Deno processes are not a Supabase multi-isolate or provider cleanup guarantee.
+
+Read-only local inventory found no usable GoTrue/Auth server in the known installed
+components or command paths. The Supabase client SDK and synthetic auth schema
+are not an authentication service. Initial release remains Owner-only; no staff
+account or new staff authority was introduced. Auth acquisition/provisioning is
+outside this batch and requires separate authorization; scenario 13 stays PARTIAL.
+
+### Exact working-tree inventory and cleanup
+
+Six modified tracked files relative to HEAD:
+
+- docs/GYMFORCE-DEVELOPMENT-PROGRESS.md
+- docs/GYMFORCE-PHASE-6-1B-INGRESS-IMPLEMENTATION.md
+- package.json
+- scripts/recovery/validate-source.mjs
+- scripts/test-database.ps1
+- scripts/test-recovery-pg17.ps1
+
+Ten untracked project source/test files:
+
+- scripts/recovery/durable-ingress-ops.mjs (new Batch 4)
+- scripts/recovery/qualify-http-faults.mjs (new Batch 4)
+- tests/durable-ingress-ops.test.mjs (new Batch 4)
+- scripts/recovery/ingress-monitor.mjs
+- scripts/recovery/serve-local-edge.ts
+- scripts/test-persisted-http.mjs
+- supabase/recovery/phase61b/003-local-operational-controls.sql
+- supabase/recovery/phase61b/operational-manifest.json
+- tests/ingress-monitor.test.mjs
+- tests/persisted-http-guard.test.mjs
+
+Of the original 13, this batch updated the two reports, package test command,
+validator, database harness (extra probe credential cleanup), HTTP harness and
+local operational manifest. The wrapper, original monitor/bootstrap, candidate
+003 SQL and two original monitor/guard tests were preserved without Batch 4 edits.
+Only the unapproved local operational manifest gained the new helper fingerprints;
+no historical or approved diagnostic fingerprints were changed.
+
+Independent cleanup checked all six Batch 4 database attempts: zero plaintext
+bootstrap/passfile/actor files, PostgREST credential configs, server PID files or
+HTTP Chrome profiles remained; zero matching batch runtime processes remained.
+Only the two verified fixture Chrome profiles were subsequently removed, retaining
+screenshots/logs. Stopped synthetic databases, sanitized journals, screenshots and
+dist output remain ignored. Existing PostgreSQL 18 and user browser data were not
+modified. Index remains empty; HEAD remains 5283e35. Git's existing CRLF checkout
+warnings are not new content changes; diff --check passes.
+
+Local decision: PASS for the recorded component qualification, PARTIAL overall
+acceptance. No new application defect was established by the final fault campaign;
+the corrected failures were in test coordination/reporting. Production stays
+NO-GO: A02 pending, hosted authority/ACL/legacy/drift/recovery gates unverified,
+real Owner Auth integration absent, full load/cutover and physical Android
+acceptance outstanding. Next milestone: separately authorize and qualify an
+existing-compatible local Auth integration dependency, then exercise the actual
+Owner Auth -> Edge -> PostgREST chain while preserving these frozen fault tests.
+
+
+## Batch 5 - Auth discovery and local acceptance readiness, 2026-11-20
+
+Preserved all 16 candidates, added only the deterministic SQL fixture and
+GYMFORCE-BATCH-5-AUTH-READINESS.md (18 files total). No application/Edge handler,
+historical migration, approved diagnostic or production change. Index empty;
+master HEAD remains 5283e35. No Auth installation or startup occurred.
+
+Fresh final PG17 evidence: .cache/security-test-3c52a2085b5446188aade9f8e2b2344e,
+summary .cache/batch5-pg17-qualified.log. Exact clock-copy cases pass: UTC midnight,
+10/60 inclusive window edges, fractional refill, rollback/forward time, exact
+15s lease expiry and stale generations. Copies preserve original bodies except
+names/clock, retain restricted executor/RLS/runtime checks, deny service/browser
+execution and are fully rolled back. They are not live clock or hosted proof.
+
+Two-process real HTTP load: eight concurrent hot-key lookups -> 2 allowed 404 /
+6 rate-limited / 0 unavailable. Three waves of eight rotating keys -> 24 charges
+in 1 second, 20 allowed 404 / 4 rate-limited / 0 unavailable, no business bindings.
+Existing 37-stage/legacy/ACL/fault/concurrency suite passes. A rerun exposed the
+old observer's missing startup/snapshot synchronization; guarded readiness plus
+pg_stat_clear_snapshot now make its polling explicit. Timeouts unchanged.
+
+Fresh final regressions: 93 counted Node tests, 109 Deno, 23 Edge/bootstrap checks,
+lint/typecheck/security/build, Vite, both browser/PWA suites and all source/diagnostic
+integrity checks PASS. Three earlier test-coordination/fixture iterations remain
+failures in separate logs. Four database attempts and two browser profiles have
+verified cleanup. Full commands, inventory and limitations are in the Batch 5 report.
+
+No real native Auth/Go toolchain was found in inspected locations. The id-only
+Auth shim cannot host GoTrue; a real schema, narrowly scoped identity, gateway
+route and Owner adapter need separate approval. Official v2.198.0 inspected assets
+have no Windows-labelled binary; source-build feasibility remains unverified.
+Prepared nine actual-Auth acceptance cases without fabricating Auth evidence.
+15-scenario status: 13 scoped PASS / 2 PARTIAL (13 and 14). A02 pending; production
+NO-GO. Next approval is a pinned portable Auth acquisition/build qualification,
+not service startup or SQL authorization.

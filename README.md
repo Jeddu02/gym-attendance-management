@@ -9,6 +9,12 @@ Development is in progress. See [the progress tracker](docs/GYMFORCE-DEVELOPMENT
 for verified behavior and remaining release gates. No hosted deployment or live
 data access is implied by local tests. Follow [AGENTS.md](AGENTS.md).
 
+For the November 23 audit, complete file inventory, proposed Git checkpoint and
+Codespaces setup, see [the migration handover](docs/GYMFORCE-CODESPACES-HANDOVER.md).
+Codespaces runtime readiness is **UNVERIFIED**; A02 is pending and production is
+**NO-GO**. The prepared container installs frontend dependencies only; it does not
+start Supabase, PostgreSQL, Auth or any migration.
+
 ## Local development
 
 Use Node.js and npm (`npm.cmd` on Windows PowerShell).

@@ -5,10 +5,12 @@ param(
     [switch] $CustomerCompatibility,
     [switch] $PublicRecoveryTest,
     [switch] $IngressTest,
+    [switch] $HttpIntegration,
     [ValidateSet('AfterCredential','BeforeInitdb','InitdbFailure','AfterInitdb','AfterStart')]
     [string] $FaultPoint
 )
 $ErrorActionPreference = 'Stop'
+if ($HttpIntegration -and -not ($IngressTest -and $CustomerCompatibility)) { throw 'HTTP tests require explicit customer/ingress profile.' }
 
 # This runner creates a NEW synthetic cluster under the ignored workspace cache.
 # It never connects to the preserved native harness or a hosted database.
@@ -348,7 +350,10 @@ try {
         [IO.File]::WriteAllText($actorBootstrapPath,"CREATE ROLE postgres LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD '$customerPassword';",[Text.UTF8Encoding]::new($false))
         $customerPassword = $null
         $customerCreated = Invoke-NativeTool $psql @('-X','-w','-v','ON_ERROR_STOP=1','-d',$maintenanceConnection,'-f',$actorBootstrapPath)
-        if ($customerCreated.ExitCode -ne 0) { throw 'Synthetic customer bootstrap failed.' }
+        if ($customerCreated.ExitCode -ne 0) {
+            $customerCreated.Output | ForEach-Object { Write-Output (("$_") -replace '[a-fA-F0-9]{64}','[SYNTHETIC-SECRET-REDACTED]') }
+            throw 'Synthetic customer bootstrap failed.'
+        }
         Remove-Item -LiteralPath $actorBootstrapPath
         $created = Invoke-NativeTool (Join-Path $PostgresBin 'createdb.exe') @('-w', "--maintenance-db=$maintenanceConnection", '-O','postgres', $database)
     } else { $created = Invoke-NativeTool (Join-Path $PostgresBin 'createdb.exe') @('-w', "--maintenance-db=$maintenanceConnection", $database) }
@@ -593,11 +598,19 @@ try {
         [IO.File]::WriteAllText($shadowCandidate, $shadowPrefix + [IO.File]::ReadAllText((Join-Path $repoRoot 'supabase/recovery/phase61b/002-public-ingress.sql')))
         Invoke-TestSqlFile $shadowCandidate
         Invoke-TestSqlFile (Join-Path $repoRoot 'supabase/tests/public_walkin_ingress.sql')
+        Invoke-TestSqlFile (Join-Path $repoRoot 'supabase/tests/public_walkin_clock_boundaries.sql')
+        if ($HttpIntegration) { Invoke-TestSqlFile (Join-Path $repoRoot 'supabase/recovery/phase61b/003-local-operational-controls.sql') }
         try {
             $env:GYMFORCE_TEST_RUN_ID=$runId
             $env:GYMFORCE_TEST_PSQL=$psql
             $env:GYMFORCE_TEST_CONNECTION=$connection
             $env:GYMFORCE_TEST_DATA_DIRECTORY=$dataRoot
+            if ($HttpIntegration) {
+                $httpResult=Invoke-NativeTool (Get-Command node.exe).Source @((Join-Path $repoRoot 'scripts/test-persisted-http.mjs'),'--compatibility-fixture')
+                $httpResult.Output | Set-Content -LiteralPath (Join-Path $runRoot 'persisted-http.log')
+                $httpResult.Output | ForEach-Object { Write-Output $_ }
+                if ($httpResult.ExitCode -ne 0) { throw 'Persisted HTTP integration failed.' }
+            }
             $ingressArgs=@((Join-Path $repoRoot 'scripts/test-db-concurrency.mjs'),'--ingress')
             if ($CustomerCompatibility) { $ingressArgs += '--compatibility-fixture' }
             $ingressResult=Invoke-NativeTool (Get-Command node.exe).Source $ingressArgs
@@ -621,7 +634,7 @@ try {
             else { Write-Output 'PASS: synthetic PostgreSQL stopped.' }
         }
     } finally {
-        foreach ($credentialFile in @($passwordPath, $passfilePath, $actorBootstrapPath)) {
+        foreach ($credentialFile in @($passwordPath, $passfilePath, $actorBootstrapPath, (Join-Path $runRoot 'http-postgrest.conf'), (Join-Path $runRoot 'http-pool-probe.conf'))) {
             try { if (Test-Path -LiteralPath $credentialFile) { Remove-Item -LiteralPath $credentialFile } }
             catch { $testExit=1; Write-Output 'FAIL: synthetic credential removal failed; restricted file retained for Owner-local cleanup.' }
         }

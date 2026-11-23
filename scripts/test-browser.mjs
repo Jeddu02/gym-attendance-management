@@ -2,14 +2,17 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdir, readFile, writeFile, access } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { resolve, isAbsolute } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
 const root = resolve(import.meta.dirname, '..');
 const run = resolve(root, '.cache', `browser-test-${randomUUID()}`);
 await mkdir(run, { recursive: true });
-const browserPath = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+const browserPath = process.env.CHROME_PATH ?? (process.platform === 'win32'
+  ? 'C:/Program Files/Google/Chrome/Application/chrome.exe'
+  : '/usr/bin/chromium');
+if (!isAbsolute(browserPath)) throw Error('CHROME_PATH must be an absolute executable path');
 await access(browserPath);
 const reservation = createServer();
 await new Promise((done) => reservation.listen(0, '127.0.0.1', done));

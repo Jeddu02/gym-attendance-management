@@ -505,3 +505,116 @@ Current candidate set remains 14 files (eight tracked modifications, six new),
 index empty, HEAD unchanged. No staging, commit, push or deployment. Next:
 Owner review, then separately authorized persisted HTTP and operational-control
 qualification. Production remains NO-GO.
+
+## Phase 6.1B.3C — real local HTTP and operational controls, 2026-11-20
+
+Starting clean at `5283e35dcb64a72bbe96c89637f9167508401ffa` on master, the
+Owner-authorized batch added a guarded persisted HTTP harness and local-only
+operational candidate. Actual Chrome -> unchanged recovery Edge module in Deno
+-> PostgREST 16.6 -> synthetic PG17.12 now commits real transactions. The bootstrap
+only binds the actual module to loopback; it does not mock responses. A dedicated
+non-inheriting transport role/JWTs are scoped to the synthetic run and cleaned up.
+PostgREST uses only the previously qualified PG17 DLLs through its child PATH.
+
+New service-only maintenance RPC preserves existing FORCE RLS and bounded grants,
+cleans idle aggregate bins/unlocked expired leases and returns only counters.
+A disabled-by-default monitor provides aggregate threshold detection, acknowledged
+alert deduplication, 48h bounded in-memory retention and sanitized cleanup failure
+handling. An explicit local tick adapter is tested; no external alert destination,
+production schedule or independent heartbeat was installed.
+
+Fresh final verification: lint/typecheck/security/build PASS; application Node
+45/45, recovery/reader 10/10, operational/guard 6/6, recovery/integrity 27/27;
+Deno 109/109, all 22 entrypoints plus bootstrap typechecked; Vite 1/1;
+development/production browser fixture suites PASS. Frozen guarded PG17 profile
+PASS including original security/legacy/race suites and 15 numbered persisted
+HTTP scopes. Additional real tests cover pool SQL cancellation/recovery,
+interrupted request bodies, idle/locked-lease cleanup and cleanup rollback.
+
+Evidence: `.cache/security-test-20d8fa43670e4dbc8d9ae6fec9bbd7b8` and
+`.cache/phase61b3c-expiry-acceptance.log`. Runtime reports 17.12 / 170012. Recorded
+harness source hash matches the final file. Failed bootstrap/connection-timeout
+attempts remain separately documented. All seven attempt directories have no
+credential config/passfiles/server PID/HTTP browser profiles; matching process
+inspection found zero batch processes. Fixture browser profiles were removed.
+
+Public persisted HTTP availability is locally demonstrated, but cases 7, 9,
+13 and 14 retain qualification gaps (mid-business network loss, arbitrary commit
+boundary, Owner Auth/Edge and complete load/operational campaigns).
+No mock or native-only result is represented as complete integrated acceptance.
+External/durable alert delivery, production scheduling, physical Android and all
+hosted recovery gates remain pending. New operational DDL still uses the
+synthetic bootstrap administrator; A02 hosted authority is not resolved.
+
+Thirteen changed files: six modified and seven new, listed in the implementation
+report. Historical migrations, approved diagnostic evidence and application
+runtime source remain unchanged. No staging, commit, push, hosted SQL or deploy.
+Next: targeted Auth/commit-boundary fault qualification and Owner decisions on durable
+operations. A02 pending. Production remains NO-GO.
+
+
+## Batch 4 - Acceptance gap closure, 2026-11-20
+
+Continued master at 5283e35; preserved all 13 Batch 3C files. Added three local
+qualification/operational files (16 candidate files total). No application/Edge
+handler, historical migration, approved diagnostic or business-rule change.
+No stage/commit/push, installation, hosted connection or deployment occurred.
+
+Fresh frozen PG17.12 evidence:
+.cache/security-test-a898ce36e55c44799cba752fa39f9b70,
+summary .cache/batch4-pg17-final.log. Real loopback Deno/PostgREST/PG17 tests now
+cover mid-business/pre-commit backend termination, dropped committed response,
+statement/lock timeout, deterministic separate pool acquisition exhaustion,
+financial/audit rollback and safe confirmation replay. Two Deno processes and
+actual HTTP body/clock-relative/final-token cases supplement native contention.
+
+Implemented bounded durable aggregate queues, restart/sink deduplication,
+serialized scheduled cleanup, local HTTP delivery and separate watchdog journal.
+Worker-lock interruption does not hide stale heartbeat. These are synthetic
+local operational controls; production scheduling/delivery remains unapproved.
+
+Final checks: lint/typecheck/security/build/integrity PASS; Node 45 + request 10 +
+monitor/guard 10 + recovery 27 + Vite 1 (93 total, zero failed/skipped), Deno 109,
+23 Edge/bootstrap checks, development and production/PWA browser suites PASS.
+PG17 exercised 37 stages, 11 legacy refusals, 2 authority rollback probes,
+9 original races, 2 recovery races and ingress contention/security cases.
+Earlier failed harness iterations remain recorded separately in the implementation
+report. Six database-attempt cleanups and owned-process absence were verified;
+synthetic browser profiles were removed. No PostgreSQL 18 changes.
+
+The 15-scenario matrix is now 13 scoped local PASS / 2 PARTIAL (13 Owner Auth,
+14 comprehensive limits/cutovers/provider campaign). Structured HTTP evidence
+explicitly records both partials. No usable real local Auth server was found;
+locally signed gateway JWT tests and Owner SQL checks are not GoTrue acceptance.
+See the Batch 4 section of GYMFORCE-PHASE-6-1B-INGRESS-IMPLEMENTATION.md for exact
+commands, changed-file inventory, fault evidence, operational limitations and
+remaining approvals. Next: authorize/qualify the local Auth dependency for the
+real Owner Auth -> Edge integration. A02 remains PENDING OWNER DECISION.
+Local component qualification PASS; complete acceptance PARTIAL; production NO-GO.
+
+
+## Batch 5 - Auth and local acceptance readiness, 2026-11-20
+
+Preserved 16 candidates; added a transaction-rolled-back PG17 deterministic clock
+fixture and docs/GYMFORCE-BATCH-5-AUTH-READINESS.md (18 candidates). No application,
+Edge handler, historical migration or approved diagnostic change; no commit/push.
+Native GoTrue and Go were not found in inspected paths/processes; SDK/SQL shims
+are not real Auth. Actual Owner login/refresh/Edge integration remains BLOCKED.
+A complete nine-case real-Auth plan and bounded acquisition approval request are
+in the Batch 5 report. No Auth runtime was acquired or started.
+
+Fresh PG17 evidence .cache/security-test-3c52a2085b5446188aade9f8e2b2344e passes
+exact copied-body midnight/window/refill/lease/clock cases and existing security,
+rollback and concurrency tests. Two-process actual HTTP observed hot-key 2 allowed /
+6 denied and rotating-key 20 allowed / 4 denied out of 24 attempts in 1 second,
+no unavailable responses or new business bindings. The fault-observer race was
+corrected with readiness and activity-snapshot refresh, without timer changes.
+
+Fresh final checks PASS: 93 counted Node tests, Deno 109, 23 Edge/bootstrap checks,
+lint/typecheck/security/build/Vite, development and production/PWA browser suites,
+and original/candidate/diagnostic integrity. Four PG attempt cleanups and synthetic
+browser profile cleanup verified. Earlier failed fixture/observer iterations are
+retained separately, not reported as passes. 15 scenarios remain 13 scoped PASS /
+2 PARTIAL: real Owner Auth and broader limits/operational/hosted qualification.
+Next: Owner decision on pinned portable Auth acquisition/build qualification;
+startup and Auth schema changes require separate approval. A02 pending. NO-GO.

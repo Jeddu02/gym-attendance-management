@@ -33,6 +33,10 @@ try {
   const ingressFiles=['supabase/functions/public-walkin-recovery/index.ts','supabase/functions/_shared/walkin-ingress.ts','supabase/recovery/phase61b/002-public-ingress.sql'];
   if(ingress.canonical!=='UTF-8 LF'||JSON.stringify(ingress.files.map(r=>r.file).sort())!==JSON.stringify(ingressFiles.sort()))throw new Error('Ingress inventory drift');
   for(const row of ingress.files)if(createHash('sha256').update(readFileSync(new URL(row.file,root),'utf8').replaceAll('\r\n','\n')).digest('hex')!==row.sha256)throw new Error('Ingress source drift');
+  const operational=JSON.parse(readFileSync(new URL('supabase/recovery/phase61b/operational-manifest.json',root),'utf8'));
+  const operationalFiles=["supabase/recovery/phase61b/003-local-operational-controls.sql","scripts/recovery/ingress-monitor.mjs","scripts/recovery/serve-local-edge.ts","scripts/recovery/durable-ingress-ops.mjs","scripts/recovery/qualify-http-faults.mjs","supabase/tests/public_walkin_clock_boundaries.sql"];
+  if(operational.canonical!=='UTF-8 LF'||JSON.stringify(operational.files.map(r=>r.file).sort())!==JSON.stringify(operationalFiles.sort()))throw new Error('Operational inventory drift');
+  for(const row of operational.files)if(createHash('sha256').update(readFileSync(new URL(row.file,root),'utf8').replaceAll('\r\n','\n')).digest('hex')!==row.sha256)throw new Error('Operational source drift');
   if (JSON.stringify(entries) !== JSON.stringify([...manifest.edgeEntrypoints.map(x => x.file),'supabase/functions/public-walkin-recovery/index.ts'].sort())) throw new Error('Endpoint directory drift');
   for (const major of [17, 18]) {
     const parser = require('./parser.cjs')(major);
@@ -46,6 +50,8 @@ try {
     }
     parser.parseSync(readFileSync(new URL('supabase/recovery/phase61/001-public-walkin-recovery.sql',root),'utf8'));
     parser.parseSync(readFileSync(new URL('supabase/recovery/phase61b/002-public-ingress.sql',root),'utf8'));
+    parser.parseSync(readFileSync(new URL('supabase/recovery/phase61b/003-local-operational-controls.sql',root),'utf8'));
+    parser.parseSync(readFileSync(new URL('supabase/tests/public_walkin_clock_boundaries.sql',root),'utf8').split('\n').filter(line=>!line.trimStart().startsWith('\\')).join('\n'));
     console.log(`PASS PG${major} grammar: 37 migration files, ${statements} top-level statements, two proposals. Bodies require runtime tests.`);
   }
   console.log('PASS: separate Phase 6.1 LF-canonical additive fingerprints and PG17/18 grammar; original manifests unchanged.');

@@ -1,0 +1,30 @@
+{
+  "canonical": "UTF-8 LF",
+  "scope": "Phase 6.1B local operational and Batch 4/5 synthetic qualification candidates; no hosted scheduler or destination approval",
+  "files": [
+    {
+      "file": "supabase/recovery/phase61b/003-local-operational-controls.sql",
+      "sha256": "9d2f0a2a753ab07d323fe4092380e8587915e6f99bd76ba689c7df980e53b129"
+    },
+    {
+      "file": "scripts/recovery/ingress-monitor.mjs",
+      "sha256": "46b5966293b202cd666a2a8a25ec0457e8913268af1d37f7b9c4e164b0e7760a"
+    },
+    {
+      "file": "scripts/recovery/serve-local-edge.ts",
+      "sha256": "c63e0c66739e683212c4b8024a4a23189c002cec6a74fcb8c86697ef3417b34a"
+    },
+    {
+      "file": "scripts/recovery/durable-ingress-ops.mjs",
+      "sha256": "d04cf5c29435b08454d218fb0c154fb0ce7382d361af53ef0653f4f21484fdfe"
+    },
+    {
+      "file": "scripts/recovery/qualify-http-faults.mjs",
+      "sha256": "7b5cabd2ce30df93dfbd1eb7d678c3f1578b4fc5ce6c8e478c180d849d84ee81"
+    },
+    {
+      "file": "supabase/tests/public_walkin_clock_boundaries.sql",
+      "sha256": "6e1886939f5be99c038a7bc5d6303d396ac6a399e263f24404ef499742967f04"
+    }
+  ]
+}

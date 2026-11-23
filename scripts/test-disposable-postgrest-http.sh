@@ -6,27 +6,26 @@ cd "$(dirname "$0")/.."
 [[ -z "${DATABASE_URL:-}${SUPABASE_DB_URL:-}${PGHOST:-}${PGHOSTADDR:-}${PGSERVICE:-}${PGDATABASE:-}${PGUSER:-}${PGPORT:-}${SUPABASE_URL:-}${SUPABASE_SERVICE_ROLE_KEY:-}${SUPABASE_JWT_SECRET:-}${PGRST_DB_URI:-}${PGRST_JWT_SECRET:-}" ]] || { echo 'BLOCKED: inherited database or service credentials'; exit 2; }
 binary="$(pwd -P)/.cache/gymforce-postgrest/postgrest"
 [[ -x "$binary" && ! -L "$binary" ]] || { echo 'BLOCKED: verified local PostgREST binary missing'; exit 2; }
-command -v sudo >/dev/null && command -v curl >/dev/null && command -v node >/dev/null || { echo 'BLOCKED: required local tools missing'; exit 2; }
+command -v curl >/dev/null && command -v node >/dev/null || { echo 'BLOCKED: required local tools missing'; exit 2; }
 pgbin=/usr/lib/postgresql/17/bin
 [[ -x "$pgbin/initdb" && -x "$pgbin/pg_ctl" ]] || { echo 'BLOCKED: PG17 tools missing'; exit 2; }
 work="$(mktemp -d /tmp/gymforce-http-fixture.XXXXXXXX)"
-chmod 755 "$work"
+chmod 700 "$work"
 pgport=55449
 httpport=18749
 pgpid=''
 http_pid=''
 cleanup(){
   if [[ -n "$http_pid" ]]; then kill "$http_pid" 2>/dev/null || true; wait "$http_pid" 2>/dev/null || true; fi
-  if [[ -n "$pgpid" ]]; then sudo -n -u postgres "$pgbin/pg_ctl" -D "$work/data" -m immediate -w stop >/dev/null 2>&1 || true; fi
-  sudo -n rm -rf -- "$work"
+  if [[ -n "$pgpid" ]]; then "$pgbin/pg_ctl" -D "$work/data" -m immediate -w stop >/dev/null 2>&1 || true; fi
+  rm -rf -- "$work"
 }
 trap cleanup EXIT
-sudo -n chown postgres:postgres "$work"
-sudo -n -u postgres "$pgbin/initdb" -D "$work/data" --auth-local=trust --auth-host=trust --no-instructions >/dev/null
-# Isolated listener, fixed local-only ports. Fail if ports occupied.
+"$pgbin/initdb" -D "$work/data" --auth-local=trust --auth-host=trust --no-instructions >/dev/null
+# Isolated unprivileged cluster and loopback-only listener; fail if ports occupied.
 sudo -n -u postgres "$pgbin/pg_ctl" -D "$work/data" -o "-c listen_addresses=127.0.0.1 -p $pgport -c unix_socket_directories=$work" -w start >/dev/null
 pgpid=started
-psql=(sudo -n -u postgres "$pgbin/psql" -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -p "$pgport" -U postgres -d postgres)
+psql=("$pgbin/psql" -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -p "$pgport" -U "$(id -un)" -d postgres)
 "${psql[@]}" >/dev/null <<'SQL'
 CREATE ROLE anon NOLOGIN;
 CREATE ROLE authenticated NOLOGIN;

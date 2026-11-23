@@ -87,8 +87,13 @@ const functions=['prepare_member_checkin','commit_member_checkin','reserve_membe
 for(const fn of functions){
  for(const [role,token] of [['anon',null],['authenticated',jwt('authenticated')]]){
   const res=await fetch(base+'/rpc/'+fn,{method:'POST',headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},body:'{}'});
-  assert.ok([401,403].includes(res.status),fn+' '+role+' unexpectedly returned '+res.status+' '+(await res.text()).slice(0,250));
-  console.log('PASS: '+fn+' '+role+' denied ('+res.status+')');
+  const body=await res.text();
+  let parsed; try { parsed=JSON.parse(body); } catch { parsed=null; }
+  // A non-executable RPC may be absent from the role's schema cache, yielding PGRST202.
+  // Do not treat an arbitrary 404 as proof of authorization denial.
+  const rejected=[401,403].includes(res.status) || (res.status===404 && parsed?.code==='PGRST202');
+  assert.ok(rejected,fn+' '+role+' unexpected HTTP '+res.status+' '+body.slice(0,250));
+  console.log('PASS: '+fn+' '+role+' cannot invoke RPC ('+res.status+(parsed?.code?'/'+parsed.code:'')+')');
  }
  // Missing required arguments must fail before any RPC executes; 404/400 indicates schema visibility.
  const res=await fetch(base+'/rpc/'+fn,{method:'POST',headers:{Authorization:'Bearer '+jwt('service_role'),'Content-Type':'application/json'},body:'{}'});
@@ -104,7 +109,7 @@ for(const fn of functions){
 const invalid=await fetch(base+'/rpc/commit_member_checkin',{method:'POST',headers:{Authorization:'Bearer not-a-jwt','Content-Type':'application/json'},body:'{}'});
 assert.equal(invalid.status,401,'invalid JWT');
 console.log('PASS: invalid JWT rejected (401)');
-console.log('PASS: 22 migration-backed HTTP request checks (14 access denials, 7 signature checks, 1 invalid JWT)');
+console.log('PASS: 22 migration-backed HTTP request checks (14 non-invocable RPC requests, 7 signature checks, 1 invalid JWT)');
 NODE
-echo 'PASS: disposable migration-backed HTTP denial and signature checks; no source or production changes.'
+echo 'PASS: disposable migration-backed HTTP non-invocation and signature checks; no source or production changes.'
 echo 'NOT VERIFIED: service-role execution of migrated RPCs with valid arguments, Supabase Auth, full payment/check-in workflows, or production.'

@@ -11,7 +11,9 @@ psql=(sudo -n /usr/sbin/runuser -u postgres -- /usr/bin/env -u PGHOST -u PGHOSTA
 identity="$("${psql[@]}" -At -c "select current_database() || '|' || current_user || '|' || current_setting('data_directory') || '|' || current_setting('listen_addresses') || '|' || current_setting('server_version_num')")"
 [[ "$identity" == "gymforce_integration_test|postgres|$root/data||170012" ]] || { echo "BLOCKED: synthetic identity mismatch"; exit 2; }
 echo "=== All application routine hashes and metadata ==="
-"${psql[@]}" -F ' | ' -At -c "BEGIN READ ONLY; SELECT p.oid::regprocedure,md5(p.prosrc),pg_get_userbyid(p.proowner),p.prosecdef,p.proconfig FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('private','api') ORDER BY p.oid::regprocedure::text; ROLLBACK;"
+rows="$("${psql[@]}" -F ' | ' -At -c "SELECT p.oid::regprocedure,md5(p.prosrc),pg_get_userbyid(p.proowner),p.prosecdef,p.proconfig FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('private','api') ORDER BY p.oid::regprocedure::text")"
+[[ -n "$rows" ]] || { echo "BLOCKED: no application routine records returned"; exit 2; }
+printf '%s\n' "$rows"
 echo "=== Source definitions containing append_audit_event ==="
-rg -n -i 'create or replace function api\\.append_audit_event|create function api\\.append_audit_event|7a05ca54592137c75b9adda7023516a8' supabase/migrations || true
+grep -RniE 'create[[:space:]]+(or[[:space:]]+replace[[:space:]]+)?function[[:space:]]+api[.]append_audit_event|7a05ca54592137c75b9adda7023516a8' supabase/migrations || true
 echo "PASS: forensic inventory completed; no modifications"

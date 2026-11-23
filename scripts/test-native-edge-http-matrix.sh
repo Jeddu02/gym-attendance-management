@@ -21,7 +21,7 @@ check() {
 start() {
  local name="$1"
  : > "$log"
- APP_ORIGIN="$origin" DENO_SERVE_PORT="$port" "${deno_cmd[@]}" run --no-check --allow-net=0.0.0.0:18743,127.0.0.1 --allow-env=APP_ORIGIN,DENO_SERVE_PORT --allow-read "supabase/functions/$name/index.ts" >"$log" 2>&1 &
+ APP_ORIGIN="$origin" GYMFORCE_HTTP_TEST_PORT="$port" "${deno_cmd[@]}" run --no-check --allow-net=0.0.0.0:18743,127.0.0.1 --allow-env=APP_ORIGIN,GYMFORCE_HTTP_TEST_PORT --allow-read "supabase/functions/$name/index.ts" >"$log" 2>&1 &
  pid=$!
  local ready=0
  for _ in $(seq 1 45); do

@@ -56,11 +56,19 @@ BEGIN
  SELECT count(*) INTO count_after FROM private.attendance_checkins WHERE member_id=member AND attendance_status='valid';
  IF response->>'accepted'<>'true' OR count_after<>count_before+1 THEN RAISE EXCEPTION 'Check-in replay not idempotent: %',response; END IF;
  RAISE NOTICE 'PASS: same-day check-in replay is idempotent';
- IF NOT EXISTS(SELECT 1 FROM private.audit_events WHERE subject_id=member::text AND event_type LIKE '%checkin%') THEN
-  RAISE NOTICE 'CHECK: check-in audit event naming requires inspection';
- ELSE
-  RAISE NOTICE 'PASS: member check-in audit event exists';
+ IF NOT EXISTS(
+  SELECT 1 FROM private.audit_events audit
+  JOIN private.attendance_checkins attendance ON audit.subject_id=attendance.id::text
+  WHERE attendance.member_id=member
+    AND attendance.attendance_status='valid'
+    AND audit.event_type='member.checked_in'
+    AND audit.subject_type='attendance'
+    AND audit.details->>'member_id'=member::text
+    AND audit.details->>'membership_purchase_id'=purchase::text
+ ) THEN
+  RAISE EXCEPTION 'FAIL: matching member.checked_in audit event missing';
  END IF;
+ RAISE NOTICE 'PASS: member check-in audit event links to attendance, member, and paid purchase';
 END $fixture$;
 ROLLBACK;
 SQL

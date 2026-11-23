@@ -16,6 +16,7 @@ steps=(
  'bash scripts/test-isolated-postgrest-role-authorization.sh'
  'bash scripts/rehearse-disposable-postgrest-role.sh'
  'bash scripts/test-native-edge-http-matrix.sh'
+ 'bash scripts/test-disposable-postgrest-http.sh'
 )
 total=${#steps[@]}
 echo "=== GYMFORCE consolidated regression: $total stages ==="
@@ -30,5 +31,6 @@ for i in "${!steps[@]}"; do
   echo "PASS: stage $((i+1))/$total)"
 done
 echo "PASS: $total/$total local regression stages completed."
-echo 'UNVERIFIED: PostgREST real JWT HTTP behavior, real Supabase Auth sessions, full payment HTTP integration, production migrations and deployments.'
+echo 'VERIFIED BY THIS BATCH: synthetic local PostgREST HTTP/JWT/RPC authorization matrix, if all stages passed.'
+echo 'UNVERIFIED: GYMFORCE migration-backed RPC HTTP workflows, real Supabase Auth sessions, full payment HTTP integration, production migrations and deployments.'
 echo 'RELEASE: NO-GO until separate integration and production gates pass.'

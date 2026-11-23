@@ -136,9 +136,13 @@ BEGIN
         END IF;
     END LOOP;
     IF EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members e
-        JOIN pg_catalog.pg_roles reserved ON reserved.oid=e.member OR reserved.oid=e.roleid
-        WHERE reserved.rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor')) THEN
-        RAISE EXCEPTION 'Reserved-role membership edge exists';
+        JOIN pg_catalog.pg_roles parent ON parent.oid=e.roleid
+        JOIN pg_catalog.pg_roles member ON member.oid=e.member
+        WHERE (parent.rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor')
+            OR member.rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor'))
+          AND NOT (parent.rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor')
+            AND member.rolname='postgres')) THEN
+        RAISE EXCEPTION 'Unexpected reserved-role membership edge exists';
     END IF;
     IF (SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
         WHERE (n.nspname='private' OR c.oid=pg_catalog.to_regclass('public.gym_settings')) AND c.relkind IN ('r','p'))<>22 THEN

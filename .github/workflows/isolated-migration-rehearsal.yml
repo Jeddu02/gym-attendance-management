@@ -69,6 +69,11 @@ jobs:
           WHERE granted.rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor')
              OR member.rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor')
           ORDER BY 1,2;
+          REVOKE gym_data_owner, gym_owner_executor, gym_public_executor FROM postgres;
+          SELECT count(*) AS remaining_reserved_membership_edges
+          FROM pg_auth_members m
+          JOIN pg_roles reserved ON reserved.oid=m.roleid OR reserved.oid=m.member
+          WHERE reserved.rolname IN ('gym_data_owner','gym_owner_executor','gym_public_executor');
           ROLLBACK;
           SQL
       - name: Replay migrations on disposable local database

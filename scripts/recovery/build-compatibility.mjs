@@ -100,6 +100,41 @@ const once = (text, anchor, replacement) => {
   if (text.split(anchor).length !== 2) throw new Error('Compatibility anchor drift');
   return text.replace(anchor, replacement);
 };
+
+function supabaseBaseline(sql, phases) {
+  // These six LF bodies match their defining migrations and staging prosrc
+  // byte-for-byte. The original pins represent those same bodies with CRLF.
+  for (const [original, lf] of [
+    ['7a05ca54592137c75b9adda7023516a8', 'd1f9e4cf2ddf617d9d2b8e7ce44a1ffc'],
+    ['f7c5cdb53ec4cf2d845e38f404df5fb9', '382d90fe8125def52b27917b872fd1c0'],
+    ['6fa6a434395de93250213752513ffb34', 'cb739f637f4a259d96527622dc5b3f6a'],
+    ['a0635caf0c329b24571bd68df684f69f', 'e461be9fed7efb15a3269349b40fff29'],
+    ['76af3203b0fe03c30e1eb6d8264a04e6', '1f23b47e0a37c34f714b9da1966e4429'],
+    ['d835b9b2db211d2439e03ec9d8a6337d', '18e24a4ca134b1abae14661b114ac73d'],
+  ]) {
+    if (sql.split(original).length !== phases + 1) throw new Error('Routine body pin inventory drift');
+    sql = sql.replaceAll(original, lf);
+  }
+
+  // Supabase can pre-grant service_role access to public tables owned by
+  // postgres. Tolerate only that direct grant before the explicit REVOKE.
+  // Column ACLs, other principals, grant options and final ACLs stay strict.
+  const before = "IF pg_catalog.has_table_privilege(caller,relation_oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')";
+  const relationAcl = 'WHERE c.oid=relation_oid AND a.grantee<>c.relowner\n            AND NOT (target AND r.name=';
+  if (sql.split(before).length !== phases + 1 || sql.split(relationAcl).length !== phases + 1) {
+    throw new Error('Protected relation ACL assertion inventory drift');
+  }
+  return sql.replaceAll(before, `IF (target OR r.name<>'public.gym_settings' OR caller<>'service_role') AND
+              (pg_catalog.has_table_privilege(caller,relation_oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')`)
+    .replaceAll("pg_catalog.has_any_column_privilege(caller,relation_oid,'SELECT,INSERT,UPDATE,REFERENCES') THEN",
+      "pg_catalog.has_any_column_privilege(caller,relation_oid,'SELECT,INSERT,UPDATE,REFERENCES')) THEN")
+    .replaceAll(relationAcl, `WHERE c.oid=relation_oid AND a.grantee<>c.relowner
+            AND NOT (NOT target AND r.name='public.gym_settings' AND a.grantor=c.relowner
+                     AND a.grantee=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='service_role')
+                     AND NOT a.is_grantable)
+            AND NOT (target AND r.name=`);
+}
+
 const normalize = value => Array.isArray(value) ? value.map(normalize)
   : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).filter(([key]) => !['location','stmt_location','stmt_len'].includes(key)).map(([key, child]) => [key,normalize(child)])) : value;
 const functionBodies = sql => parser.parseSync(sql).stmts.filter(x => x.stmt.CreateFunctionStmt)
@@ -121,6 +156,7 @@ for (const item of manifest.migrations.filter(x => x.version >= '20261110100000'
   if (count !== expectedCount) throw new Error('Membership assertion inventory drift');
   sql = once(sql, 'BEGIN;', `BEGIN;\nSET LOCAL search_path=pg_catalog;\nSET LOCAL lock_timeout='5s';\nSET LOCAL statement_timeout='120s';\n${graphGuard()}`);
   if (item.version === '20261110100000') {
+    if (provider === 'supabase_admin') sql = supabaseBaseline(sql, 2);
     sql = once(sql, 'ALTER TABLE private.attendance_checkins OWNER TO gym_data_owner;', `${prepare({ data: true, publicOwner: true })}\nALTER TABLE private.attendance_checkins OWNER TO gym_data_owner;`);
     sql = once(sql, 'GRANT EXECUTE ON FUNCTION extensions.digest(bytea,text) TO gym_owner_executor;',
       `-- Provider ACL is not customer-owned: verify effective dependency access, never impersonate its grantor.\nDO $digest_access$ BEGIN IF NOT pg_catalog.has_function_privilege('gym_owner_executor','extensions.digest(bytea,text)','EXECUTE') THEN RAISE EXCEPTION 'Provider digest EXECUTE unavailable'; END IF; END $digest_access$;\nGRANT CREATE ON SCHEMA private TO gym_data_owner;\nGRANT CREATE ON SCHEMA api TO gym_owner_executor,gym_public_executor;`);
@@ -149,7 +185,9 @@ adapted.text = once(adapted.text, 'COMMIT;', `${cleanup()}\nCOMMIT;`);
 save('01-explicit-routine-acls.sql', proposal, adapted.text, adapted.count);
 for (const file of ['executor_hardening_assertions.sql','member_checkin_behavior.sql','final_security_assertions.sql']) {
   const original = readCanonicalSource('supabase/tests/' + file).toString('utf8');
-  const { text, count } = adaptGraph(original.replace(/\r\n/g, '\n'), false);
+  const { text: adaptedAssertions, count } = adaptGraph(original.replace(/\r\n/g, '\n'), false);
+  const text = provider === 'supabase_admin' && file === 'executor_hardening_assertions.sql'
+    ? supabaseBaseline(adaptedAssertions, 1) : adaptedAssertions;
   if (count !== 1) throw new Error('Assertion variant membership inventory drift');
   writeFileSync(new URL(file, output), text);
   records.push({ file, assertionVariant: true, originalSha256: sha(original), compatibilitySha256: sha(text), membershipPredicates: count });

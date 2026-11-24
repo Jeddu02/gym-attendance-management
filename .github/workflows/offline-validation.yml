@@ -1,0 +1,75 @@
+name: Offline candidate validation
+on:
+  pull_request:
+    branches: [fix/staging-privilege-regression-audit]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: node --test tests/offline-claim-contract.test.mjs
+      - run: npm run build
+      - run: npm test
+      - run: npm run test:browser
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+      - run: npm run test:browser -- --production
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+      - run: npm run test:security
+        if: always()
+  claim-database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      database:
+        image: postgres:17
+        env:
+          POSTGRES_DB: gymforce_batch1_synthetic
+          POSTGRES_PASSWORD: synthetic-ci-only
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 3s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify provisional attendance rules in disposable PostgreSQL
+        env:
+          CONTAINER: ${{ job.services.database.id }}
+        run: |
+          set -euo pipefail
+          run_sql() {
+            docker exec -i -e "PGOPTIONS=-c gymforce.synthetic_run_id=$GITHUB_RUN_ID" "$CONTAINER" \
+              psql -X -v ON_ERROR_STOP=1 -U postgres -d gymforce_batch1_synthetic < "$1"
+          }
+          run_sql supabase/tests/synthetic_bootstrap.sql
+          for migration in supabase/migrations/*.sql; do
+            # Reproduce only the six original CRLF routine bodies documented in
+            # build-compatibility.mjs. Keep every migration assertion intact.
+            python3 - "$migration" "$RUNNER_TEMP/migration.sql" <<'PYTHON'
+          import hashlib, pathlib, re, sys
+          sql = pathlib.Path(sys.argv[1]).read_bytes()
+          source = pathlib.Path('scripts/recovery/build-compatibility.mjs').read_text()
+          pairs = dict(re.findall(r"\['([a-f0-9]{32})', '([a-f0-9]{32})'\]", source))
+          def original(match):
+              body = match[2]
+              lf = hashlib.md5(body).hexdigest()
+              if lf not in pairs.values():
+                  return match[0]
+              crlf = body.replace(b'\n', b'\r\n')
+              assert pairs.get(hashlib.md5(crlf).hexdigest()) == lf
+              return match[1] + crlf + match[1]
+          pathlib.Path(sys.argv[2]).write_bytes(re.sub(rb'(\$[A-Za-z0-9_]*\$)(.*?)\1', original, sql, flags=re.S))
+          PYTHON
+            run_sql "$RUNNER_TEMP/migration.sql"
+          done
+          run_sql supabase/tests/provisional_claims_behavior.sql

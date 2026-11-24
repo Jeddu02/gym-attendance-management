@@ -1,0 +1,83 @@
+name: GYMFORCE isolated migration rehearsal
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'supabase/migrations/**'
+      - 'supabase/recovery/**'
+      - 'scripts/recovery/**'
+      - 'tools/recovery-parser/**'
+      - 'supabase/tests/staging_privilege_regression.sql'
+      - '.github/workflows/isolated-migration-rehearsal.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  disposable-supabase:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      SUPABASE_ACCESS_TOKEN: ''
+      SUPABASE_DB_PASSWORD: ''
+      SUPABASE_PROJECT_ID: ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 3.3.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify reviewed migration artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --prefix tools/recovery-parser --ignore-scripts --no-audit --no-fund
+          node scripts/recovery/build-compatibility.mjs
+          git diff --exit-code -- supabase/recovery/compatibility/review
+      - name: Check migration inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(find supabase/migrations -maxdepth 1 -name '*.sql' | wc -l)" -eq 37
+          test -f supabase/tests/staging_privilege_regression.sql
+          echo "Found 37 migration files. No remote Supabase project is configured."
+      - name: Verify runner prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker info >/dev/null
+          supabase --version
+          psql --version
+      - name: Start disposable local Supabase stack with baseline migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          pending="$(mktemp -d)"
+          trap 'mv "$pending"/*.sql supabase/migrations/; rmdir "$pending"' EXIT
+          mv supabase/migrations/20261110*.sql "$pending/"
+          # The startup banner contains disposable keys. Publish migration
+          # progress and SQL errors without printing the credential banner.
+          startup_log="$(mktemp)"
+          result=0
+          supabase start -x studio,imgproxy,logflare,vector,analytics >"$startup_log" 2>&1 || result=$?
+          sed -nE '/^Applying migration |^ERROR:|^At statement:|^Failed to /p' "$startup_log"
+          rm -f "$startup_log"
+          exit "$result"
+      - name: Rehearse 13 compatibility migrations and verify final security
+        shell: bash
+        run: |
+          set -euo pipefail
+          DB_URL="$(supabase status -o env | sed -n 's/^DB_URL=//p' | tr -d '"')"
+          case "$DB_URL" in
+            postgresql://postgres:*@127.0.0.1:54322/postgres) ;;
+            *) echo "Unexpected disposable database URL" >&2; exit 1 ;;
+          esac
+          credentials="${DB_URL#postgresql://postgres:}"
+          GYMFORCE_DISPOSABLE_DB_PASSWORD="${credentials%@127.0.0.1:54322/postgres}" \
+            python3 scripts/recovery/rehearse-or-deploy-staging.py disposable
+      - name: Stop disposable stack
+        if: always()
+        run: supabase stop --no-backup || true

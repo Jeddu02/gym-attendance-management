@@ -542,7 +542,7 @@ try {
   try {
     await evaluate('window.dispatchEvent(new Event("focus"))');
     await until(() => ownerStatusCalls > beforeSignOut, 'pending owner verification before sign-out');
-    await evaluate("Array.from(document.querySelectorAll('button')).find(b => b.innerText.trim() === 'Sign out').click()");
+    await evaluate("document.querySelector('.signout-button').click()");
     await until(() => textIncludes('Sign in'), 'manual sign-out hides management');
   } finally { releaseVerification(); ownerStatusGate = undefined; }
   await evaluate("window.dispatchEvent(new Event('focus'))");

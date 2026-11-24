@@ -53,8 +53,23 @@ jobs:
           }
           run_sql supabase/tests/synthetic_bootstrap.sql
           for migration in supabase/migrations/*.sql; do
-            # Original migration assertions pin the Windows checkout's CRLF routine bodies.
-            sed 's/$/\r/' "$migration" > "$RUNNER_TEMP/migration.sql"
+            # Reproduce only the six original CRLF routine bodies documented in
+            # build-compatibility.mjs. Keep every migration assertion intact.
+            python3 - "$migration" "$RUNNER_TEMP/migration.sql" <<'PYTHON'
+          import hashlib, pathlib, re, sys
+          sql = pathlib.Path(sys.argv[1]).read_bytes()
+          source = pathlib.Path('scripts/recovery/build-compatibility.mjs').read_text()
+          pairs = dict(re.findall(r"\['([a-f0-9]{32})', '([a-f0-9]{32})'\]", source))
+          def original(match):
+              body = match[2]
+              lf = hashlib.md5(body).hexdigest()
+              if lf not in pairs.values():
+                  return match[0]
+              crlf = body.replace(b'\n', b'\r\n')
+              assert pairs.get(hashlib.md5(crlf).hexdigest()) == lf
+              return match[1] + crlf + match[1]
+          pathlib.Path(sys.argv[2]).write_bytes(re.sub(rb'(\$[A-Za-z0-9_]*\$)(.*?)\1', original, sql, flags=re.S))
+          PYTHON
             run_sql "$RUNNER_TEMP/migration.sql"
           done
           run_sql supabase/tests/provisional_claims_behavior.sql

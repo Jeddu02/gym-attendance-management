@@ -63,11 +63,12 @@ const sectionDescriptions: Record<Section, string> = {
   walkins: 'Manage walk-in fees, provisional requests, and actual receipts.',
 };
 
+const offlineLeaseMs = 15 * 60 * 1000;
+
 export function App() {
   const authGeneration = useRef(0);
   const signingOut = useRef(false);
   const offlineLeaseUntil = useRef(0);
-  const offlineLeaseMs = 15 * 60 * 1000;
   const queue = useRef<OfflineClaimQueue | null>(null);
   const [queueAllowed, setQueueAllowed] = useState(false);
   const [queueCount, setQueueCount] = useState(0);
@@ -318,10 +319,10 @@ export function App() {
     try {
       const current = queue.current;
       if (!current) throw Error('Queue unavailable');
-      await current.add(offlineMember.trim().toUpperCase(), offlineDate);
+      const added = await current.add(offlineMember.trim().toUpperCase(), offlineDate, offlineLeaseUntil.current);
       if (queue.current !== current) return;
       setQueueCount(current.size); setOfflineMember(''); setOfflineDate('');
-      setQueueMessage('Saved in encrypted device storage. No attendance recorded.');
+      setQueueMessage(added ? 'Saved in encrypted device storage. No attendance recorded.' : 'A claim for this member and date is already pending.');
     } catch { setQueueMessage('Unable to queue claim. Check the fields or queue capacity.'); }
     finally { queueBusy.current = false; }
   }
@@ -340,7 +341,10 @@ export function App() {
         if (!payload || queue.current !== current || ticket !== authGeneration.current || !navigator.onLine) break;
         const result = await client.functions.invoke('owner-attendance-claims', { body: payload });
         if (queue.current !== current || ticket !== authGeneration.current) return;
-        if (result.error || result.data?.success !== true) throw Error();
+        const receipt = result.data?.result;
+        if (result.error || result.data?.success !== true || receipt?.provisional !== true ||
+            typeof receipt.replayed !== 'boolean' || typeof receipt.id !== 'string' ||
+            !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(receipt.id)) throw Error();
         await current.remove(payload.operationId); if (queue.current !== current) return; setQueueCount(current.size);
       }
       setQueueMessage(current.size ? 'Pending claims retained. Retry after authorization.' : 'Claims synchronized for review only.');

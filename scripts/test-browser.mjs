@@ -329,6 +329,26 @@ try {
   await until(() => evaluate('location.hash === "" && document.querySelectorAll("input[type=password]").length === 2 && !document.body.innerText.includes("Your PIN request is complete")'), 'New private link clears prior completion state');
   await navigate('/');
   await until(() => textIncludes('Sign in'), 'signed-out Owner screen');
+  if (!production) {
+    const result = await evaluate(`(async () => {
+      const { OfflineClaimQueue } = await import('/src/lib/offline-claim.ts');
+      const owner = crypto.randomUUID();
+      const a = await OfflineClaimQueue.open(owner);
+      await a.add('MBR-ABCDEF123456', '2026-11-24');
+      const first = await a.first(); a.clear();
+      const b = await OfflineClaimQueue.open(owner);
+      const recovered = await b.first();
+      const other = await OfflineClaimQueue.open(crypto.randomUUID());
+      await other.remove(first.operationId);
+      const isolated = other.size === 0 && (await b.first()).operationId === first.operationId;
+      await b.remove(first.operationId);
+      const empty = b.size === 0;
+      b.clear(); other.clear();
+      return { recovered: JSON.stringify(first) === JSON.stringify(recovered), isolated, empty };
+    })()`);
+    assert.deepEqual(result, { recovered: true, isolated: true, empty: true });
+    console.log('PASS: real browser queue reopen, owner isolation and acknowledged deletion.');
+  }
   assert.equal(await evaluate('document.querySelector(".dashboard") === null'), true);
   await evaluate(`(() => { const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; for (const [id,value] of [['email','owner@example.test'],['password','synthetic-ui-only']]) { const el=document.getElementById(id); set.call(el,value); el.dispatchEvent(new Event('input',{bubbles:true})); } })()`);
   await evaluate('document.querySelector("form").requestSubmit()');

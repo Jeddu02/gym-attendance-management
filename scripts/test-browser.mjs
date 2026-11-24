@@ -341,12 +341,18 @@ try {
       const other = await OfflineClaimQueue.open(crypto.randomUUID());
       await other.remove(first.operationId);
       const isolated = other.size === 0 && (await b.first()).operationId === first.operationId;
+      const db = await new Promise((resolve,reject) => { const req = indexedDB.open('gymforce-offline-claims-v1'); req.onsuccess=()=>resolve(req.result); req.onerror=()=>reject(req.error); });
+      const read = (store,id) => new Promise((resolve,reject) => { const req=db.transaction(store).objectStore(store).get(id); req.onsuccess=()=>resolve(req.result); req.onerror=()=>reject(req.error); });
+      const row = await read('claims', first.operationId);
+      const key = await read('keys', owner);
+      const encrypted = row.ciphertext instanceof ArrayBuffer && !JSON.stringify(row).includes('MBR-ABCDEF123456') && !JSON.stringify(row).includes('2026-11-24') && key.extractable === false;
+      db.close();
       await b.remove(first.operationId);
       const empty = b.size === 0;
       b.clear(); other.clear();
-      return { recovered: JSON.stringify(first) === JSON.stringify(recovered), isolated, empty };
+      return { recovered: JSON.stringify(first) === JSON.stringify(recovered), isolated, empty, encrypted };
     })()`);
-    assert.deepEqual(result, { recovered: true, isolated: true, empty: true });
+    assert.deepEqual(result, { recovered: true, isolated: true, empty: true, encrypted: true });
     console.log('PASS: real browser queue reopen, owner isolation and acknowledged deletion.');
   }
   assert.equal(await evaluate('document.querySelector(".dashboard") === null'), true);

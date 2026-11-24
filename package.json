@@ -10,7 +10,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "typecheck": "tsc -b --pretty",
-    "test": "node --test tests/source-security.test.mjs tests/csv.test.mjs tests/entrance-link.test.mjs tests/money.test.mjs tests/operation-error.test.mjs tests/function-error.test.mjs tests/edge-handlers.test.mjs tests/hosting-diagnostics.test.mjs tests/public-entry-contract.test.mjs",
+    "test": "node --test tests/source-security.test.mjs tests/csv.test.mjs tests/entrance-link.test.mjs tests/money.test.mjs tests/operation-error.test.mjs tests/function-error.test.mjs tests/edge-handlers.test.mjs tests/hosting-diagnostics.test.mjs tests/public-entry-contract.test.mjs tests/offline-claim-contract.test.mjs",
     "test:recovery-request": "node --test tests/walkin-recovery.test.mjs tests/walkin-ingress.test.mjs",
     "test:ingress-monitor": "node --test tests/ingress-monitor.test.mjs tests/persisted-http-guard.test.mjs tests/durable-ingress-ops.test.mjs",
     "test:http": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-recovery-pg17.ps1 -CustomerCompatibility -IngressTest -HttpIntegration",

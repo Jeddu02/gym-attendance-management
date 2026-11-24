@@ -53,6 +53,7 @@ const sectionDescriptions: Record<Section, string> = {
 
 export function App() {
   const authGeneration = useRef(0);
+  const signingOut = useRef(false);
   const offlineLeaseUntil = useRef(0);
   const offlineLeaseMs = 15 * 60 * 1000;
   const queue = useRef<OfflineClaimQueue | null>(null);
@@ -157,6 +158,7 @@ export function App() {
       }
 
       function scheduleVerification() {
+        if (signingOut.current) return;
         const ticket = ++authGeneration.current;
         setSignedIn(false);
         setAuthReady(false);
@@ -170,7 +172,7 @@ export function App() {
       retryAuthorization.current = scheduleVerification;
 
       const result = supabase.auth.onAuthStateChange((event, session) => {
-        if (!active) return;
+        if (!active || (signingOut.current && event !== 'SIGNED_OUT')) return;
         hasSession = event !== 'SIGNED_OUT' && Boolean(session);
         sessionUser = session?.user.id ?? null;
         if (verifiedUser !== sessionUser) { verifiedUser = null; clearOwnerView(); }
@@ -225,6 +227,7 @@ export function App() {
   }, []);
   async function handleSignIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    signingOut.current = false;
     setMessage('');
     setBusy(true);
 
@@ -269,6 +272,7 @@ export function App() {
   }
 
   async function handleSignOut() {
+    signingOut.current = true;
     ++authGeneration.current;
     offlineLeaseUntil.current = 0;
     // Remove sensitive components immediately, including while offline.
@@ -322,12 +326,12 @@ export function App() {
         const payload = await current.first();
         if (!payload || queue.current !== current || ticket !== authGeneration.current || !navigator.onLine) break;
         const result = await client.functions.invoke('owner-attendance-claims', { body: payload });
-        if (queue.current !== current) return;
+        if (queue.current !== current || ticket !== authGeneration.current) return;
         if (result.error || result.data?.success !== true) throw Error();
         await current.remove(payload.operationId); if (queue.current !== current) return; setQueueCount(current.size);
       }
       setQueueMessage(current.size ? 'Pending claims retained. Retry after authorization.' : 'Claims synchronized for review only.');
-    } catch { setQueueMessage('Synchronization unconfirmed. Retry the same queued claims; do not create replacements.'); }
+    } catch { if (queue.current === current && ticket === authGeneration.current) setQueueMessage('Synchronization unconfirmed. Retry the same queued claims; do not create replacements.'); }
     finally { queueBusy.current = false; }
   }
 

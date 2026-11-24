@@ -35,6 +35,18 @@ const navigation = [
 
 type Section = (typeof navigation)[number]['id'];
 
+function sectionFromUrl(): Section {
+  const section = new URL(window.location.href).searchParams.get('section');
+  return navigation.find((item) => item.id === section)?.id ?? 'overview';
+}
+
+function storeSectionInUrl(section: Section) {
+  const url = new URL(window.location.href);
+  if (section === 'overview') url.searchParams.delete('section');
+  else url.searchParams.set('section', section);
+  if (url.href !== window.location.href) window.history.replaceState(window.history.state, '', url);
+}
+
 const sectionDescriptions: Record<Section, string> = {
   overview: 'Monitor your gym operations from one place.',
   members: 'Register members and manage their membership information.',
@@ -59,21 +71,24 @@ export function App() {
   const [message, setMessage] = useState('');
   const [signedIn, setSignedIn] = useState(false);
   const [authReady, setAuthReady] = useState(false);
-  const [activeSection, setActiveSection] = useState<Section>('overview');
+  const [activeSection, setActiveSection] = useState<Section>(sectionFromUrl);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   useEffect(() => {
     let active = true;
     const invalidate = () => { ++authGeneration.current; };
-    let hasSession = false;
+    let sessionUserId: string | undefined;
     let timer: number | undefined;
     let subscription: { unsubscribe: () => void } | undefined;
 
-    function clearOwnerView() {
+    function clearOwnerView(resetNavigation: boolean) {
       setSignedIn(false);
       setPassword('');
       setPasswordVisible(false);
-      setActiveSection('overview');
       setMobileMenuOpen(false);
+      if (resetNavigation) {
+        storeSectionInUrl('overview');
+        setActiveSection('overview');
+      }
     }
 
     try {
@@ -85,6 +100,7 @@ export function App() {
           });
           if (!active || ticket !== authGeneration.current) return;
           if (error || data?.authenticated !== true || data?.isActiveOwner !== true || data?.authorizationReady !== true) {
+            clearOwnerView(true);
             setMessage('Owner access could not be verified. Please sign in again.');
             setAuthReady(true);
             // This runs outside the Auth callback, avoiding the Auth lock.
@@ -95,6 +111,7 @@ export function App() {
           setMessage('');
         } catch {
           if (active && ticket === authGeneration.current) {
+            clearOwnerView(true);
             setMessage('Unable to verify owner access. Please sign in again.');
           }
         } finally {
@@ -104,7 +121,6 @@ export function App() {
 
       function scheduleVerification() {
         const ticket = ++authGeneration.current;
-        clearOwnerView();
         setAuthReady(false);
         window.clearTimeout(timer);
         timer = window.setTimeout(() => void verifyOwner(ticket), 0);
@@ -112,11 +128,13 @@ export function App() {
 
       const result = supabase.auth.onAuthStateChange((event, session) => {
         if (!active) return;
-        hasSession = event !== 'SIGNED_OUT' && Boolean(session);
-        if (!hasSession) {
+        const nextUserId = event === 'SIGNED_OUT' ? undefined : session?.user.id;
+        if (sessionUserId && nextUserId && sessionUserId !== nextUserId) clearOwnerView(true);
+        sessionUserId = nextUserId;
+        if (!sessionUserId) {
           ++authGeneration.current;
           window.clearTimeout(timer);
-          clearOwnerView();
+          clearOwnerView(true);
           setAuthReady(true);
           return;
         }
@@ -126,7 +144,7 @@ export function App() {
       subscription = result.data.subscription;
 
       function recheckOnFocus() {
-        if (hasSession && document.visibilityState === 'visible') scheduleVerification();
+        if (sessionUserId && document.visibilityState === 'visible') scheduleVerification();
       }
       window.addEventListener('focus', recheckOnFocus);
       document.addEventListener('visibilitychange', recheckOnFocus);
@@ -204,6 +222,7 @@ export function App() {
     setEmail('');
     setPassword('');
     setPasswordVisible(false);
+    storeSectionInUrl('overview');
     setActiveSection('overview');
     setMobileMenuOpen(false);
     setBusy(true);
@@ -219,25 +238,26 @@ export function App() {
   }
 
   function handleNavigation(section: Section) {
+    storeSectionInUrl(section);
     setActiveSection(section);
     setMobileMenuOpen(false);
   }
 
-  if (!signedIn) {
-    if (!authReady) {
-  return (
+  const restoringSession = !authReady && (
     <main className="login-page">
       <section className="login-panel">
         <div className="brand-mark">G</div>
         <p className="eyebrow">GYM MANAGEMENT SYSTEM</p>
         <h1>Gym Attendance</h1>
-        <p className="login-subtitle">
+        <p className="login-subtitle" role="status">
           Restoring your secure owner session...
         </p>
       </section>
     </main>
   );
-}
+
+  if (!signedIn) {
+    if (!authReady) return restoringSession;
     return (
       <main className="login-page">
         <section className="login-panel">
@@ -315,8 +335,11 @@ export function App() {
     (item) => item.id === activeSection,
   );
 
+  // Keep the verified Owner's form state mounted behind the session check.
   return (
-    <div className="dashboard">
+    <>
+      {restoringSession}
+    <div className="dashboard" hidden={!authReady} style={!authReady ? { display: 'none' } : undefined}>
       {mobileMenuOpen && (
         <button
           className="sidebar-backdrop"
@@ -467,6 +490,7 @@ export function App() {
         </div>
       </main>
     </div>
+    </>
   );
 }
 

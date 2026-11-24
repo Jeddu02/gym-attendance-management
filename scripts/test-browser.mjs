@@ -31,6 +31,7 @@ const server = spawn(process.execPath, ['node_modules/vite/bin/vite.js', ...(pro
 let browser; let socket; let sequence = 0;
 const pending = new Map(); const errors = []; const observed = []; let externalAttempts = 0;
 let paymentFailure = true; let walkinFailure = true; let publicUnavailable = true;
+let ownerStatusCalls = 0; let ownerStatusGate; let ownerStatusDenied = false;
 let publicResponsePatch = null; let publicCalls = 0; let resetCalls = 0;
 const recoverySnapshots = new Map();
 let expectedResetToken = 'A'.repeat(43); let resetSuccess = false;
@@ -97,7 +98,11 @@ try {
       const payload = { sub: user.id, aud: 'authenticated', role: 'authenticated', exp: Math.floor(Date.now()/1000)+3600, iat: Math.floor(Date.now()/1000) };
       const access_token = [ { alg: 'HS256', typ: 'JWT' }, payload ].map((part) => Buffer.from(JSON.stringify(part)).toString('base64url')).join('.') + '.c3ludGhldGlj';
       await respond(200, { access_token, token_type: 'bearer', refresh_token: 'synthetic-refresh-only', expires_in: 3600, user });
-    } else if (url.pathname === '/functions/v1/owner-status') await respond(200, { authenticated: true, isActiveOwner: true, authorizationReady: true });
+    } else if (url.pathname === '/functions/v1/owner-status') {
+      ownerStatusCalls++;
+      if (ownerStatusGate) await ownerStatusGate;
+      await respond(200, { authenticated: true, isActiveOwner: !ownerStatusDenied, authorizationReady: true });
+    }
     else if (url.pathname === '/functions/v1/owner-reporting') {
       const { action } = JSON.parse(request.postData);
       if (action === 'audit') { await respond(200, { success: true, events: [] }); return; }
@@ -362,6 +367,21 @@ try {
       assert.equal(await textIncludes('backend service is unavailable'), false, 'retry clears both independent load errors');
       await evaluate(`Array.from(document.querySelectorAll('button')).find(button => button.innerText === 'Next purchases').click()`);
       await until(() => evaluate('document.querySelector(".purchase-form select")?.options.length === 2'), 'next payable purchase page');
+      const previousCalls = ownerStatusCalls;
+      let finishVerification;
+      ownerStatusGate = new Promise((resolveGate) => { finishVerification = resolveGate; });
+      try {
+        await evaluate('window.paymentFormBeforeFocus = document.querySelector(".purchase-form"); window.dispatchEvent(new Event("focus"));');
+        await until(() => ownerStatusCalls > previousCalls, 'focus rechecks Owner access');
+        await until(() => evaluate('document.querySelector(".dashboard")?.hidden === true'), 'dashboard hidden during Owner recheck');
+      } finally {
+        finishVerification();
+        ownerStatusGate = undefined;
+      }
+      await until(() => evaluate('document.querySelector(".dashboard")?.hidden === false'), 'Owner view returns after recheck');
+      assert.equal(await evaluate('document.querySelector(".purchase-form") === window.paymentFormBeforeFocus'), true, 'focus preserves the payment form');
+      assert.equal(await evaluate('document.querySelector(".purchase-form select").options.length'), 2, 'focus preserves payment pagination');
+      assert.equal(await evaluate('new URLSearchParams(location.search).get("section")'), 'payments');
     }
     if (label === 'Walk-ins') {
       await until(() => textIncludes('Access was denied'), 'Owner walk-in authorization feedback');
@@ -434,6 +454,13 @@ try {
     console.log('PASS: browser offline transition disables public check-in/walk-in submissions; no request or offline queue created.');
     console.log('PASS: production shell worker controls the page; observed caches contain only static assets/index, no API/Auth/PIN/entrance submissions. Real-device install/update QA remains open.');
   }
+  await cdp('Page.navigate', { url: 'about:blank' });
+  await navigate('/?section=settings');
+  await until(() => textIncludes('Permanent entrance QR'), 'Owner reload restores section after verification');
+  ownerStatusDenied = true;
+  await evaluate('window.dispatchEvent(new Event("focus"))');
+  await until(() => evaluate('!document.querySelector(".dashboard") && document.body.innerText.includes("Sign in")'), 'revoked Owner access removes the dashboard');
+  assert.equal(await evaluate('new URLSearchParams(location.search).has("section")'), false, 'denied Owner recheck clears the section');
   assert.equal(errors.length, 0, errors.join('; '));
   assert.equal(externalAttempts, 0, 'All app network must remain on the synthetic loopback origin');
   console.log('PASS: mobile entrance/all Owner navigation without overflow, failed-list recovery and empty-state distinctions, seven uncertain public outcomes locked against repeated submit, five malformed walk-in snapshots rejected without false pending confirmation, payable pagination, PIN clearing, provisional walk-in, four invalid reset-link lengths blocked, valid reset failure/secret clearing, same-document replacement links clear stale fields/errors/completion and use the replacement token, fragment removal, signed-out screen, exact local QR preview and no external app requests. Synthetic API/Auth fixtures only; no Auth/RLS certification.');

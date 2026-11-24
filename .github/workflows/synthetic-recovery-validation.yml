@@ -1,0 +1,117 @@
+name: GYMFORCE synthetic recovery rehearsal
+on:
+  push:
+    branches: [validation/recovery-rehearsal]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  synthetic-restore:
+    if: github.repository == 'Jeddu02/gym-attendance-management' && github.ref == 'refs/heads/validation/recovery-rehearsal'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Acquire disposable PostgreSQL image
+        run: docker pull postgres:17
+      - name: Migrate, backup and restore synthetic database
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          BASE=6298d2ece6d71bf3eeb08d893c763de9cf0eeca2
+          git merge-base --is-ancestor "$BASE" HEAD
+          WORK=$(mktemp -d)
+          OUT="$RUNNER_TEMP/gymforce-evidence"
+          mkdir -m 700 "$OUT"
+          ID=$(python3 -c 'import uuid;print(uuid.uuid4().hex)')
+          SRC=gf-source-$ID
+          DST=gf-target-$ID
+          DB=gymforce_batch1_synthetic
+          cleanup() {
+            rc=$?
+            trap - EXIT
+            docker rm -f "$SRC" "$DST" >/dev/null 2>&1 || true
+            rm -rf "$WORK"
+            if ((rc)); then echo "FAIL or incomplete: $rc" > "$OUT/result.txt"; fi
+            exit "$rc"
+          }
+          trap cleanup EXIT
+          git archive "$BASE" | tar -x -C "$WORK"
+          IMAGE=$(docker image inspect --format '{{.Id}}' postgres:17)
+          printf '%s\n' "$BASE" > "$OUT/commit.txt"
+          printf '%s\n' "$IMAGE" > "$OUT/image.txt"
+          start() {
+            local name=$1 admin=$2
+            docker run -d --pull never --network none --name "$name" -e POSTGRES_USER="$admin" -e POSTGRES_DB="$DB" -e POSTGRES_PASSWORD="$(python3 -c 'import secrets;print(secrets.token_hex(32))')" "$IMAGE" >/dev/null
+            for i in {1..90}; do
+              if docker exec "$name" pg_isready -h 127.0.0.1 -U "$admin" -d "$DB" >/dev/null 2>&1; then return; fi
+              sleep 1
+            done
+            return 1
+          }
+          sql() {
+            local name=$1 user=$2
+            shift 2
+            docker exec -i -e "PGOPTIONS=-c gymforce.synthetic_run_id=$ID" "$name" psql -X -v ON_ERROR_STOP=1 -U "$user" -d "$DB" "$@"
+          }
+          assert_target() {
+            local name=$1 user=$2
+            [[ $(docker inspect --format '{{.HostConfig.NetworkMode}}' "$name") == none ]]
+            [[ $(sql "$name" "$user" -Atqc "SELECT current_database() || ':' || (current_setting('server_version_num')::integer/10000)::text || ':' || (inet_server_addr() IS NULL)::text") == "$DB:17:true" ]]
+          }
+          start "$SRC" postgres
+          assert_target "$SRC" postgres
+          sql "$SRC" postgres < "$WORK/supabase/tests/synthetic_bootstrap.sql" > "$OUT/bootstrap.log" 2>&1
+          for f in "$WORK"/supabase/migrations/*.sql; do
+            python3 - "$f" "$WORK/migration.sql" "$WORK/scripts/recovery/build-compatibility.mjs" <<'PY'
+          import hashlib,pathlib,re,sys
+          sql=pathlib.Path(sys.argv[1]).read_bytes()
+          source=pathlib.Path(sys.argv[3]).read_text()
+          pairs=dict(re.findall(r"\['([a-f0-9]{32})', '([a-f0-9]{32})'\]",source))
+          def original(m):
+              body=m[2]; lf=hashlib.md5(body).hexdigest()
+              if lf not in pairs.values(): return m[0]
+              crlf=body.replace(b'\n',b'\r\n')
+              if pairs.get(hashlib.md5(crlf).hexdigest()) != lf: raise ValueError('Unexpected reviewed routine body')
+              return m[1]+crlf+m[1]
+          pathlib.Path(sys.argv[2]).write_bytes(re.sub(rb'(\$[A-Za-z0-9_]*\$)(.*?)\1',original,sql,flags=re.S))
+          PY
+            sql "$SRC" postgres < "$WORK/migration.sql" > "$OUT/$(basename "$f").log" 2>&1
+          done
+          sql "$SRC" postgres < "$WORK/supabase/tests/provisional_claims_behavior.sql" > "$OUT/claims-before.log" 2>&1
+          sql "$SRC" postgres -c "CREATE SCHEMA gf_rehearsal; CREATE TABLE gf_rehearsal.marker(id integer PRIMARY KEY, value text NOT NULL); INSERT INTO gf_rehearsal.marker VALUES (1,'synthetic recovery sentinel');" > "$OUT/sentinel.log"
+          docker exec "$SRC" pg_dump -U postgres -d "$DB" --format=custom > "$WORK/database.dump"
+          docker exec "$SRC" pg_dumpall -U postgres --roles-only --no-role-passwords > "$WORK/roles.sql"
+          sha256sum "$WORK/database.dump" "$WORK/roles.sql" | sed 's@  .*/@  @' > "$OUT/backup.sha256"
+          start "$DST" gf_restore_admin
+          assert_target "$DST" gf_restore_admin
+          sql "$DST" gf_restore_admin < "$WORK/roles.sql" > "$OUT/roles-restore.log" 2>&1
+          sql "$DST" gf_restore_admin -c "ALTER DATABASE $DB OWNER TO postgres;" > "$OUT/database-owner.log" 2>&1
+          docker exec -i "$DST" pg_restore -U postgres -d "$DB" --exit-on-error < "$WORK/database.dump" > "$OUT/restore.log" 2>&1
+          assert_target "$DST" postgres
+          for side in source target; do
+            name=$SRC; [[ $side == source ]] || name=$DST
+            docker exec "$name" pg_dump -U postgres -d "$DB" --schema-only -n private -n api -n gf_rehearsal | sed -E '/^\\(un)?restrict /d' > "$OUT/schema-$side.sql"
+            sql "$name" postgres -At <<'SQL' > "$OUT/data-$side.txt"
+          SELECT format('SELECT %L, count(*), encode(sha256(convert_to(COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text), ''[]''::jsonb)::text, ''UTF8'')), ''hex'') FROM %I.%I t;', n.nspname||'.'||c.relname,n.nspname,c.relname)
+          FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+          WHERE n.nspname IN ('private','api','auth','gf_rehearsal') AND c.relkind IN ('r','p') ORDER BY n.nspname,c.relname
+          \gexec
+          SQL
+          done
+          diff -u "$OUT/schema-source.sql" "$OUT/schema-target.sql" > "$OUT/schema.diff"
+          diff -u "$OUT/data-source.txt" "$OUT/data-target.txt" > "$OUT/data.diff"
+          [[ $(sql "$DST" postgres -Atqc "SELECT value FROM gf_rehearsal.marker WHERE id=1") == 'synthetic recovery sentinel' ]]
+          sql "$DST" postgres < "$WORK/supabase/tests/provisional_claims_behavior.sql" > "$OUT/claims-after.log" 2>&1
+          echo 'PASS: synthetic core migration, logical restore, scoped schema/data equality and attendance regression; no hosted approval.' | tee "$OUT/result.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: synthetic-recovery-evidence
+          path: ${{ runner.temp }}/gymforce-evidence
+          if-no-files-found: warn
+          retention-days: 7

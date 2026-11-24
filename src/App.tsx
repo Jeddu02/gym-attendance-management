@@ -53,6 +53,8 @@ const sectionDescriptions: Record<Section, string> = {
 
 export function App() {
   const authGeneration = useRef(0);
+  const offlineLeaseUntil = useRef(0);
+  const offlineLeaseMs = 15 * 60 * 1000;
   const queue = useRef<OfflineClaimQueue | null>(null);
   const [queueAllowed, setQueueAllowed] = useState(false);
   const [queueCount, setQueueCount] = useState(0);
@@ -78,9 +80,12 @@ export function App() {
     let verifiedUser: string | null = null;
     let sessionUser: string | null = null;
     let timer: number | undefined;
+    let leaseTimer: number | undefined;
     let subscription: { unsubscribe: () => void } | undefined;
 
     function clearOwnerView() {
+      offlineLeaseUntil.current = 0;
+      window.clearTimeout(leaseTimer);
       setSignedIn(false);
       setConnectionLocked(false);
       queue.current?.clear(); queue.current = null;
@@ -96,7 +101,7 @@ export function App() {
       function lockConnection() {
         setSignedIn(false);
         setConnectionLocked(true);
-        setQueueAllowed(!!verifiedUser && verifiedUser === sessionUser && !!queue.current && !navigator.onLine);
+        setQueueAllowed(!!verifiedUser && verifiedUser === sessionUser && !!queue.current && Date.now() < offlineLeaseUntil.current && !navigator.onLine);
         setAuthReady(true);
         setMessage('Connection or authorization service unavailable. Management is locked until online authorization succeeds.');
       }
@@ -127,6 +132,9 @@ export function App() {
             return;
           }
           verifiedUser = sessionUser;
+          offlineLeaseUntil.current = Date.now() + offlineLeaseMs;
+          window.clearTimeout(leaseTimer);
+          leaseTimer = window.setTimeout(() => setQueueAllowed(false), offlineLeaseMs);
           if (sessionUser && !queue.current) {
             try {
               const opened = await OfflineClaimQueue.open(sessionUser);
@@ -194,6 +202,8 @@ export function App() {
         window.clearTimeout(timer);
         subscription?.unsubscribe();
         retryAuthorization.current = () => {};
+        window.clearTimeout(leaseTimer);
+        offlineLeaseUntil.current = 0;
         window.removeEventListener('offline', onOffline);
         window.removeEventListener('online', recheckOnFocus);
         window.removeEventListener('focus', recheckOnFocus);
@@ -260,6 +270,7 @@ export function App() {
 
   async function handleSignOut() {
     ++authGeneration.current;
+    offlineLeaseUntil.current = 0;
     // Remove sensitive components immediately, including while offline.
     queue.current?.clear(); queue.current = null;
     setQueueAllowed(false); setQueueCount(0); setOfflineMember(''); setOfflineDate(''); setQueueMessage('');
@@ -285,6 +296,7 @@ export function App() {
   async function saveOfflineClaim(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!queueAllowed || navigator.onLine || queueBusy.current) return;
+    if (Date.now() >= offlineLeaseUntil.current) { setQueueAllowed(false); setQueueMessage('Offline authorization expired. Reconnect to continue.'); return; }
     queueBusy.current = true;
     try {
       const current = queue.current;
@@ -329,7 +341,7 @@ export function App() {
       <div className="brand-mark">G</div><h1>Management temporarily locked</h1>
       <p role="status">{message}</p>
       <p>No attendance, payments or membership changes can be recorded until authorization is restored.</p>
-      {queueAllowed && <form onSubmit={(event) => void saveOfflineClaim(event)}><h2>Offline provisional claim</h2><p>Encrypted on this device. Pending claims can be recovered after online owner authorization. No attendance is granted.</p><label>Member ID<input required pattern="MBR-[0-9A-Fa-f]{12}" value={offlineMember} onChange={(event) => setOfflineMember(event.target.value)} /></label><label>Claimed Manila date<input type="date" required value={offlineDate} onChange={(event) => setOfflineDate(event.target.value)} /></label><button className="primary-button">Queue provisional claim</button></form>}
+      {queueAllowed && <form onSubmit={(event) => void saveOfflineClaim(event)}><h2>Offline provisional claim</h2><p>Encrypted on this device. Offline entry expires 15 minutes after online verification. Pending claims can be recovered after online owner authorization. No attendance is granted.</p><label>Member ID<input required pattern="MBR-[0-9A-Fa-f]{12}" value={offlineMember} onChange={(event) => setOfflineMember(event.target.value)} /></label><label>Claimed Manila date<input type="date" required value={offlineDate} onChange={(event) => setOfflineDate(event.target.value)} /></label><button className="primary-button">Queue provisional claim</button></form>}
       <p role="status">{queueCount} pending. {queueMessage}</p>
       <button className="primary-button" disabled={!authReady} onClick={() => retryAuthorization.current()}>Retry authorization</button>
       <button className="secondary-button" disabled={busy} onClick={() => void handleSignOut()}>Sign out</button>

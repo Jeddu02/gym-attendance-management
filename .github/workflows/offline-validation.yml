@@ -39,7 +39,7 @@ jobs:
           POSTGRES_DB: gymforce_batch1_synthetic
           POSTGRES_PASSWORD: synthetic-ci-only
         options: >-
-          --health-cmd pg_isready --health-interval 3s --health-timeout 3s --health-retries 20
+          --health-cmd "pg_isready -U postgres" --health-interval 3s --health-timeout 3s --health-retries 20
     steps:
       - uses: actions/checkout@v4
       - name: Verify provisional attendance rules in disposable PostgreSQL
@@ -53,6 +53,8 @@ jobs:
           }
           run_sql supabase/tests/synthetic_bootstrap.sql
           for migration in supabase/migrations/*.sql; do
-            run_sql "$migration"
+            # Original migration assertions pin the Windows checkout's CRLF routine bodies.
+            sed 's/$/\r/' "$migration" > "$RUNNER_TEMP/migration.sql"
+            run_sql "$RUNNER_TEMP/migration.sql"
           done
           run_sql supabase/tests/provisional_claims_behavior.sql

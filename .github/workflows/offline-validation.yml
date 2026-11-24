@@ -29,3 +29,30 @@ jobs:
           CHROME_PATH: /usr/bin/google-chrome
       - run: npm run test:security
         if: always()
+  claim-database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      database:
+        image: postgres:17
+        env:
+          POSTGRES_DB: gymforce_batch1_synthetic
+          POSTGRES_PASSWORD: synthetic-ci-only
+        options: >-
+          --health-cmd pg_isready --health-interval 3s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify provisional attendance rules in disposable PostgreSQL
+        env:
+          CONTAINER: ${{ job.services.database.id }}
+        run: |
+          set -euo pipefail
+          run_sql() {
+            docker exec -i -e "PGOPTIONS=-c gymforce.synthetic_run_id=$GITHUB_RUN_ID" "$CONTAINER" \
+              psql -X -v ON_ERROR_STOP=1 -U postgres -d gymforce_batch1_synthetic < "$1"
+          }
+          run_sql supabase/tests/synthetic_bootstrap.sql
+          for migration in supabase/migrations/*.sql; do
+            run_sql "$migration"
+          done
+          run_sql supabase/tests/provisional_claims_behavior.sql

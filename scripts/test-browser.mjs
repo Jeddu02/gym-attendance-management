@@ -522,7 +522,7 @@ try {
     assert.equal(publicCalls, beforeOfflineWalkin, 'Offline UI must not submit or queue public requests');
     await evaluate('window.phase57BeforeNavigation = true');
     await navigate('/entrance?synthetic-offline-navigation=1');
-    await until(() => evaluate('location.search === "?synthetic-offline-navigation=1" && window.phase57BeforeNavigation === undefined && navigator.onLine === false && document.body.innerText.includes("Nothing will be queued or confirmed offline.")'), 'Cold document navigation uses the offline static shell');
+    await until(() => evaluate('location.search === "?synthetic-offline-navigation=1" && window.phase57BeforeNavigation === undefined && navigator.onLine === false && document.body?.innerText.includes("Nothing will be queued or confirmed offline.")'), 'Cold document navigation uses the offline static shell');
     await cdp('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
     // Explicitly leave the only controlled document, as closing app windows does.
     await cdp('Page.navigate', { url: 'about:blank' });

@@ -96,7 +96,7 @@ export function App() {
       function lockConnection() {
         setSignedIn(false);
         setConnectionLocked(true);
-        setQueueAllowed(!!verifiedUser && verifiedUser === sessionUser && !navigator.onLine);
+        setQueueAllowed(!!verifiedUser && verifiedUser === sessionUser && !!queue.current && !navigator.onLine);
         setAuthReady(true);
         setMessage('Connection or authorization service unavailable. Management is locked until online authorization succeeds.');
       }
@@ -127,6 +127,16 @@ export function App() {
             return;
           }
           verifiedUser = sessionUser;
+          if (sessionUser && !queue.current) {
+            try {
+              const opened = await OfflineClaimQueue.open(sessionUser);
+              if (!active || ticket !== authGeneration.current) { opened.clear(); return; }
+              queue.current = opened; setQueueCount(opened.size);
+            } catch {
+              if (!active || ticket !== authGeneration.current) return;
+              setQueueMessage('Encrypted offline storage unavailable on this device.');
+            }
+          }
           setQueueAllowed(false);
           setConnectionLocked(false);
           setSignedIn(true);
@@ -277,11 +287,12 @@ export function App() {
     if (!queueAllowed || navigator.onLine || queueBusy.current) return;
     queueBusy.current = true;
     try {
-      const current = queue.current ?? (queue.current = new OfflineClaimQueue());
+      const current = queue.current;
+      if (!current) throw Error('Queue unavailable');
       await current.add(offlineMember.trim().toUpperCase(), offlineDate);
       if (queue.current !== current) return;
       setQueueCount(current.size); setOfflineMember(''); setOfflineDate('');
-      setQueueMessage('Pending locally in this tab only. No attendance recorded.');
+      setQueueMessage('Saved in encrypted device storage. No attendance recorded.');
     } catch { setQueueMessage('Unable to queue claim. Check the fields or queue capacity.'); }
     finally { queueBusy.current = false; }
   }
@@ -301,7 +312,7 @@ export function App() {
         const result = await client.functions.invoke('owner-attendance-claims', { body: payload });
         if (queue.current !== current) return;
         if (result.error || result.data?.success !== true) throw Error();
-        current.removeFirst(); setQueueCount(current.size);
+        await current.remove(payload.operationId); if (queue.current !== current) return; setQueueCount(current.size);
       }
       setQueueMessage(current.size ? 'Pending claims retained. Retry after authorization.' : 'Claims synchronized for review only.');
     } catch { setQueueMessage('Synchronization unconfirmed. Retry the same queued claims; do not create replacements.'); }
@@ -318,7 +329,7 @@ export function App() {
       <div className="brand-mark">G</div><h1>Management temporarily locked</h1>
       <p role="status">{message}</p>
       <p>No attendance, payments or membership changes can be recorded until authorization is restored.</p>
-      {queueAllowed && <form onSubmit={(event) => void saveOfflineClaim(event)}><h2>Offline provisional claim</h2><p>Encrypted in this tab only. Closing or reloading loses pending claims. No attendance is granted.</p><label>Member ID<input required pattern="MBR-[0-9A-Fa-f]{12}" value={offlineMember} onChange={(event) => setOfflineMember(event.target.value)} /></label><label>Claimed Manila date<input type="date" required value={offlineDate} onChange={(event) => setOfflineDate(event.target.value)} /></label><button className="primary-button">Queue provisional claim</button></form>}
+      {queueAllowed && <form onSubmit={(event) => void saveOfflineClaim(event)}><h2>Offline provisional claim</h2><p>Encrypted on this device. Pending claims can be recovered after online owner authorization. No attendance is granted.</p><label>Member ID<input required pattern="MBR-[0-9A-Fa-f]{12}" value={offlineMember} onChange={(event) => setOfflineMember(event.target.value)} /></label><label>Claimed Manila date<input type="date" required value={offlineDate} onChange={(event) => setOfflineDate(event.target.value)} /></label><button className="primary-button">Queue provisional claim</button></form>}
       <p role="status">{queueCount} pending. {queueMessage}</p>
       <button className="primary-button" disabled={!authReady} onClick={() => retryAuthorization.current()}>Retry authorization</button>
       <button className="secondary-button" disabled={busy} onClick={() => void handleSignOut()}>Sign out</button>

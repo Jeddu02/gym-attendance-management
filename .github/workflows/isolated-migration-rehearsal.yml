@@ -2,6 +2,8 @@ name: GYMFORCE isolated migration rehearsal
 
 on:
   workflow_dispatch:
+  push:
+    branches: [validation/recovery-rehearsal]
   pull_request:
     paths:
       - 'supabase/migrations/**'
@@ -16,6 +18,7 @@ permissions:
 
 jobs:
   disposable-supabase:
+    if: github.repository == 'Jeddu02/gym-attendance-management' && github.ref == 'refs/heads/validation/recovery-rehearsal'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:

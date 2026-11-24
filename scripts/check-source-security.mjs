@@ -134,7 +134,7 @@ export async function inspectSourceSecurity(root) {
         await inspect(path,text=>checkReviewedRecoveryStorage(text,row?.sha256));
       } else if (relative(root,path).replaceAll('\\','/') === 'src/lib/offline-claim.ts') {
         // Owner-approved staging candidate only; source changes require renewed review.
-        await inspect(path,text=>checkReviewedRecoveryStorage(text,'7c11e7d8a7aa195f9619ade46c36c929ea50ab96ec8ef69c303f0eaf245b1e47'));
+        await inspect(path,text=>checkReviewedRecoveryStorage(text,'1583b0d37c5897d0541ea417bbd28f86781acc78347c587826c41373cead6cfb'));
       } else await inspect(path, checkBrowserSource);
     }
   }

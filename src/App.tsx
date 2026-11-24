@@ -59,17 +59,22 @@ export function App() {
   const [message, setMessage] = useState('');
   const [signedIn, setSignedIn] = useState(false);
   const [authReady, setAuthReady] = useState(false);
+  const [connectionLocked, setConnectionLocked] = useState(false);
+  const retryAuthorization = useRef<() => void>(() => {});
   const [activeSection, setActiveSection] = useState<Section>('overview');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   useEffect(() => {
     let active = true;
     const invalidate = () => { ++authGeneration.current; };
     let hasSession = false;
+    let verifiedUser: string | null = null;
+    let sessionUser: string | null = null;
     let timer: number | undefined;
     let subscription: { unsubscribe: () => void } | undefined;
 
     function clearOwnerView() {
       setSignedIn(false);
+      setConnectionLocked(false);
       setPassword('');
       setPasswordVisible(false);
       setActiveSection('overview');
@@ -78,32 +83,44 @@ export function App() {
 
     try {
       const supabase = getSupabaseClient();
+      function lockConnection() {
+        setSignedIn(false);
+        setConnectionLocked(true);
+        setAuthReady(true);
+        setMessage('Connection or authorization service unavailable. Management is locked until online authorization succeeds.');
+      }
+
       async function verifyOwner(ticket: number) {
         try {
+          if (!navigator.onLine) {
+            if (active && ticket === authGeneration.current) lockConnection();
+            return;
+          }
           const { data, error } = await supabase.functions.invoke('owner-status', {
             method: 'POST', body: {},
           });
           if (!active || ticket !== authGeneration.current) return;
+          if (error) {
+            const status = (error as { context?: { status?: number } }).context?.status;
+            if (status !== 401 && status !== 403) {
+              lockConnection();
+              return;
+            }
+          }
           if (error || data?.authenticated !== true || data?.isActiveOwner !== true || data?.authorizationReady !== true) {
+            verifiedUser = null;
+            clearOwnerView();
             setMessage('Owner access could not be verified. Please sign in again.');
             setAuthReady(true);
-            // This runs outside the Auth callback, avoiding the Auth lock.
             await supabase.auth.signOut({ scope: 'local' });
             return;
           }
+          verifiedUser = sessionUser;
+          setConnectionLocked(false);
           setSignedIn(true);
           setMessage('');
         } catch {
-          if (active && ticket === authGeneration.current) {
-            setMessage('Unable to verify owner access. Please sign in again.');
-            // Fail closed on network/authorization errors as well as explicit denials.
-            // This runs outside the Auth callback to avoid the Supabase Auth lock.
-            try {
-              await supabase.auth.signOut({ scope: 'local' });
-            } catch {
-              // The owner view was already cleared by scheduleVerification.
-            }
-          }
+          if (active && ticket === authGeneration.current) lockConnection();
         } finally {
           if (active && ticket === authGeneration.current) setAuthReady(true);
         }
@@ -111,15 +128,22 @@ export function App() {
 
       function scheduleVerification() {
         const ticket = ++authGeneration.current;
-        clearOwnerView();
+        setSignedIn(false);
         setAuthReady(false);
         window.clearTimeout(timer);
+        if (!navigator.onLine) {
+          lockConnection();
+          return;
+        }
         timer = window.setTimeout(() => void verifyOwner(ticket), 0);
       }
+      retryAuthorization.current = scheduleVerification;
 
       const result = supabase.auth.onAuthStateChange((event, session) => {
         if (!active) return;
         hasSession = event !== 'SIGNED_OUT' && Boolean(session);
+        sessionUser = session?.user.id ?? null;
+        if (verifiedUser !== sessionUser) { verifiedUser = null; clearOwnerView(); }
         if (!hasSession) {
           ++authGeneration.current;
           window.clearTimeout(timer);
@@ -135,6 +159,11 @@ export function App() {
       function recheckOnFocus() {
         if (hasSession && document.visibilityState === 'visible') scheduleVerification();
       }
+      function onOffline() {
+        if (hasSession) { invalidate(); window.clearTimeout(timer); lockConnection(); }
+      }
+      window.addEventListener('offline', onOffline);
+      window.addEventListener('online', recheckOnFocus);
       window.addEventListener('focus', recheckOnFocus);
       document.addEventListener('visibilitychange', recheckOnFocus);
       return () => {
@@ -142,6 +171,9 @@ export function App() {
         invalidate();
         window.clearTimeout(timer);
         subscription?.unsubscribe();
+        retryAuthorization.current = () => {};
+        window.removeEventListener('offline', onOffline);
+        window.removeEventListener('online', recheckOnFocus);
         window.removeEventListener('focus', recheckOnFocus);
         document.removeEventListener('visibilitychange', recheckOnFocus);
       };
@@ -207,6 +239,7 @@ export function App() {
   async function handleSignOut() {
     ++authGeneration.current;
     // Remove sensitive components immediately, including while offline.
+    setConnectionLocked(false);
     setSignedIn(false);
     setEmail('');
     setPassword('');
@@ -230,6 +263,15 @@ export function App() {
     setMobileMenuOpen(false);
   }
 
+  if (connectionLocked && !signedIn) {
+    return <main className="login-page"><section className="login-panel">
+      <div className="brand-mark">G</div><h1>Management temporarily locked</h1>
+      <p role="status">{message}</p>
+      <p>No attendance, payments or membership changes can be recorded until authorization is restored.</p>
+      <button className="primary-button" disabled={!authReady} onClick={() => retryAuthorization.current()}>Retry authorization</button>
+      <button className="secondary-button" disabled={busy} onClick={() => void handleSignOut()}>Sign out</button>
+    </section></main>;
+  }
   if (!signedIn) {
     if (!authReady) {
   return (

@@ -132,6 +132,9 @@ export async function inspectSourceSecurity(root) {
         const manifest=JSON.parse(await readFile(resolve(root,'supabase/recovery/phase61/source-manifest.json'),'utf8'));
         const row=manifest.files.find(row=>row.file==='src/lib/walkin-recovery-store.ts');
         await inspect(path,text=>checkReviewedRecoveryStorage(text,row?.sha256));
+      } else if (relative(root,path).replaceAll('\\','/') === 'src/lib/offline-claim.ts') {
+        // Owner-approved staging candidate only; source changes require renewed review.
+        await inspect(path,text=>checkReviewedRecoveryStorage(text,'7c11e7d8a7aa195f9619ade46c36c929ea50ab96ec8ef69c303f0eaf245b1e47'));
       } else await inspect(path, checkBrowserSource);
     }
   }

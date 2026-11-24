@@ -1,4 +1,5 @@
 ﻿import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { OfflineClaimQueue } from './lib/offline-claim';
 import { MembersPage } from './components/MembersPage';
 import { MembershipPlansPage } from './components/MembershipPlansPage';
 import { MembershipPurchasesPage } from './components/MembershipPurchasesPage';
@@ -52,6 +53,13 @@ const sectionDescriptions: Record<Section, string> = {
 
 export function App() {
   const authGeneration = useRef(0);
+  const queue = useRef<OfflineClaimQueue | null>(null);
+  const [queueAllowed, setQueueAllowed] = useState(false);
+  const [queueCount, setQueueCount] = useState(0);
+  const [offlineMember, setOfflineMember] = useState('');
+  const [offlineDate, setOfflineDate] = useState('');
+  const [queueMessage, setQueueMessage] = useState('');
+  const queueBusy = useRef(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [passwordVisible, setPasswordVisible] = useState(false);
@@ -75,6 +83,8 @@ export function App() {
     function clearOwnerView() {
       setSignedIn(false);
       setConnectionLocked(false);
+      queue.current?.clear(); queue.current = null;
+      setQueueAllowed(false); setQueueCount(0); setOfflineMember(''); setOfflineDate(''); setQueueMessage('');
       setPassword('');
       setPasswordVisible(false);
       setActiveSection('overview');
@@ -86,6 +96,7 @@ export function App() {
       function lockConnection() {
         setSignedIn(false);
         setConnectionLocked(true);
+        setQueueAllowed(!!verifiedUser && verifiedUser === sessionUser && !navigator.onLine);
         setAuthReady(true);
         setMessage('Connection or authorization service unavailable. Management is locked until online authorization succeeds.');
       }
@@ -116,6 +127,7 @@ export function App() {
             return;
           }
           verifiedUser = sessionUser;
+          setQueueAllowed(false);
           setConnectionLocked(false);
           setSignedIn(true);
           setMessage('');
@@ -239,6 +251,8 @@ export function App() {
   async function handleSignOut() {
     ++authGeneration.current;
     // Remove sensitive components immediately, including while offline.
+    queue.current?.clear(); queue.current = null;
+    setQueueAllowed(false); setQueueCount(0); setOfflineMember(''); setOfflineDate(''); setQueueMessage('');
     setConnectionLocked(false);
     setSignedIn(false);
     setEmail('');
@@ -258,6 +272,42 @@ export function App() {
     }
   }
 
+  async function saveOfflineClaim(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!queueAllowed || navigator.onLine || queueBusy.current) return;
+    queueBusy.current = true;
+    try {
+      const current = queue.current ?? (queue.current = new OfflineClaimQueue());
+      await current.add(offlineMember.trim().toUpperCase(), offlineDate);
+      if (queue.current !== current) return;
+      setQueueCount(current.size); setOfflineMember(''); setOfflineDate('');
+      setQueueMessage('Pending locally in this tab only. No attendance recorded.');
+    } catch { setQueueMessage('Unable to queue claim. Check the fields or queue capacity.'); }
+    finally { queueBusy.current = false; }
+  }
+
+  async function syncOfflineClaims() {
+    if (!signedIn || !navigator.onLine || queueBusy.current || !queue.current) return;
+    queueBusy.current = true;
+    const current = queue.current;
+    const ticket = authGeneration.current;
+    try {
+      const client = getSupabaseClient();
+      const { data, error } = await client.functions.invoke('owner-status', { method: 'POST', body: {} });
+      if (error || data?.authenticated !== true || data?.isActiveOwner !== true || data?.authorizationReady !== true) throw Error();
+      while (current.size && queue.current === current && ticket === authGeneration.current && navigator.onLine) {
+        const payload = await current.first();
+        if (!payload || queue.current !== current || ticket !== authGeneration.current || !navigator.onLine) break;
+        const result = await client.functions.invoke('owner-attendance-claims', { body: payload });
+        if (queue.current !== current) return;
+        if (result.error || result.data?.success !== true) throw Error();
+        current.removeFirst(); setQueueCount(current.size);
+      }
+      setQueueMessage(current.size ? 'Pending claims retained. Retry after authorization.' : 'Claims synchronized for review only.');
+    } catch { setQueueMessage('Synchronization unconfirmed. Retry the same queued claims; do not create replacements.'); }
+    finally { queueBusy.current = false; }
+  }
+
   function handleNavigation(section: Section) {
     setActiveSection(section);
     setMobileMenuOpen(false);
@@ -268,6 +318,8 @@ export function App() {
       <div className="brand-mark">G</div><h1>Management temporarily locked</h1>
       <p role="status">{message}</p>
       <p>No attendance, payments or membership changes can be recorded until authorization is restored.</p>
+      {queueAllowed && <form onSubmit={(event) => void saveOfflineClaim(event)}><h2>Offline provisional claim</h2><p>Encrypted in this tab only. Closing or reloading loses pending claims. No attendance is granted.</p><label>Member ID<input required pattern="MBR-[0-9A-Fa-f]{12}" value={offlineMember} onChange={(event) => setOfflineMember(event.target.value)} /></label><label>Claimed Manila date<input type="date" required value={offlineDate} onChange={(event) => setOfflineDate(event.target.value)} /></label><button className="primary-button">Queue provisional claim</button></form>}
+      <p role="status">{queueCount} pending. {queueMessage}</p>
       <button className="primary-button" disabled={!authReady} onClick={() => retryAuthorization.current()}>Retry authorization</button>
       <button className="secondary-button" disabled={busy} onClick={() => void handleSignOut()}>Sign out</button>
     </section></main>;
@@ -458,6 +510,7 @@ export function App() {
 
         <div className="dashboard-content">
           <OwnerUpdateNotice />
+          {(queueCount > 0 || queueMessage) && <section className="content-card"><p role="status">{queueCount} pending offline claims. {queueMessage}</p><button className="secondary-button" disabled={!queueCount} onClick={() => void syncOfflineClaims()}>Synchronize pending claims</button></section>}
           <section className="page-heading">
             <div>
               <p className="eyebrow">MANAGEMENT PORTAL</p>

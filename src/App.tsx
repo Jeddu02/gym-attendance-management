@@ -1,4 +1,5 @@
 ﻿import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { OfflineClaimQueue } from './lib/offline-claim';
 import { MembersPage } from './components/MembersPage';
 import { MembershipPlansPage } from './components/MembershipPlansPage';
 import { MembershipPurchasesPage } from './components/MembershipPurchasesPage';
@@ -62,8 +63,19 @@ const sectionDescriptions: Record<Section, string> = {
   walkins: 'Manage walk-in fees, provisional requests, and actual receipts.',
 };
 
+const offlineLeaseMs = 15 * 60 * 1000;
+
 export function App() {
   const authGeneration = useRef(0);
+  const signingOut = useRef(false);
+  const offlineLeaseUntil = useRef(0);
+  const queue = useRef<OfflineClaimQueue | null>(null);
+  const [queueAllowed, setQueueAllowed] = useState(false);
+  const [queueCount, setQueueCount] = useState(0);
+  const [offlineMember, setOfflineMember] = useState('');
+  const [offlineDate, setOfflineDate] = useState('');
+  const [queueMessage, setQueueMessage] = useState('');
+  const queueBusy = useRef(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [passwordVisible, setPasswordVisible] = useState(false);
@@ -71,70 +83,116 @@ export function App() {
   const [message, setMessage] = useState('');
   const [signedIn, setSignedIn] = useState(false);
   const [authReady, setAuthReady] = useState(false);
+  const [connectionLocked, setConnectionLocked] = useState(false);
+  const retryAuthorization = useRef<() => void>(() => {});
   const [activeSection, setActiveSection] = useState<Section>(sectionFromUrl);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   useEffect(() => {
     let active = true;
     const invalidate = () => { ++authGeneration.current; };
-    let sessionUserId: string | undefined;
+    let hasSession = false;
+    let verifiedUser: string | null = null;
+    let sessionUser: string | null = null;
     let timer: number | undefined;
+    let leaseTimer: number | undefined;
     let subscription: { unsubscribe: () => void } | undefined;
 
-    function clearOwnerView(resetNavigation: boolean) {
+    function clearOwnerView(resetNavigation = true) {
+      offlineLeaseUntil.current = 0;
+      window.clearTimeout(leaseTimer);
       setSignedIn(false);
+      setConnectionLocked(false);
+      queue.current?.clear(); queue.current = null;
+      setQueueAllowed(false); setQueueCount(0); setOfflineMember(''); setOfflineDate(''); setQueueMessage('');
       setPassword('');
       setPasswordVisible(false);
+      if (resetNavigation) { storeSectionInUrl('overview'); setActiveSection('overview'); }
       setMobileMenuOpen(false);
-      if (resetNavigation) {
-        storeSectionInUrl('overview');
-        setActiveSection('overview');
-      }
     }
 
     try {
       const supabase = getSupabaseClient();
+      function lockConnection() {
+        setSignedIn(false);
+        setConnectionLocked(true);
+        setQueueAllowed(!!verifiedUser && verifiedUser === sessionUser && !!queue.current && Date.now() < offlineLeaseUntil.current && !navigator.onLine);
+        setAuthReady(true);
+        setMessage('Connection or authorization service unavailable. Management is locked until online authorization succeeds.');
+      }
+
       async function verifyOwner(ticket: number) {
         try {
+          if (!navigator.onLine) {
+            if (active && ticket === authGeneration.current) lockConnection();
+            return;
+          }
           const { data, error } = await supabase.functions.invoke('owner-status', {
             method: 'POST', body: {},
           });
           if (!active || ticket !== authGeneration.current) return;
+          if (error) {
+            const status = (error as { context?: { status?: number } }).context?.status;
+            if (status !== 401 && status !== 403) {
+              lockConnection();
+              return;
+            }
+          }
           if (error || data?.authenticated !== true || data?.isActiveOwner !== true || data?.authorizationReady !== true) {
-            clearOwnerView(true);
+            verifiedUser = null;
+            clearOwnerView();
             setMessage('Owner access could not be verified. Please sign in again.');
             setAuthReady(true);
-            // This runs outside the Auth callback, avoiding the Auth lock.
             await supabase.auth.signOut({ scope: 'local' });
             return;
           }
+          verifiedUser = sessionUser;
+          offlineLeaseUntil.current = Date.now() + offlineLeaseMs;
+          window.clearTimeout(leaseTimer);
+          leaseTimer = window.setTimeout(() => setQueueAllowed(false), offlineLeaseMs);
+          if (sessionUser && !queue.current) {
+            try {
+              const opened = await OfflineClaimQueue.open(sessionUser);
+              if (!active || ticket !== authGeneration.current) { opened.clear(); return; }
+              queue.current = opened; setQueueCount(opened.size);
+            } catch {
+              if (!active || ticket !== authGeneration.current) return;
+              setQueueMessage('Encrypted offline storage unavailable on this device.');
+            }
+          }
+          setQueueAllowed(false);
+          setConnectionLocked(false);
           setSignedIn(true);
           setMessage('');
         } catch {
-          if (active && ticket === authGeneration.current) {
-            clearOwnerView(true);
-            setMessage('Unable to verify owner access. Please sign in again.');
-          }
+          if (active && ticket === authGeneration.current) lockConnection();
         } finally {
           if (active && ticket === authGeneration.current) setAuthReady(true);
         }
       }
 
       function scheduleVerification() {
+        if (signingOut.current) return;
         const ticket = ++authGeneration.current;
         setAuthReady(false);
         window.clearTimeout(timer);
+        if (!navigator.onLine) {
+          lockConnection();
+          return;
+        }
         timer = window.setTimeout(() => void verifyOwner(ticket), 0);
       }
+      retryAuthorization.current = scheduleVerification;
 
       const result = supabase.auth.onAuthStateChange((event, session) => {
-        if (!active) return;
-        const nextUserId = event === 'SIGNED_OUT' ? undefined : session?.user.id;
-        if (sessionUserId && nextUserId && sessionUserId !== nextUserId) clearOwnerView(true);
-        sessionUserId = nextUserId;
-        if (!sessionUserId) {
+        if (!active || (signingOut.current && event !== 'SIGNED_OUT')) return;
+        hasSession = event !== 'SIGNED_OUT' && Boolean(session);
+        const previousUser = sessionUser;
+        sessionUser = session?.user.id ?? null;
+        if (verifiedUser !== sessionUser) { verifiedUser = null; clearOwnerView(!!previousUser && previousUser !== sessionUser); }
+        if (!hasSession) {
           ++authGeneration.current;
           window.clearTimeout(timer);
-          clearOwnerView(true);
+          clearOwnerView();
           setAuthReady(true);
           return;
         }
@@ -144,8 +202,13 @@ export function App() {
       subscription = result.data.subscription;
 
       function recheckOnFocus() {
-        if (sessionUserId && document.visibilityState === 'visible') scheduleVerification();
+        if (hasSession && document.visibilityState === 'visible') scheduleVerification();
       }
+      function onOffline() {
+        if (hasSession && !signingOut.current) { invalidate(); window.clearTimeout(timer); lockConnection(); }
+      }
+      window.addEventListener('offline', onOffline);
+      window.addEventListener('online', recheckOnFocus);
       window.addEventListener('focus', recheckOnFocus);
       document.addEventListener('visibilitychange', recheckOnFocus);
       return () => {
@@ -153,6 +216,11 @@ export function App() {
         invalidate();
         window.clearTimeout(timer);
         subscription?.unsubscribe();
+        retryAuthorization.current = () => {};
+        window.clearTimeout(leaseTimer);
+        offlineLeaseUntil.current = 0;
+        window.removeEventListener('offline', onOffline);
+        window.removeEventListener('online', recheckOnFocus);
         window.removeEventListener('focus', recheckOnFocus);
         document.removeEventListener('visibilitychange', recheckOnFocus);
       };
@@ -172,6 +240,7 @@ export function App() {
   }, []);
   async function handleSignIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    signingOut.current = false;
     setMessage('');
     setBusy(true);
 
@@ -216,8 +285,13 @@ export function App() {
   }
 
   async function handleSignOut() {
+    signingOut.current = true;
     ++authGeneration.current;
+    offlineLeaseUntil.current = 0;
     // Remove sensitive components immediately, including while offline.
+    queue.current?.clear(); queue.current = null;
+    setQueueAllowed(false); setQueueCount(0); setOfflineMember(''); setOfflineDate(''); setQueueMessage('');
+    setConnectionLocked(false);
     setSignedIn(false);
     setEmail('');
     setPassword('');
@@ -237,27 +311,79 @@ export function App() {
     }
   }
 
+  async function saveOfflineClaim(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!queueAllowed || navigator.onLine || queueBusy.current) return;
+    if (Date.now() >= offlineLeaseUntil.current) { setQueueAllowed(false); setQueueMessage('Offline authorization expired. Reconnect to continue.'); return; }
+    queueBusy.current = true;
+    try {
+      const current = queue.current;
+      if (!current) throw Error('Queue unavailable');
+      const added = await current.add(offlineMember.trim().toUpperCase(), offlineDate, offlineLeaseUntil.current);
+      if (queue.current !== current) return;
+      setQueueCount(current.size); setOfflineMember(''); setOfflineDate('');
+      setQueueMessage(added ? 'Saved in encrypted device storage. No attendance recorded.' : 'A claim for this member and date is already pending.');
+    } catch { setQueueMessage('Unable to queue claim. Check the fields or queue capacity.'); }
+    finally { queueBusy.current = false; }
+  }
+
+  async function syncOfflineClaims() {
+    if (!signedIn || !navigator.onLine || queueBusy.current || !queue.current) return;
+    queueBusy.current = true;
+    const current = queue.current;
+    const ticket = authGeneration.current;
+    try {
+      const client = getSupabaseClient();
+      const { data, error } = await client.functions.invoke('owner-status', { method: 'POST', body: {} });
+      if (error || data?.authenticated !== true || data?.isActiveOwner !== true || data?.authorizationReady !== true) throw Error();
+      while (current.size && queue.current === current && ticket === authGeneration.current && navigator.onLine) {
+        const payload = await current.first();
+        if (!payload || queue.current !== current || ticket !== authGeneration.current || !navigator.onLine) break;
+        const result = await client.functions.invoke('owner-attendance-claims', { body: payload });
+        if (queue.current !== current || ticket !== authGeneration.current) return;
+        const receipt = result.data?.result;
+        if (result.error || result.data?.success !== true || receipt?.provisional !== true ||
+            typeof receipt.replayed !== 'boolean' || typeof receipt.id !== 'string' ||
+            !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(receipt.id)) throw Error();
+        await current.remove(payload.operationId); if (queue.current !== current) return; setQueueCount(current.size);
+      }
+      setQueueMessage(current.size ? 'Pending claims retained. Retry after authorization.' : 'Claims synchronized for review only.');
+    } catch { if (queue.current === current && ticket === authGeneration.current) setQueueMessage('Synchronization unconfirmed. Retry the same queued claims; do not create replacements.'); }
+    finally { queueBusy.current = false; }
+  }
+
   function handleNavigation(section: Section) {
     storeSectionInUrl(section);
     setActiveSection(section);
     setMobileMenuOpen(false);
   }
 
+  if (connectionLocked && !signedIn) {
+    return <main className="login-page"><section className="login-panel">
+      <div className="brand-mark">G</div><h1>Management temporarily locked</h1>
+      <p role="status">{message}</p>
+      <p>No attendance, payments or membership changes can be recorded until authorization is restored.</p>
+      {queueAllowed && <form onSubmit={(event) => void saveOfflineClaim(event)}><h2>Offline provisional claim</h2><p>Encrypted on this device. Offline entry expires 15 minutes after online verification. Pending claims can be recovered after online owner authorization. No attendance is granted.</p><label>Member ID<input required pattern="MBR-[0-9A-Fa-f]{12}" value={offlineMember} onChange={(event) => setOfflineMember(event.target.value)} /></label><label>Claimed Manila date<input type="date" required value={offlineDate} onChange={(event) => setOfflineDate(event.target.value)} /></label><button className="primary-button">Queue provisional claim</button></form>}
+      <p role="status">{queueCount} pending. {queueMessage}</p>
+      <button className="primary-button" disabled={!authReady} onClick={() => retryAuthorization.current()}>Retry authorization</button>
+      <button className="secondary-button" disabled={busy} onClick={() => void handleSignOut()}>Sign out</button>
+    </section></main>;
+  }
   if (!signedIn) {
     if (!authReady) {
-      return (
-        <main className="login-page">
-          <section className="login-panel">
-            <div className="brand-mark">G</div>
-            <p className="eyebrow">GYM MANAGEMENT SYSTEM</p>
-            <h1>Gym Attendance</h1>
-            <p className="login-subtitle" role="status">
-              Restoring your secure owner session...
-            </p>
-          </section>
-        </main>
-      );
-    }
+  return (
+    <main className="login-page">
+      <section className="login-panel">
+        <div className="brand-mark">G</div>
+        <p className="eyebrow">GYM MANAGEMENT SYSTEM</p>
+        <h1>Gym Attendance</h1>
+        <p className="login-subtitle">
+          Restoring your secure owner session...
+        </p>
+      </section>
+    </main>
+  );
+}
     return (
       <main className="login-page">
         <section className="login-panel">
@@ -335,7 +461,6 @@ export function App() {
     (item) => item.id === activeSection,
   );
 
-  // Same-session checks run in the background. A failed check clears this view.
   return (
     <div className="dashboard">
       {mobileMenuOpen && (
@@ -430,6 +555,7 @@ export function App() {
 
         <div className="dashboard-content">
           <OwnerUpdateNotice />
+          {(queueCount > 0 || queueMessage) && <section className="content-card"><p role="status">{queueCount} pending offline claims. {queueMessage}</p><button className="secondary-button" disabled={!queueCount} onClick={() => void syncOfflineClaims()}>Synchronize pending claims</button></section>}
           <section className="page-heading">
             <div>
               <p className="eyebrow">MANAGEMENT PORTAL</p>

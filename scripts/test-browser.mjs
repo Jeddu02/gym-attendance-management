@@ -2,14 +2,15 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdir, readFile, writeFile, access } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { resolve, isAbsolute } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
 const root = resolve(import.meta.dirname, '..');
 const run = resolve(root, '.cache', `browser-test-${randomUUID()}`);
 await mkdir(run, { recursive: true });
-const browserPath = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+const browserPath = process.env.CHROME_PATH ?? (process.platform === 'win32' ? 'C:/Program Files/Google/Chrome/Application/chrome.exe' : '/usr/bin/chromium');
+if (!isAbsolute(browserPath)) throw Error('CHROME_PATH must be an absolute executable path');
 await access(browserPath);
 const reservation = createServer();
 await new Promise((done) => reservation.listen(0, '127.0.0.1', done));
@@ -33,6 +34,7 @@ const pending = new Map(); const errors = []; const observed = []; let externalA
 let paymentFailure = true; let walkinFailure = true; let publicUnavailable = true;
 let ownerStatusCalls = 0; let ownerStatusGate; let ownerStatusDenied = false;
 let publicResponsePatch = null; let publicCalls = 0; let resetCalls = 0;
+const claimAttempts = [];
 const recoverySnapshots = new Map();
 let expectedResetToken = 'A'.repeat(43); let resetSuccess = false;
 let memberNetworkFailure = false;
@@ -98,7 +100,8 @@ try {
       const payload = { sub: user.id, aud: 'authenticated', role: 'authenticated', exp: Math.floor(Date.now()/1000)+3600, iat: Math.floor(Date.now()/1000) };
       const access_token = [ { alg: 'HS256', typ: 'JWT' }, payload ].map((part) => Buffer.from(JSON.stringify(part)).toString('base64url')).join('.') + '.c3ludGhldGlj';
       await respond(200, { access_token, token_type: 'bearer', refresh_token: 'synthetic-refresh-only', expires_in: 3600, user });
-    } else if (url.pathname === '/functions/v1/owner-status') {
+    } else if (url.pathname === '/auth/v1/logout') await respond(200, {});
+    else if (url.pathname === '/functions/v1/owner-status') {
       ownerStatusCalls++;
       if (ownerStatusGate) await ownerStatusGate;
       await respond(200, { authenticated: true, isActiveOwner: !ownerStatusDenied, authorizationReady: true });
@@ -121,6 +124,12 @@ try {
     else if (url.pathname === '/functions/v1/owner-list-membership-purchases') await respond(200, { success: true, purchases: [] });
     else if (url.pathname === '/functions/v1/owner-walkins') await respond(walkinFailure ? 403 : 200, walkinFailure ? { error: 'OWNER_ACCESS_REQUIRED' } : { success: true, requests: [] });
     else if (url.pathname === '/functions/v1/owner-attendance') await respond(200, { success: true, attendance: [] });
+    else if (url.pathname === '/functions/v1/owner-attendance-claims' && JSON.parse(request.postData).action === 'submit') {
+      claimAttempts.push(JSON.parse(request.postData));
+      if (claimAttempts.length === 1) await respond(503, { error: 'SERVICE_UNAVAILABLE' });
+      else if (claimAttempts.length === 2) await respond(200, { success: true });
+      else await respond(200, { success: true, result: { id: '91000000-0000-4000-8000-000000000009', provisional: true, replayed: true } });
+    }
     else if (['/functions/v1/owner-receipt-review','/functions/v1/owner-cash','/functions/v1/owner-attendance-claims'].includes(url.pathname)) await respond(200, { success: true, result: [] });
     else if (url.pathname === '/functions/v1/member-checkin') {
       const input = JSON.parse(request.postData);
@@ -331,6 +340,36 @@ try {
   await until(() => evaluate('location.hash === "" && document.querySelectorAll("input[type=password]").length === 2 && !document.body.innerText.includes("Your PIN request is complete")'), 'New private link clears prior completion state');
   await navigate('/');
   await until(() => textIncludes('Sign in'), 'signed-out Owner screen');
+  if (!production) {
+    const result = await evaluate(`(async () => {
+      const { OfflineClaimQueue } = await import('/src/lib/offline-claim.ts');
+      const owner = crypto.randomUUID();
+      const a = await OfflineClaimQueue.open(owner);
+      const second = await OfflineClaimQueue.open(owner);
+      const add = queue => queue.add('MBR-ABCDEF123456', '2026-11-24', Date.now() + 60000);
+      const inserted = await Promise.all([add(a), add(second)]);
+      second.clear();
+      if (inserted.filter(Boolean).length !== 1) throw Error('Concurrent duplicate claim');
+      const first = await a.first(); a.clear();
+      const b = await OfflineClaimQueue.open(owner);
+      const recovered = await b.first();
+      const other = await OfflineClaimQueue.open(crypto.randomUUID());
+      await other.remove(first.operationId);
+      const isolated = other.size === 0 && (await b.first()).operationId === first.operationId;
+      const db = await new Promise((resolve,reject) => { const req = indexedDB.open('gymforce-offline-claims-v1'); req.onsuccess=()=>resolve(req.result); req.onerror=()=>reject(req.error); });
+      const read = (store,id) => new Promise((resolve,reject) => { const req=db.transaction(store).objectStore(store).get(id); req.onsuccess=()=>resolve(req.result); req.onerror=()=>reject(req.error); });
+      const row = await read('claims', first.operationId);
+      const key = await read('keys', owner);
+      const encrypted = row.ciphertext instanceof ArrayBuffer && !JSON.stringify(row).includes('MBR-ABCDEF123456') && !JSON.stringify(row).includes('2026-11-24') && key.extractable === false;
+      db.close();
+      await b.remove(first.operationId);
+      const empty = b.size === 0;
+      b.clear(); other.clear();
+      return { recovered: JSON.stringify(first) === JSON.stringify(recovered), isolated, empty, encrypted };
+    })()`);
+    assert.deepEqual(result, { recovered: true, isolated: true, empty: true, encrypted: true });
+    console.log('PASS: real browser queue reopen, owner isolation and acknowledged deletion.');
+  }
   assert.equal(await evaluate('document.querySelector(".dashboard") === null'), true);
   await evaluate(`(() => { const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; for (const [id,value] of [['email','owner@example.test'],['password','synthetic-ui-only']]) { const el=document.getElementById(id); set.call(el,value); el.dispatchEvent(new Event('input',{bubbles:true})); } })()`);
   await evaluate('document.querySelector("form").requestSubmit()');
@@ -393,6 +432,45 @@ try {
       assert.equal(await textIncludes('Access was denied'), false);
     }
   }
+  const setOffline = offline => cdp('Network.emulateNetworkConditions', { offline, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+  await cdp('Network.enable');
+  await setOffline(true);
+  await until(() => textIncludes('Offline provisional claim'), 'verified owner enters offline mode');
+  assert.equal(await evaluate('!!document.querySelector(".dashboard, #password")'), false);
+  const fillClaim = () => evaluate(`(() => {
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    const inputs = document.querySelectorAll('form input');
+    for (const [input, value] of [[inputs[0], 'MBR-ABCDEF123456'], [inputs[1], '2026-11-23']]) {
+      set.call(input, value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    document.querySelector('form').requestSubmit();
+  })()`);
+  await fillClaim();
+  await until(() => textIncludes('1 pending. Saved'), 'offline claim retained');
+  await fillClaim();
+  await until(() => textIncludes('1 pending. A claim'), 'duplicate prevented');
+  await evaluate('window.realNow = Date.now; Date.now = () => window.realNow() + 901000');
+  await fillClaim();
+  await until(() => textIncludes('Offline authorization expired'), 'expired lease blocks entry');
+  await evaluate('Date.now = window.realNow');
+  let releaseReconnect;
+  ownerStatusGate = new Promise(resolveGate => { releaseReconnect = resolveGate; });
+  const beforeReconnect = ownerStatusCalls;
+  try {
+    await setOffline(false);
+    await until(() => ownerStatusCalls > beforeReconnect, 'fresh owner check after reconnect');
+    assert.equal(await evaluate('!!document.querySelector(".dashboard")'), false);
+  } finally { releaseReconnect(); ownerStatusGate = undefined; }
+  await until(() => textIncludes('Permanent entrance QR'), 'settings navigation restored');
+  assert.equal(claimAttempts.length, 0);
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    await evaluate("Array.from(document.querySelectorAll('button')).find(b => b.innerText === 'Synchronize pending claims').click()");
+    await until(() => claimAttempts.length === attempt, 'manual retry sent');
+    await until(() => textIncludes(attempt < 3 ? '1 pending offline claims. Synchronization unconfirmed' : '0 pending offline claims. Claims synchronized'), 'only a valid acknowledgement removes claim');
+  }
+  assert.deepEqual(claimAttempts[0], claimAttempts[1]);
+  assert.deepEqual(claimAttempts[0], claimAttempts[2]);
   await evaluate(`(() => { const el=document.querySelector('input[type=url]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,'https://gym.example.test'); el.dispatchEvent(new Event('input',{bubbles:true})); })()`);
   await until(() => evaluate('document.querySelector("input[readonly]")?.value === "https://gym.example.test/entrance"'), 'exact QR destination');
   await evaluate('document.querySelector("input[type=checkbox]").click()');
@@ -444,7 +522,7 @@ try {
     assert.equal(publicCalls, beforeOfflineWalkin, 'Offline UI must not submit or queue public requests');
     await evaluate('window.phase57BeforeNavigation = true');
     await navigate('/entrance?synthetic-offline-navigation=1');
-    await until(() => evaluate('location.search === "?synthetic-offline-navigation=1" && window.phase57BeforeNavigation === undefined && navigator.onLine === false && document.body.innerText.includes("Nothing will be queued or confirmed offline.")'), 'Cold document navigation uses the offline static shell');
+    await until(() => evaluate('location.search === "?synthetic-offline-navigation=1" && window.phase57BeforeNavigation === undefined && navigator.onLine === false && document.body?.innerText.includes("Nothing will be queued or confirmed offline.")'), 'Cold document navigation uses the offline static shell');
     await cdp('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
     // Explicitly leave the only controlled document, as closing app windows does.
     await cdp('Page.navigate', { url: 'about:blank' });
@@ -458,6 +536,20 @@ try {
   await cdp('Page.navigate', { url: 'about:blank' });
   await navigate('/?section=settings');
   await until(() => textIncludes('Permanent entrance QR'), 'Owner reload restores section after verification');
+  const beforeSignOut = ownerStatusCalls;
+  let releaseVerification;
+  ownerStatusGate = new Promise(resolveGate => { releaseVerification = resolveGate; });
+  try {
+    await evaluate('window.dispatchEvent(new Event("focus"))');
+    await until(() => ownerStatusCalls > beforeSignOut, 'pending owner verification before sign-out');
+    await evaluate("document.querySelector('.signout-button').click()");
+    await until(() => textIncludes('Sign in'), 'manual sign-out hides management');
+  } finally { releaseVerification(); ownerStatusGate = undefined; }
+  await evaluate("window.dispatchEvent(new Event('focus'))");
+  await until(() => evaluate('!!document.querySelector("#email") && !document.querySelector(".dashboard")'), 'stale authorization cannot restore management');
+  await evaluate(`(() => { const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; for (const [id,value] of [['email','owner@example.test'],['password','synthetic-ui-only']]) { const el=document.getElementById(id); set.call(el,value); el.dispatchEvent(new Event('input',{bubbles:true})); } })()`);
+  await evaluate('document.querySelector("form").requestSubmit()');
+  await until(() => textIncludes('Owner access verified'), 'explicit sign-in restores management');
   ownerStatusDenied = true;
   await evaluate('window.dispatchEvent(new Event("focus"))');
   await until(() => evaluate('!document.querySelector(".dashboard") && document.body.innerText.includes("Sign in")'), 'revoked Owner access removes the dashboard');

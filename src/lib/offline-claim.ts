@@ -36,24 +36,35 @@ export class OfflineClaimQueue {
   private async reload() {
     this.entries = (await request(this.db.transaction('claims').objectStore('claims').index('owner').getAll(this.owner)) as Entry[]).sort((a,b) => a.created-b.created || a.id.localeCompare(b.id));
   }
-  async add(memberCode: string, claimedLocalDate: string) {
+  async add(memberCode: string, claimedLocalDate: string, leaseUntil: number) {
     if (this.closed || !/^MBR-[0-9A-F]{12}$/.test(memberCode) || !/^\d{4}-\d{2}-\d{2}$/.test(claimedLocalDate)) throw Error('Invalid claim');
     const date = new Date(claimedLocalDate + 'T00:00:00Z');
-    if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0,10) !== claimedLocalDate) throw Error('Invalid date');
-    const payload: OfflineClaim = { action: 'submit', operationId: crypto.randomUUID(), memberCode, claimedLocalDate };
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: new TextEncoder().encode(this.owner) }, this.key, new TextEncoder().encode(JSON.stringify(payload)));
-    if (this.closed) throw Error('Queue closed');
-    const t = this.db.transaction('claims','readwrite'); const done = complete(t);
-    const store = t.objectStore('claims');
-    if (await request(store.index('owner').count(this.owner)) >= 50) { await done; throw Error('Queue full'); }
-    store.add({ id: payload.operationId, owner: this.owner, iv, ciphertext, created: Date.now() });
-    await done; await this.reload();
+    if (claimedLocalDate.startsWith('0000') || !Number.isFinite(date.getTime()) || date.toISOString().slice(0,10) !== claimedLocalDate) throw Error('Invalid date');
+    return navigator.locks.request('gymforce-offline-claims:' + this.owner, async () => {
+      await this.reload();
+      for (const entry of this.entries) {
+        const existing = await this.decrypt(entry);
+        if (existing.memberCode === memberCode && existing.claimedLocalDate === claimedLocalDate) return false;
+      }
+      const payload: OfflineClaim = { action: 'submit', operationId: crypto.randomUUID(), memberCode, claimedLocalDate };
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: new TextEncoder().encode(this.owner) }, this.key, new TextEncoder().encode(JSON.stringify(payload)));
+      if (this.closed || !Number.isFinite(leaseUntil) || Date.now() >= leaseUntil) throw Error('Authorization expired');
+      const t = this.db.transaction('claims','readwrite'); const done = complete(t);
+      const store = t.objectStore('claims');
+      if (await request(store.index('owner').count(this.owner)) >= 50) { await done; throw Error('Queue full'); }
+      store.add({ id: payload.operationId, owner: this.owner, iv, ciphertext, created: Date.now() });
+      await done; await this.reload();
+      return true;
+    });
   }
   async first(): Promise<OfflineClaim | null> {
     if (this.closed) throw Error('Queue closed');
     await this.reload();
     const entry = this.entries[0]; if (!entry) return null;
+    return this.decrypt(entry);
+  }
+  private async decrypt(entry: Entry): Promise<OfflineClaim> {
     const bytes = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: entry.iv, additionalData: new TextEncoder().encode(this.owner) }, this.key, entry.ciphertext);
     if (this.closed) throw Error('Queue closed');
     const payload = JSON.parse(new TextDecoder().decode(bytes)) as OfflineClaim;

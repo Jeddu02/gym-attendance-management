@@ -373,12 +373,13 @@ try {
       try {
         await evaluate('window.paymentFormBeforeFocus = document.querySelector(".purchase-form"); window.dispatchEvent(new Event("focus"));');
         await until(() => ownerStatusCalls > previousCalls, 'focus rechecks Owner access');
-        await until(() => evaluate('document.querySelector(".dashboard")?.hidden === true'), 'dashboard hidden during Owner recheck');
+        assert.equal(await evaluate('document.querySelector(".dashboard")?.hidden'), false, 'focus keeps the dashboard visible during verification');
+        assert.equal(await textIncludes('Restoring your secure owner session'), false, 'focus does not show the session-restoring screen');
+        assert.equal(await evaluate('document.querySelector(".purchase-form") === window.paymentFormBeforeFocus'), true, 'focus keeps the current form mounted during verification');
       } finally {
         finishVerification();
         ownerStatusGate = undefined;
       }
-      await until(() => evaluate('document.querySelector(".dashboard")?.hidden === false'), 'Owner view returns after recheck');
       assert.equal(await evaluate('document.querySelector(".purchase-form") === window.paymentFormBeforeFocus'), true, 'focus preserves the payment form');
       assert.equal(await evaluate('document.querySelector(".purchase-form select").options.length'), 2, 'focus preserves payment pagination');
       assert.equal(await evaluate('new URLSearchParams(location.search).get("section")'), 'payments');

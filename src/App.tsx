@@ -243,21 +243,21 @@ export function App() {
     setMobileMenuOpen(false);
   }
 
-  const restoringSession = !authReady && (
-    <main className="login-page">
-      <section className="login-panel">
-        <div className="brand-mark">G</div>
-        <p className="eyebrow">GYM MANAGEMENT SYSTEM</p>
-        <h1>Gym Attendance</h1>
-        <p className="login-subtitle" role="status">
-          Restoring your secure owner session...
-        </p>
-      </section>
-    </main>
-  );
-
   if (!signedIn) {
-    if (!authReady) return restoringSession;
+    if (!authReady) {
+      return (
+        <main className="login-page">
+          <section className="login-panel">
+            <div className="brand-mark">G</div>
+            <p className="eyebrow">GYM MANAGEMENT SYSTEM</p>
+            <h1>Gym Attendance</h1>
+            <p className="login-subtitle" role="status">
+              Restoring your secure owner session...
+            </p>
+          </section>
+        </main>
+      );
+    }
     return (
       <main className="login-page">
         <section className="login-panel">
@@ -335,11 +335,9 @@ export function App() {
     (item) => item.id === activeSection,
   );
 
-  // Keep the verified Owner's form state mounted behind the session check.
+  // Same-session checks run in the background. A failed check clears this view.
   return (
-    <>
-      {restoringSession}
-    <div className="dashboard" hidden={!authReady} style={!authReady ? { display: 'none' } : undefined}>
+    <div className="dashboard">
       {mobileMenuOpen && (
         <button
           className="sidebar-backdrop"
@@ -490,7 +488,6 @@ export function App() {
         </div>
       </main>
     </div>
-    </>
   );
 }
 

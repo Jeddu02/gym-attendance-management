@@ -24,5 +24,8 @@ jobs:
       - run: npm run test:browser
         env:
           CHROME_PATH: /usr/bin/google-chrome
+      - run: npm run test:browser -- --production
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
       - run: npm run test:security
         if: always()

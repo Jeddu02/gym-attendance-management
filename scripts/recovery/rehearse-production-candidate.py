@@ -134,8 +134,11 @@ def rollback_snapshot():
 def inject_precommit_failure(sql,label):
     # Never infer rollback from the client error. Compare the actual catalog
     # and history in a fresh session after an explicit injected SQLSTATE.
-    if not sql.endswith("COMMIT;\n") or len(re.findall(r"^COMMIT;$",sql,re.M))!=1:
-        raise ValueError("Fault injection requires a single final commit")
+    if not sql.endswith("COMMIT;\n") or "INSERT INTO "+HISTORY not in sql:
+        raise ValueError("Fault injection requires a runner-built history transaction")
+    # The pinned SQL is also stored verbatim in a dollar-quoted history value.
+    # Its internal COMMIT line is data, not a second executable transaction.
+    # Both callers construct the outer transaction from verified source.
     before=rollback_snapshot()
     probe=sql.removesuffix("COMMIT;\n")+"""
 DO $gf_injected$ BEGIN RAISE EXCEPTION USING ERRCODE='ZX099',MESSAGE='Synthetic precommit failure'; END $gf_injected$;
@@ -286,5 +289,7 @@ if __name__=="__main__":
         raise SystemExit("Only disposable prefix/core/postcore modes exist.")
     try:
         {"prefix":prefix,"core":core,"postcore":postcore}[sys.argv[1]]()
-    except (ValueError,KeyError,OSError,subprocess.CalledProcessError):
+    except (ValueError,KeyError,OSError,subprocess.CalledProcessError) as exc:
+        if isinstance(exc,ValueError): print(str(exc),flush=True)
+        else: print("Synthetic failure category: "+type(exc).__name__,flush=True)
         raise SystemExit("Synthetic rehearsal stopped; no hosted release authorized.") from None

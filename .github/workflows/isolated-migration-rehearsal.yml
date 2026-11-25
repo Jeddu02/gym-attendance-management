@@ -36,6 +36,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.9.8
       - name: Verify reviewed migration artifacts
         shell: bash
         run: |

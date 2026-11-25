@@ -98,6 +98,58 @@ def assert_tamper_refused(anchor):
     run(sql)
     print("PASS synthetic changed history source refused; original history preserved.",flush=True)
 
+
+def rollback_snapshot():
+    # Catalog fingerprints only; no application records or role credentials.
+    # Compare the complete application catalog, explicit ACLs, default ACLs,
+    # policies and role memberships, plus migration history.
+    q="""BEGIN READ ONLY;
+    SET LOCAL search_path=pg_catalog; SET LOCAL statement_timeout='30s'; SET LOCAL lock_timeout='2s';
+    WITH ns AS (SELECT oid FROM pg_namespace WHERE nspname IN ('api','private')),
+    app_classes AS (SELECT oid FROM pg_class WHERE relnamespace IN (SELECT oid FROM ns)
+       OR oid='public.gym_settings'::regclass),
+    items AS (
+      SELECT 'class' AS kind,c.oid::text AS k,to_jsonb(c)::text AS v FROM pg_class c WHERE c.oid IN (SELECT oid FROM app_classes)
+      UNION ALL SELECT 'attr',a.attrelid::text||':'||a.attnum,to_jsonb(a)::text FROM pg_attribute a WHERE a.attrelid IN (SELECT oid FROM app_classes)
+      UNION ALL SELECT 'proc',p.oid::text,to_jsonb(p)::text FROM pg_proc p WHERE p.pronamespace IN (SELECT oid FROM ns)
+      UNION ALL SELECT 'constraint',c.oid::text,to_jsonb(c)::text FROM pg_constraint c WHERE c.conrelid IN (SELECT oid FROM app_classes)
+      UNION ALL SELECT 'trigger',t.oid::text,to_jsonb(t)::text FROM pg_trigger t WHERE t.tgrelid IN (SELECT oid FROM app_classes)
+      UNION ALL SELECT 'policy',p.oid::text,to_jsonb(p)::text FROM pg_policy p WHERE p.polrelid IN (SELECT oid FROM app_classes)
+      UNION ALL SELECT 'namespace',n.oid::text,to_jsonb(n)::text FROM pg_namespace n WHERE n.nspname IN ('api','private','public','extensions')
+      UNION ALL SELECT 'defaultacl',d.oid::text,to_jsonb(d)::text FROM pg_default_acl d
+      UNION ALL SELECT 'role',r.oid::text,to_jsonb(r)::text FROM pg_roles r WHERE r.rolname IN """+ROLE_NAMES+"""
+      UNION ALL SELECT 'membership',m.oid::text,to_jsonb(m)::text FROM pg_auth_members m
+      UNION ALL SELECT 'history',version,to_jsonb(h)::text FROM """+HISTORY+""" h
+    )
+    SELECT encode(sha256(convert_to(jsonb_agg(jsonb_build_array(kind,k,v) ORDER BY kind,k,v)::text,'UTF8')),'hex') FROM items;
+    ROLLBACK;"""
+    # pg_class maintenance estimates may change asynchronously, so normalize
+    # planner statistics and transaction-age fields before fingerprinting.
+    q=q.replace("to_jsonb(c)::text FROM pg_class c","(to_jsonb(c)-ARRAY['relpages','reltuples','relallvisible','relallfrozen','relfrozenxid','relminmxid'])::text FROM pg_class c")
+    q=q.replace("to_jsonb(r)::text FROM pg_roles r","(to_jsonb(r)-'rolpassword')::text FROM pg_roles r")
+    result=history_query(q)
+    if not re.fullmatch(r"[0-9a-f]{64}",result): raise ValueError("Invalid rollback snapshot")
+    return result
+
+def inject_precommit_failure(sql,label):
+    # Never infer rollback from the client error. Compare the actual catalog
+    # and history in a fresh session after an explicit injected SQLSTATE.
+    if not sql.endswith("COMMIT;\n") or len(re.findall(r"^COMMIT;$",sql,re.M))!=1:
+        raise ValueError("Fault injection requires a single final commit")
+    before=rollback_snapshot()
+    probe=sql.removesuffix("COMMIT;\n")+"""
+DO $gf_injected$ BEGIN RAISE EXCEPTION USING ERRCODE='ZX099',MESSAGE='Synthetic precommit failure'; END $gf_injected$;
+COMMIT;
+"""
+    env={k:v for k,v in os.environ.items() if not k.startswith("PG")}
+    env.update(PGPASSWORD=runner.connection(True)[4],PGSSLMODE="disable",PGCONNECT_TIMEOUT="10")
+    result=subprocess.run(["psql","-X","-w","-qAt","-v","ON_ERROR_STOP=1","-v","VERBOSITY=sqlstate","-h","127.0.0.1","-p","54322","-U","postgres","-d","postgres"],input=probe,text=True,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
+    if result.returncode==0 or "ZX099" not in result.stderr:
+        raise ValueError("Expected injected fault was not reached: "+label)
+    if rollback_snapshot()!=before:
+        raise ValueError("Rollback catalog/history fingerprint differs: "+label)
+    print("PASS injected precommit failure rolled back catalog, history and privileges: "+label,flush=True)
+
 def core():
     anchors=json.loads(anchor_file().read_text())
     if len(anchors)!=2 or [x["count"] for x in anchors]!=[20,24]:
@@ -108,12 +160,25 @@ def core():
         if not disposable: raise ValueError("Only synthetic history supported")
         return previous(baseline,finished,disposable)+"\n"+guard
     runner.history_check=guarded_history
+    previous_psql=runner.psql
+    probe_count=0
+    def fault_checked_psql(session,sql):
+        nonlocal probe_count
+        if session[:4] != runner.connection(True)[:4]: raise ValueError('Non-disposable session refused')
+        if 'INSERT INTO '+HISTORY in sql and sql.endswith('COMMIT;\n'):
+            probe_count+=1
+            inject_precommit_failure(sql,'core-'+str(probe_count))
+        return previous_psql(session,sql)
+    runner.psql=fault_checked_psql
     old=sys.argv
     try:
         sys.argv=[old[0],"disposable"]
         runner.main()
     finally:
         sys.argv=old
+        runner.psql=previous_psql
+        runner.history_check=previous
+    if probe_count!=13: raise ValueError('Expected 13 injected core faults')
     run("BEGIN READ ONLY;\nSET LOCAL search_path=pg_catalog;\n"+guard+"\nROLLBACK;")
     print("PASS unchanged 20-entry and 24-entry source-array fingerprints through all thirteen compatibility transactions.",flush=True)
 
@@ -133,7 +198,9 @@ def prefix():
         v,n=name.split("_",1)
         sql=source("supabase/migrations/"+name+".sql")
         insert=f"INSERT INTO {HISTORY}(version,name,statements) VALUES ({runner.literal(v)},{runner.literal(n)},ARRAY[{runner.stored_source(sql)}]);"
-        run("BEGIN;\nSET LOCAL lock_timeout='2s';\nSET LOCAL statement_timeout='30s';\n"+f"LOCK TABLE {HISTORY} IN SHARE ROW EXCLUSIVE MODE;\n"+guard_prefix(expected)+"\n"+immutable+"\n"+body(sql)+"\n"+insert+"\nCOMMIT;")
+        transaction="BEGIN;\nSET LOCAL lock_timeout='2s';\nSET LOCAL statement_timeout='30s';\n"+f"LOCK TABLE {HISTORY} IN SHARE ROW EXCLUSIVE MODE;\n"+guard_prefix(expected)+"\n"+immutable+"\n"+body(sql)+"\n"+insert+"\nCOMMIT;\n"
+        inject_precommit_failure(transaction,v)
+        run(transaction)
         expected.append((v,n))
         run("BEGIN READ ONLY;\n"+guard_prefix(expected)+"\n"+immutable+f"\nDO $record$ BEGIN IF NOT EXISTS(SELECT 1 FROM {HISTORY} WHERE version={runner.literal(v)} AND name={runner.literal(n)} AND cardinality(statements)=1 AND encode(sha256(convert_to(statements[1],'UTF8')),'hex')={runner.literal(hashlib.sha256(sql.encode()).hexdigest())}) THEN RAISE EXCEPTION 'Exact source history missing'; END IF; END $record$;\nROLLBACK;")
         print("PASS prefix "+v,flush=True)

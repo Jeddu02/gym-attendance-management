@@ -95,14 +95,13 @@ def blocker():
     env.update(PGPASSWORD=candidate.runner.connection(True)[4],PGSSLMODE="disable",PGCONNECT_TIMEOUT="10")
     p=subprocess.Popen(["psql","-X","-w","-qAt","-v","ON_ERROR_STOP=1","-h","127.0.0.1","-p","54322","-U","postgres","-d","postgres"],
                        text=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,env=env,bufsize=1)
-    p.stdin.write("SELECT pg_advisory_lock(7459911); SELECT 'READY';\n")
+    p.stdin.write("SELECT 'READY' FROM pg_advisory_lock(7459911);\n")
     p.stdin.flush()
     import select
     end=time.monotonic()+8
     while time.monotonic()<end:
         ready,_,_=select.select([p.stdout],[],[],max(0,end-time.monotonic()))
         if not ready: break
-        # psql may return an empty line for void; use unbuffered OS readiness
         line=p.stdout.readline()
         if line.strip()=="READY": return p
         if p.poll() is not None: break

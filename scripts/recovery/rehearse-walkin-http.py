@@ -115,8 +115,12 @@ def synthetic_owner(service):
         headers={"apikey":service,"Authorization":"Bearer "+service,"Content-Type":"application/json"},
         data=json.dumps({"email":f"gymforce-ci-{uuid.uuid4().hex}@example.invalid",
                          "password":secrets.token_urlsafe(32),"email_confirm":True}).encode())
-    with OPENER.open(req,timeout=8) as response:
-        actor=json.loads(response.read(65536))["id"]
+    try:
+        with OPENER.open(req,timeout=8) as response:
+            actor=json.loads(response.read(65536))["id"]
+    except urllib.error.HTTPError as e:
+        raise ValueError("Synthetic Auth fixture HTTP status "+str(e.code)) from None
+    print("PASS synthetic local Auth user creation.",flush=True)
     if str(uuid.UUID(actor))!=actor:raise ValueError("Unexpected synthetic Auth user")
     candidate.run("BEGIN;\nSET LOCAL search_path=pg_catalog;\n"+candidate.graph()+"""
     GRANT gym_data_owner TO postgres WITH ADMIN FALSE, INHERIT TRUE, SET TRUE GRANTED BY postgres;
@@ -129,6 +133,7 @@ def synthetic_owner(service):
     REVOKE gym_data_owner FROM postgres GRANTED BY postgres;
     """+candidate.graph()+"\nCOMMIT;")
     expect(rpc(service,"owner_set_walkin_fee",{"p_actor_user_id":actor,"p_fee_php":125,"p_reason":"Synthetic integration fixture"}),200)
+    print("PASS synthetic local Owner fee fixture.",flush=True)
 
 def snapshot():
     env={k:v for k,v in os.environ.items() if not k.startswith("PG")}
@@ -155,11 +160,17 @@ def native_edge(service):
     import base64
     synthetic_owner(service)
     before=snapshot()
+    print("PASS protected synthetic pre-operation fingerprint.",flush=True)
     entry=ROOT/"supabase/functions/public-walkin-recovery/index.ts"
     # The exact loopback-restricted handler is unchanged. Dependency acquisition
     # happens before runtime; execution is restricted to the local HTTP stack.
     candidate.source("supabase/functions/public-walkin-recovery/index.ts")
-    subprocess.run(["deno","cache","--frozen",str(entry)],cwd=ROOT,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True)
+    cache=subprocess.run(["deno","cache","--frozen",str(entry)],cwd=ROOT,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True)
+    if cache.returncode:
+        # Output only known, non-sensitive dependency failure categories.
+        categories=[k for k,pattern in (("lockfile",r"lockfile|frozen"),("network",r"download|registry|connect"),("permission",r"permission|denied"),("module",r"module|specifier")) if re.search(pattern,cache.stderr,re.I)]
+        raise ValueError("Frozen Deno cache failed: "+",".join(categories or ["unclassified"]))
+    print("PASS frozen native Deno dependency cache.",flush=True)
     env={k:v for k,v in os.environ.items() if k in ("PATH","HOME","DENO_DIR","TMPDIR")}
     origin="http://127.0.0.1:3000"
     env.update(APP_ORIGIN=origin,SUPABASE_URL=HOST,SUPABASE_SERVICE_ROLE_KEY=service,
@@ -288,4 +299,7 @@ if __name__=="__main__":
     except (ValueError,KeyError,OSError,subprocess.CalledProcessError) as e:
         # Do not output credentials, request URLs from exceptions, or response bodies.
         if isinstance(e,ValueError): print(str(e),flush=True)
+        elif isinstance(e,subprocess.CalledProcessError): print("Local subprocess exit status "+str(e.returncode),flush=True)
+        elif isinstance(e,urllib.error.HTTPError): print("Local HTTP status "+str(e.code),flush=True)
+        else: print("Local setup failure category "+type(e).__name__,flush=True)
         raise SystemExit("Local HTTP qualification stopped. Hosted gate remains closed.") from None

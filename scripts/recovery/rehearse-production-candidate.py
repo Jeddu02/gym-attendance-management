@@ -51,22 +51,91 @@ def guard_prefix(expected):
       THEN RAISE EXCEPTION 'Disposable production-prefix baseline differs'; END IF;
     END $prefix$;"""
 
+
+def history_query(sql):
+    env={k:v for k,v in os.environ.items() if not k.startswith("PG")}
+    env.update(PGPASSWORD=runner.connection(True)[4],PGSSLMODE="disable",PGCONNECT_TIMEOUT="10")
+    return subprocess.check_output(["psql","-X","-w","-qAt","-v","ON_ERROR_STOP=1","-h","127.0.0.1","-p","54322","-U","postgres","-d","postgres"],input=sql,text=True,env=env).strip()
+
+def history_expression(cutoff):
+    if not re.fullmatch(r"[0-9]{14}",cutoff): raise ValueError("Invalid history cutoff")
+    return f"""SELECT count(*) AS entries,count(*) FILTER(WHERE statements IS NOT NULL AND cardinality(statements)>0) AS populated,
+    encode(sha256(convert_to(jsonb_agg(jsonb_build_array(version,name,encode(sha256(convert_to(to_jsonb(statements)::text,'UTF8')),'hex')) ORDER BY version)::text,'UTF8')),'hex') AS fingerprint
+    FROM {HISTORY} WHERE version<={runner.literal(cutoff)}"""
+
+def capture_history(cutoff,count):
+    row=history_query("BEGIN READ ONLY;\nSET LOCAL search_path=pg_catalog; SET LOCAL statement_timeout='30s'; SET LOCAL lock_timeout='2s';\n"+history_expression(cutoff)+";\nROLLBACK;").split("|")
+    if len(row)!=3 or row[:2]!=[str(count),str(count)] or not re.fullmatch(r"[0-9a-f]{64}",row[2]):
+        raise ValueError("Synthetic baseline history is incomplete")
+    return {"cutoff":cutoff,"count":count,"fingerprint":row[2]}
+
+def immutable_history(anchor):
+    cutoff,count,digest=anchor["cutoff"],anchor["count"],anchor["fingerprint"]
+    if count not in (20,24) or not re.fullmatch(r"[0-9a-f]{64}",digest):
+        raise ValueError("Invalid synthetic history anchor")
+    return f"""DO $immutable$ BEGIN
+    IF NOT EXISTS(SELECT 1 FROM ({history_expression(cutoff)}) s WHERE s.entries={count} AND s.populated={count} AND s.fingerprint={runner.literal(digest)})
+    THEN RAISE EXCEPTION USING ERRCODE='P0001',MESSAGE='Immutable baseline history drift'; END IF;
+    END $immutable$;"""
+
+def anchor_file():
+    return Path(os.environ["RUNNER_TEMP"])/"gymforce-synthetic-history-anchor.json"
+
+def assert_tamper_refused(anchor):
+    # Synthetic transaction only. A savepoint-like nested block rolls back the
+    # intentionally altered history row when the guard refuses it.
+    sql="BEGIN;\nSET LOCAL search_path=pg_catalog; SET LOCAL statement_timeout='30s'; SET LOCAL lock_timeout='2s';\n"+immutable_history(anchor)+f"""
+    DO $fault$ BEGIN
+      BEGIN
+        UPDATE {HISTORY} SET statements=array_append(statements,'-- synthetic tamper probe') WHERE version={runner.literal(anchor["cutoff"])};
+        {immutable_history(anchor).removeprefix("DO $immutable$ BEGIN").removesuffix("END $immutable$;")}
+        RAISE EXCEPTION USING ERRCODE='ZX001',MESSAGE='History alteration was not detected';
+      EXCEPTION WHEN SQLSTATE 'P0001' THEN
+        IF SQLERRM<>'Immutable baseline history drift' THEN RAISE; END IF;
+      END;
+    END $fault$;
+    """+immutable_history(anchor)+"\nROLLBACK;"
+    run(sql)
+    print("PASS synthetic changed history source refused; original history preserved.",flush=True)
+
+def core():
+    anchors=json.loads(anchor_file().read_text())
+    if len(anchors)!=2 or [x["count"] for x in anchors]!=[20,24]:
+        raise ValueError("Missing prefix anchors")
+    guard="\n".join(immutable_history(x) for x in anchors)
+    previous=runner.history_check
+    def guarded_history(baseline,finished,disposable):
+        if not disposable: raise ValueError("Only synthetic history supported")
+        return previous(baseline,finished,disposable)+"\n"+guard
+    runner.history_check=guarded_history
+    old=sys.argv
+    try:
+        sys.argv=[old[0],"disposable"]
+        runner.main()
+    finally:
+        sys.argv=old
+    run("BEGIN READ ONLY;\nSET LOCAL search_path=pg_catalog;\n"+guard+"\nROLLBACK;")
+    print("PASS unchanged 20-entry and 24-entry source-array fingerprints through all thirteen compatibility transactions.",flush=True)
+
 def prefix():
     baseline,steps,checked=runner.verified_package()
     expected=[tuple(name.split("_",1)) for name,_ in baseline[:20]]
     run("BEGIN READ ONLY;\n"+guard_prefix(expected)+"\nROLLBACK;")
+    anchor=capture_history(expected[-1][0],20)
+    assert_tamper_refused(anchor)
+    immutable=immutable_history(anchor)
     # Model the observed pre-existing plan routines and index without recording history.
     plan_path="supabase/migrations/"+baseline[20][0]+".sql"
     plan=source(plan_path)
-    run("BEGIN;\nSET LOCAL lock_timeout='2s';\nSET LOCAL statement_timeout='30s';\n"+guard_prefix(expected)+"\n"+body(plan)+"\nCOMMIT;")
+    run("BEGIN;\nSET LOCAL lock_timeout='2s';\nSET LOCAL statement_timeout='30s';\n"+guard_prefix(expected)+"\n"+immutable+"\n"+body(plan)+"\nCOMMIT;")
     print("Synthetic fixture: unrecorded plan objects created.",flush=True)
     for name,_ in baseline[20:24]:
         v,n=name.split("_",1)
         sql=source("supabase/migrations/"+name+".sql")
         insert=f"INSERT INTO {HISTORY}(version,name,statements) VALUES ({runner.literal(v)},{runner.literal(n)},ARRAY[{runner.stored_source(sql)}]);"
-        run("BEGIN;\nSET LOCAL lock_timeout='2s';\nSET LOCAL statement_timeout='30s';\n"+f"LOCK TABLE {HISTORY} IN SHARE ROW EXCLUSIVE MODE;\n"+guard_prefix(expected)+"\n"+body(sql)+"\n"+insert+"\nCOMMIT;")
+        run("BEGIN;\nSET LOCAL lock_timeout='2s';\nSET LOCAL statement_timeout='30s';\n"+f"LOCK TABLE {HISTORY} IN SHARE ROW EXCLUSIVE MODE;\n"+guard_prefix(expected)+"\n"+immutable+"\n"+body(sql)+"\n"+insert+"\nCOMMIT;")
         expected.append((v,n))
-        run("BEGIN READ ONLY;\n"+guard_prefix(expected)+f"\nDO $record$ BEGIN IF NOT EXISTS(SELECT 1 FROM {HISTORY} WHERE version={runner.literal(v)} AND name={runner.literal(n)} AND cardinality(statements)=1 AND encode(sha256(convert_to(statements[1],'UTF8')),'hex')={runner.literal(hashlib.sha256(sql.encode()).hexdigest())}) THEN RAISE EXCEPTION 'Exact source history missing'; END IF; END $record$;\nROLLBACK;")
+        run("BEGIN READ ONLY;\n"+guard_prefix(expected)+"\n"+immutable+f"\nDO $record$ BEGIN IF NOT EXISTS(SELECT 1 FROM {HISTORY} WHERE version={runner.literal(v)} AND name={runner.literal(n)} AND cardinality(statements)=1 AND encode(sha256(convert_to(statements[1],'UTF8')),'hex')={runner.literal(hashlib.sha256(sql.encode()).hexdigest())}) THEN RAISE EXCEPTION 'Exact source history missing'; END IF; END $record$;\nROLLBACK;")
         print("PASS prefix "+v,flush=True)
     # Full conditional payment checks are now executable, after P04.
     q=source("docs/production-preflight/07-lifecycle-payment-blockers.sql")
@@ -81,6 +150,11 @@ def prefix():
     rows=out.strip().splitlines()
     if len(rows)!=5 or any(not line.endswith("|PASS") for line in rows): raise ValueError("Conditional payment prerequisites failed")
     print("PASS all five conditional lifecycle/payment checks after P04.",flush=True)
+    anchor24=capture_history(expected[-1][0],24)
+    assert_tamper_refused(anchor24)
+    fd=os.open(anchor_file(),os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+    with os.fdopen(fd,"w") as out: json.dump([anchor,anchor24],out)
+    print("PASS pinned synthetic 20/24 history anchors.",flush=True)
 
 def graph():
     return f"""DO $graph$ BEGIN
@@ -141,9 +215,9 @@ def postcore():
 if __name__=="__main__":
     if os.environ.get("GITHUB_ACTIONS")!="true" or os.environ.get("GITHUB_REF")!="refs/heads/validation/recovery-rehearsal":
         raise SystemExit("Refusing: isolated GitHub rehearsal branch only.")
-    if len(sys.argv)!=2 or sys.argv[1] not in ("prefix","postcore"):
-        raise SystemExit("Only disposable prefix/postcore modes exist.")
+    if len(sys.argv)!=2 or sys.argv[1] not in ("prefix","core","postcore"):
+        raise SystemExit("Only disposable prefix/core/postcore modes exist.")
     try:
-        (prefix if sys.argv[1]=="prefix" else postcore)()
+        {"prefix":prefix,"core":core,"postcore":postcore}[sys.argv[1]]()
     except (ValueError,KeyError,OSError,subprocess.CalledProcessError):
         raise SystemExit("Synthetic rehearsal stopped; no hosted release authorized.") from None

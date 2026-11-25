@@ -107,6 +107,132 @@ def blocker():
         if p.poll() is not None: break
     p.kill();p.wait()
     raise ValueError("Disposable lock holder did not become ready")
+
+def synthetic_owner(service):
+    import secrets
+    import uuid
+    req=urllib.request.Request(HOST+"/auth/v1/admin/users",method="POST",
+        headers={"apikey":service,"Authorization":"Bearer "+service,"Content-Type":"application/json"},
+        data=json.dumps({"email":f"gymforce-ci-{uuid.uuid4().hex}@example.invalid",
+                         "password":secrets.token_urlsafe(32),"email_confirm":True}).encode())
+    with OPENER.open(req,timeout=8) as response:
+        actor=json.loads(response.read(65536))["id"]
+    if str(uuid.UUID(actor))!=actor:raise ValueError("Unexpected synthetic Auth user")
+    candidate.run("BEGIN;\nSET LOCAL search_path=pg_catalog;\n"+candidate.graph()+"""
+    GRANT gym_data_owner TO postgres WITH ADMIN FALSE, INHERIT TRUE, SET TRUE GRANTED BY postgres;
+    DO $fixture$ BEGIN
+      IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=current_user AND rolbypassrls)
+        OR row_security_active('private.owner_access'::regclass)
+        THEN RAISE EXCEPTION 'Synthetic fixture visibility unavailable'; END IF;
+    END $fixture$;
+    INSERT INTO private.owner_access(user_id,is_active) VALUES ("""+candidate.runner.literal(actor)+""",true);
+    REVOKE gym_data_owner FROM postgres GRANTED BY postgres;
+    """+candidate.graph()+"\nCOMMIT;")
+    expect(rpc(service,"owner_set_walkin_fee",{"p_actor_user_id":actor,"p_fee_php":125,"p_reason":"Synthetic integration fixture"}),200)
+
+def snapshot():
+    env={k:v for k,v in os.environ.items() if not k.startswith("PG")}
+    env.update(PGPASSWORD=candidate.runner.connection(True)[4],PGSSLMODE="disable",PGCONNECT_TIMEOUT="10")
+    names=("payment_records","payment_allocations","payment_events","attendance_checkins","audit_events","members","membership_purchases")
+    hash_queries=",".join("(SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY x.id),'[]'::jsonb) FROM private."+n+" x)" for n in names)
+    q="BEGIN;\nSET LOCAL search_path=pg_catalog;\n"+candidate.graph()+"""
+    GRANT gym_data_owner TO postgres WITH ADMIN FALSE, INHERIT TRUE, SET TRUE GRANTED BY postgres;
+    DO $fixture$ BEGIN
+      IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=current_user AND rolbypassrls)
+        OR EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+             WHERE n.nspname='private' AND c.relkind IN ('r','p') AND row_security_active(c.oid))
+      THEN RAISE EXCEPTION 'Incomplete synthetic fixture visibility'; END IF;
+    END $fixture$;
+    SELECT jsonb_build_object('requests',(SELECT count(*) FROM private.walkin_requests),
+      'bindings',(SELECT count(*) FROM private.walkin_creation_operations),
+      'protected_digest',encode(sha256(convert_to(jsonb_build_array("""+hash_queries+""")::text,'UTF8')),'hex'),
+      'attempts',(SELECT day_attempts FROM private.walkin_ingress_state WHERE id=1));
+    ROLLBACK;"""
+    out=subprocess.check_output(["psql","-X","-w","-qAt","-v","ON_ERROR_STOP=1","-h","127.0.0.1","-p","54322","-U","postgres","-d","postgres"],input=q,text=True,env=env)
+    return json.loads(out)
+
+def native_edge(service):
+    import base64
+    synthetic_owner(service)
+    before=snapshot()
+    entry=ROOT/"supabase/functions/public-walkin-recovery/index.ts"
+    # The exact loopback-restricted handler is unchanged. Dependency acquisition
+    # happens before runtime; execution is restricted to the local HTTP stack.
+    candidate.source("supabase/functions/public-walkin-recovery/index.ts")
+    subprocess.run(["deno","cache","--frozen",str(entry)],cwd=ROOT,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True)
+    env={k:v for k,v in os.environ.items() if k in ("PATH","HOME","DENO_DIR","TMPDIR")}
+    origin="http://127.0.0.1:3000"
+    env.update(APP_ORIGIN=origin,SUPABASE_URL=HOST,SUPABASE_SERVICE_ROLE_KEY=service,
+               PUBLIC_WALKIN_ENABLED="true",WALKIN_REQUEST_LIMIT_PER_MINUTE="10")
+    server=subprocess.Popen(["deno","run","--frozen","--cached-only",
+        "--allow-net=0.0.0.0:8000,127.0.0.1:54321",
+        "--allow-env=APP_ORIGIN,SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY,PUBLIC_WALKIN_ENABLED,WALKIN_REQUEST_LIMIT_PER_MINUTE",
+        str(entry)],cwd=ROOT,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    def edge(data=None,method="POST",allowed_origin=origin):
+        req=urllib.request.Request("http://127.0.0.1:8000/public-walkin-recovery",method=method,
+            headers={"Origin":allowed_origin,"Content-Type":"application/json"},
+            data=json.dumps(data).encode() if data is not None else None)
+        try:
+            with OPENER.open(req,timeout=12) as response:
+                b=response.read(65536)
+                return response.status,json.loads(b) if b else None
+        except urllib.error.HTTPError as e:
+            b=e.read(65536)
+            try: body=json.loads(b)
+            except ValueError: body={}
+            return e.code,body
+    def edge_expect(data,status):
+        result=edge(data)
+        if result[0]!=status:raise ValueError("Native Edge unexpected HTTP status "+str(result[0]))
+        return result[1]
+    def key(n):return base64.urlsafe_b64encode(bytes([n])*32).decode().rstrip("=")
+    try:
+        for _ in range(30):
+            if server.poll() is not None:raise ValueError("Native Edge exited during startup")
+            try:
+                if edge(method="OPTIONS")[0]==204:break
+            except urllib.error.URLError:pass
+            time.sleep(.5)
+        else:raise ValueError("Native Edge loopback startup failed")
+        if edge({"action":"lookup","capability":key(9)},allowed_origin="https://invalid.example")[0]!=403:
+            raise ValueError("Cross-origin refusal missing")
+        cash={"action":"create","capability":key(7),"paymentMethod":"cash"}
+        first=edge_expect(cash,201)
+        if first.get("classification")!="PROVISIONAL_CREATED" or first.get("success") is not True:
+            raise ValueError("Unexpected first classification")
+        if set(first["request"])!={"id","feePhp","currency","paymentMethod","createdAt","expiresAt"}:
+            raise ValueError("Provisional response shape changed")
+        if first["request"]["feePhp"]!="125.00" or first["request"]["paymentMethod"]!="cash":
+            raise ValueError("Server fee or payment method mismatch")
+        replay=edge_expect(cash,200)
+        if replay.get("classification")!="PROVISIONAL_RECOVERED" or replay["request"]!=first["request"]:
+            raise ValueError("Cash replay did not recover the same operation")
+        conflict=edge_expect(dict(cash,paymentMethod="gcash"),409)
+        if conflict!={"error":"OPERATION_CONFLICT"}:raise ValueError("Conflicting method exposed a snapshot")
+        gcash={"action":"create","capability":key(8),"paymentMethod":"gcash"}
+        second=edge_expect(gcash,201)
+        if second["request"]["paymentMethod"]!="gcash" or second["request"]["id"]==first["request"]["id"]:
+            raise ValueError("GCash creation identity invalid")
+        if edge_expect(gcash,200)["request"]!=second["request"]:
+            raise ValueError("GCash replay mismatch")
+        # The three-token local key bucket must refill before another cash lookup.
+        time.sleep(5.5)
+        if edge_expect({"action":"lookup","capability":key(7)},200)["request"]!=first["request"]:
+            raise ValueError("Lookup changed immutable snapshot")
+        if edge_expect({"action":"lookup","capability":key(9)},404)!={"error":"NO_RECOVERABLE_OUTCOME"}:
+            raise ValueError("Unknown capability disclosed data")
+        edge_expect({"action":"create"},400)
+        after=snapshot()
+        if after["requests"]!=before["requests"]+2 or after["bindings"]!=before["bindings"]+2 or after["protected_digest"]!=before["protected_digest"]:
+            raise ValueError("Unexpected persisted request or protected-record changes")
+        if after["attempts"]!=before["attempts"]+8:
+            raise ValueError("All-attempt charge mismatch")
+        print("PASS native unchanged Edge handler -> real PostgREST -> persisted SQL: cash/GCash creation and same-key replay, conflicting method, lookup, malformed input and CORS refusal; exactly two provisional requests, no financial/attendance/audit changes.",flush=True)
+    finally:
+        server.terminate()
+        try:server.wait(timeout=5)
+        except subprocess.TimeoutExpired:server.kill();server.wait()
+
 def main():
     if os.environ.get("GITHUB_ACTIONS")!="true" or os.environ.get("GITHUB_REF")!="refs/heads/validation/recovery-rehearsal":
         raise ValueError("Isolated CI only")
@@ -155,6 +281,8 @@ def main():
     cleanup()
     candidate.run(candidate.source("supabase/recovery/compatibility/review/final_security_assertions.sql"))
     print("PASS final security after probe cleanup. No hosted or Edge deployment.",flush=True)
+    native_edge(service)
+    candidate.run(candidate.source("supabase/recovery/compatibility/review/final_security_assertions.sql"))
 if __name__=="__main__":
     try:main()
     except (ValueError,KeyError,OSError,subprocess.CalledProcessError) as e:

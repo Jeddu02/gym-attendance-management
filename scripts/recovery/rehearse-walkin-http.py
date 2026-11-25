@@ -157,15 +157,36 @@ def snapshot():
     return json.loads(out)
 
 def native_edge(service):
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix='gf-edge-ci-') as temp:
+        native_edge_workspace(service,Path(temp))
+
+def native_edge_workspace(service, workspace):
     import base64
+    import shutil
     synthetic_owner(service)
     before=snapshot()
     print("PASS protected synthetic pre-operation fingerprint.",flush=True)
-    entry=ROOT/"supabase/functions/public-walkin-recovery/index.ts"
+    entry=workspace/"functions/public-walkin-recovery/index.ts"
     # The exact loopback-restricted handler is unchanged. Dependency acquisition
     # happens before runtime; execution is restricted to the local HTTP stack.
     candidate.source("supabase/functions/public-walkin-recovery/index.ts")
-    cache=subprocess.run(["deno","cache","--frozen",str(entry)],cwd=ROOT,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True)
+    root_lock=json.loads(candidate.source("deno.lock"))
+    edge_lock=json.loads(candidate.source("supabase/functions/owner-status/deno.lock"))
+    if any(root_lock["npm"].get(k)!=v for k,v in edge_lock["npm"].items()):
+        raise ValueError("Edge dependency locks disagree")
+    specifier="npm:@supabase/supabase-js@2.118.0"
+    if root_lock["specifiers"].get(specifier)!="2.118.0":
+        raise ValueError("Pinned SDK version missing")
+    lock={"version":root_lock["version"],"specifiers":{specifier:"2.118.0"},"npm":edge_lock["npm"]}
+    (workspace/"deno.lock").write_text(json.dumps(lock,indent=2)+"\n")
+    (workspace/"deno.json").write_text('{"nodeModulesDir":"none"}\n')
+    shutil.copytree(ROOT/"supabase/functions/_shared",workspace/"functions/_shared")
+    entry.parent.mkdir(parents=True)
+    shutil.copy2(ROOT/"supabase/functions/public-walkin-recovery/index.ts",entry)
+    if entry.read_bytes()!=(ROOT/"supabase/functions/public-walkin-recovery/index.ts").read_bytes():
+        raise ValueError("Handler copy mismatch")
+    cache=subprocess.run(["deno","cache","--config",str(workspace/"deno.json"),"--lock",str(workspace/"deno.lock"),"--frozen",str(entry)],cwd=workspace,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True)
     if cache.returncode:
         # Output only known, non-sensitive dependency failure categories.
         categories=[k for k,pattern in (("lockfile",r"lockfile|frozen"),("network",r"download|registry|connect"),("permission",r"permission|denied"),("module",r"module|specifier")) if re.search(pattern,cache.stderr,re.I)]
@@ -175,10 +196,10 @@ def native_edge(service):
     origin="http://127.0.0.1:3000"
     env.update(APP_ORIGIN=origin,SUPABASE_URL=HOST,SUPABASE_SERVICE_ROLE_KEY=service,
                PUBLIC_WALKIN_ENABLED="true",WALKIN_REQUEST_LIMIT_PER_MINUTE="10")
-    server=subprocess.Popen(["deno","run","--frozen","--cached-only",
+    server=subprocess.Popen(["deno","run","--config",str(workspace/"deno.json"),"--lock",str(workspace/"deno.lock"),"--frozen","--cached-only",
         "--allow-net=0.0.0.0:8000,127.0.0.1:54321",
         "--allow-env=APP_ORIGIN,SUPABASE_URL,SUPABASE_SERVICE_ROLE_KEY,PUBLIC_WALKIN_ENABLED,WALKIN_REQUEST_LIMIT_PER_MINUTE",
-        str(entry)],cwd=ROOT,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        str(entry)],cwd=workspace,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     def edge(data=None,method="POST",allowed_origin=origin):
         req=urllib.request.Request("http://127.0.0.1:8000/public-walkin-recovery",method=method,
             headers={"Origin":allowed_origin,"Content-Type":"application/json"},

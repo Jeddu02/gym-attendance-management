@@ -88,7 +88,7 @@ jobs:
           export GYMFORCE_DISPOSABLE_DB_PASSWORD="${credentials%@127.0.0.1:54322/postgres}"
           python3 -m py_compile scripts/recovery/rehearse-production-candidate.py
           python3 scripts/recovery/rehearse-production-candidate.py prefix
-          python3 scripts/recovery/rehearse-or-deploy-staging.py disposable
+          python3 scripts/recovery/rehearse-production-candidate.py core
           python3 scripts/recovery/rehearse-production-candidate.py postcore
           python3 -m py_compile scripts/recovery/rehearse-walkin-http.py
           python3 scripts/recovery/rehearse-walkin-http.py

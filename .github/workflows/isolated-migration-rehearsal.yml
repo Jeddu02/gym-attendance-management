@@ -27,6 +27,9 @@ jobs:
       SUPABASE_PROJECT_ID: ''
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
       - uses: supabase/setup-cli@v1
         with:
           version: 3.3.0
@@ -60,7 +63,7 @@ jobs:
           set -euo pipefail
           pending="$(mktemp -d)"
           trap 'mv "$pending"/*.sql supabase/migrations/; rmdir "$pending"' EXIT
-          mv supabase/migrations/20261110*.sql "$pending/"
+          mv supabase/migrations/20261103*.sql supabase/migrations/20261110*.sql "$pending/"
           # The startup banner contains disposable keys. Publish migration
           # progress and SQL errors without printing the credential banner.
           startup_log="$(mktemp)"
@@ -69,7 +72,7 @@ jobs:
           sed -nE '/^Applying migration |^ERROR:|^At statement:|^Failed to /p' "$startup_log"
           rm -f "$startup_log"
           exit "$result"
-      - name: Rehearse 13 compatibility migrations and verify final security
+      - name: Rehearse production prefix, core compatibility and additive authority
         shell: bash
         run: |
           set -euo pipefail
@@ -79,8 +82,11 @@ jobs:
             *) echo "Unexpected disposable database URL" >&2; exit 1 ;;
           esac
           credentials="${DB_URL#postgresql://postgres:}"
-          GYMFORCE_DISPOSABLE_DB_PASSWORD="${credentials%@127.0.0.1:54322/postgres}" \
-            python3 scripts/recovery/rehearse-or-deploy-staging.py disposable
+          export GYMFORCE_DISPOSABLE_DB_PASSWORD="${credentials%@127.0.0.1:54322/postgres}"
+          python3 -m py_compile scripts/recovery/rehearse-production-candidate.py
+          python3 scripts/recovery/rehearse-production-candidate.py prefix
+          python3 scripts/recovery/rehearse-or-deploy-staging.py disposable
+          python3 scripts/recovery/rehearse-production-candidate.py postcore
       - name: Stop disposable stack
         if: always()
         run: supabase stop --no-backup || true

@@ -10,7 +10,7 @@ const actor = '91000000-0000-4000-8000-000000000002';
 const baseEnv = {
   APP_ORIGIN: origin, SUPABASE_URL: 'https://backend.example.test',
   SUPABASE_ANON_KEY: 'synthetic-public-key', SUPABASE_SERVICE_ROLE_KEY: 'synthetic-server-key',
-  PUBLIC_WALKIN_ENABLED: 'true', WALKIN_REQUEST_LIMIT_PER_MINUTE: '5',
+  PUBLIC_WALKIN_ENABLED: 'true', WALKIN_REQUEST_LIMIT_PER_MINUTE: '5', TURNSTILE_SECRET_KEY: 'synthetic-turnstile-secret',
 };
 let generation = 0;
 
@@ -104,6 +104,10 @@ test('payment and walk-in handlers preserve CORS, verified actors, RPC boundarie
   let authValid = true;
   globalThis.fetch = async (input, init) => {
     const url = new URL(typeof input === 'string' ? input : input.url ?? input.href);
+    if (url.href === 'https://challenges.cloudflare.com/turnstile/v0/siteverify') {
+      assert.equal(JSON.parse(init.body).secret, 'synthetic-turnstile-secret');
+      return Response.json({success: JSON.parse(init.body).response === 'synthetic-turnstile-token', hostname: 'gym.example.test', action: 'walkin_request'});
+    }
     assert.equal(url.origin, 'https://backend.example.test', 'No external network allowed');
     if (url.pathname === '/auth/v1/user') {
       calls.push({ auth: true });
@@ -154,13 +158,15 @@ test('payment and walk-in handlers preserve CORS, verified actors, RPC boundarie
     assert.equal((await publicHandler(request({ paymentMethod: 'cash', feePhp: '1' }))).status, 400);
     assert.equal(calls.length, 0);
     rpcResult = { id: '91000000-0000-4000-8000-000000000003', feePhp: '100.00', currency: 'PHP', paymentMethod: 'cash', createdAt: '2026-11-11T02:00:00Z', expiresAt: '2026-11-11T02:15:00Z', privateField: 'never expose' };
-    const created = await publicHandler(request({ paymentMethod: 'cash' }, { auth: false }));
+    assert.equal((await publicHandler(request({ paymentMethod: 'cash' }, { auth: false }))).status, 400);
+    assert.equal(calls.length, 0);
+    const created = await publicHandler(request({ paymentMethod: 'cash', turnstileToken: 'synthetic-turnstile-token' }, { auth: false }));
     assert.equal(created.status, 200);
     const data = await created.json();
     assert.equal(data.request.privateField, undefined);
     assert.deepEqual(calls.at(-1), { rpc: 'public_create_walkin_request', args: { p_payment_method: 'cash', p_request_limit: 5 } });
     rpcError = { code: 'P0001', message: 'WALKIN_RATE_LIMITED' };
-    assert.equal((await publicHandler(request({ paymentMethod: 'cash' }))).status, 429);
+    assert.equal((await publicHandler(request({ paymentMethod: 'cash', turnstileToken: 'synthetic-turnstile-token' }))).status, 429);
   } finally {
     globalThis.fetch = originalFetch;
     if (originalDeno === undefined) delete globalThis.Deno; else globalThis.Deno = originalDeno;

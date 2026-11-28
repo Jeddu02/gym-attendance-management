@@ -1,11 +1,14 @@
 import { withBrowserCors } from "../_shared/browser-cors.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 import { readPinRequestBody } from "../_shared/pin-recovery.ts";
+import { localOnly, splitChallenge, verifyTurnstile } from "../_shared/turnstile.ts";
 import { isValidMemberId } from "../_shared/pin-enrollment.ts";
 import { parsePositiveWalkinPhp, parsePublicWalkinInput, parseWalkinRequestLimit } from "../_shared/walkin-request.ts";
 
 const appOrigin = Deno.env.get("APP_ORIGIN");
 const url = Deno.env.get("SUPABASE_URL");
+const local = localOnly(appOrigin, url);
+const challengeSecret = Deno.env.get("TURNSTILE_SECRET_KEY");
 const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 // Global development abuse control only. Production shared-network/DoS tests
 // and Owner-controlled release configuration remain required before enabling.
@@ -26,9 +29,23 @@ Deno.serve(withBrowserCors(appOrigin, async (request: Request): Promise<Response
   if (!enabled || !requestLimit || !url || !serviceKey) return respond(503, { error: "REQUEST_UNAVAILABLE" });
   if (request.method !== "POST") return respond(405, { error: "REQUEST_UNAVAILABLE" });
   let input;
-  try { input = parsePublicWalkinInput(await readPinRequestBody(request)); }
+  let challengeToken: string | undefined;
+  try {
+    const raw = await readPinRequestBody(request, local ? 2048 : 8192);
+    if (local) input = parsePublicWalkinInput(raw);
+    else {
+      const challenge = splitChallenge(raw);
+      if (!challenge) return respond(400, { error: "REQUEST_UNAVAILABLE" });
+      challengeToken = challenge.token;
+      input = parsePublicWalkinInput(challenge.body);
+    }
+  }
   catch { return respond(400, { error: "REQUEST_UNAVAILABLE" }); }
   if (!input) return respond(400, { error: "REQUEST_UNAVAILABLE" });
+  if (!local) {
+    const verified = await verifyTurnstile(challengeToken ?? "", challengeSecret, appOrigin, "walkin_request", request.signal);
+    if (verified !== "accepted") return verified === "denied" ? respond(400, { error: "REQUEST_UNAVAILABLE" }) : respond(503, { error: "REQUEST_UNAVAILABLE" });
+  }
   try {
     const service = createClient(url, serviceKey, {
       auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },

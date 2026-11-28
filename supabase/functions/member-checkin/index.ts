@@ -3,6 +3,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 import { createMobileLookupHash } from "../_shared/member-mobile.ts";
 import { verifyMemberPin } from "../_shared/pin-password.ts";
 import { readPinRequestBody } from "../_shared/pin-recovery.ts";
+import { localOnly, splitChallenge, verifyTurnstile } from "../_shared/turnstile.ts";
 import { toPostgresBytea } from "../_shared/postgres-bytea.ts";
 import {
   createCheckinIdentifierDigest, decodeCheckinHmacKey, isDevelopmentPinVerifier,
@@ -11,6 +12,8 @@ import {
 
 const appOrigin = Deno.env.get("APP_ORIGIN");
 const url = Deno.env.get("SUPABASE_URL");
+const local = localOnly(appOrigin, url);
+const challengeSecret = Deno.env.get("TURNSTILE_SECRET_KEY");
 const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 // Default disabled. Explicit development limits/keys/dummy verifier do not imply
 // approved production abuse controls, gateway trust or a production release.
@@ -37,9 +40,23 @@ Deno.serve(withBrowserCors(appOrigin, async (request: Request): Promise<Response
   if (!enabled || !url || !serviceKey || !lookupKey || !mobileKeyValid || !globalLimit || !identifierLimit || !isDevelopmentPinVerifier(dummyHash)) return respond(503);
   if (request.method !== "POST") return respond(405);
   let input;
-  try { input = parseMemberCheckinInput(await readPinRequestBody(request)); }
+  let challengeToken: string | undefined;
+  try {
+    const raw = await readPinRequestBody(request, local ? 2048 : 8192);
+    if (local) input = parseMemberCheckinInput(raw);
+    else {
+      const challenge = splitChallenge(raw);
+      if (!challenge) return respond(400);
+      challengeToken = challenge.token;
+      input = parseMemberCheckinInput(challenge.body);
+    }
+  }
   catch { return respond(400); }
   if (!input) return respond(400);
+  if (!local) {
+    const verified = await verifyTurnstile(challengeToken ?? "", challengeSecret, appOrigin, "member_checkin", request.signal);
+    if (verified !== "accepted") return verified === "denied" ? respond(400) : respond(503);
+  }
   try {
     const service = createClient(url, serviceKey, {
       auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },

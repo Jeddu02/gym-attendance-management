@@ -1,0 +1,14 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { verifyTurnstile, splitChallenge, localOnly } from '../supabase/functions/_shared/turnstile.ts';
+const origin='https://gymforce-staging.pages.dev';
+const action='member_checkin';
+const valid={success:true, hostname:'gymforce-staging.pages.dev', action};
+const response = (body, status=200) => async () => new Response(JSON.stringify(body),{status});
+const verify = (transport, token='synthetic-token', secret='synthetic-secret', host=origin, a=action) => verifyTurnstile(token,secret,host,a,undefined,transport);
+test('accepts only a matching provider success', async()=>assert.equal(await verify(response(valid)),'accepted'));
+test('rejects wrong hostname/action, expired and duplicate',async()=>{for(const item of [{...valid,hostname:'other.example'},{...valid,action:'walkin_request'},{success:false,'error-codes':['timeout-or-duplicate']},{success:false}])assert.equal(await verify(response(item)),'denied');});
+test('fails closed for missing configuration, HTTP and malformed data',async()=>{assert.equal(await verify(response(valid),'abc',''),'unavailable'); assert.equal(await verify(response(valid),'abc','x','http://example.test'),'unavailable');for(const r of [response(valid,503),response(null),response({}),async()=>{throw Error('network')}])assert.equal(await verify(r),'unavailable');});
+test('token length and strict envelope',async()=>{for(const token of ['', 'a'.repeat(2049), 'a\nb', 'a b']){assert.equal(splitChallenge({turnstileToken:token}),null);assert.equal(await verify(response(valid),token),'denied');}assert.deepEqual(splitChallenge({identifier:'test',pin:'123456',turnstileToken:'abc'}),{body:{identifier:'test',pin:'123456'},token:'abc'});});
+test('only double loopback permits local development',()=>{assert.equal(localOnly('http://127.0.0.1:5173','http://localhost:54321'),true);assert.equal(localOnly(origin,'http://localhost:54321'),false);assert.equal(localOnly('http://localhost:5173','https://project.supabase.co'),false);});
+test('fixed HTTPS endpoint, no client IP or credential in URL',async()=>{let calls=0;assert.equal(await verify(async(url,opts)=>{calls++;assert.equal(url,'https://challenges.cloudflare.com/turnstile/v0/siteverify');assert.equal(opts.redirect,'error');assert.deepEqual(JSON.parse(opts.body),{secret:'synthetic-secret',response:'synthetic-token'});assert.ok(opts.signal);return new Response(JSON.stringify(valid));}),'accepted');assert.equal(calls,1);});

@@ -3,6 +3,14 @@ import { getSupabaseClient } from '../lib/supabase';
 import { parseWalkinRequest, type PaymentMethod, type WalkinRequest } from '../lib/public-entry-contract';
 import { formatPhp } from '../lib/money';
 import { activeWalkin } from '../lib/walkin-recovery-store';
+import { TurnstileChallenge } from './TurnstileChallenge';
+
+const siteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY?.trim() ?? '';
+const loopback = (name: string) => ['localhost', '127.0.0.1', '[::1]'].includes(name);
+const localRecovery = (() => {
+  try { return loopback(window.location.hostname) && loopback(new URL(import.meta.env.VITE_SUPABASE_URL ?? '').hostname); }
+  catch { return false; }
+})();
 
 const methods: Record<PaymentMethod, string> = { cash: 'Cash', gcash: 'GCash', bank_transfer: 'Bank transfer' };
 
@@ -11,6 +19,8 @@ export function EntrancePage() {
   const [online, setOnline] = useState(() => navigator.onLine);
   const [identifier, setIdentifier] = useState('');
   const [pin, setPin] = useState('');
+  const [challengeToken, setChallengeToken] = useState('');
+  const [challengeGeneration, setChallengeGeneration] = useState(0);
   const [checkinBusy, setCheckinBusy] = useState(false);
   const [checkinMessage, setCheckinMessage] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
@@ -66,8 +76,12 @@ export function EntrancePage() {
         setCheckinMessage('Check-in could not be completed. Review your details or speak with the Owner.');
         return;
       }
+      if (!localRecovery && (!siteKey || !challengeToken)) {
+        setCheckinMessage('Complete the security check before submitting.');
+        return;
+      }
       const { data, error } = await getSupabaseClient().functions.invoke('member-checkin', {
-        method: 'POST', body: { identifier: identifier.trim(), pin },
+        method: 'POST', body: { identifier: identifier.trim(), pin, ...(!localRecovery ? {turnstileToken: challengeToken} : {}) },
       });
       if (!mounted.current) return;
       if (error) {
@@ -87,6 +101,8 @@ export function EntrancePage() {
       checkinInFlight.current = false;
       if (mounted.current) {
         setPin('');
+        setChallengeToken('');
+        setChallengeGeneration(n => n + 1);
         setCheckinBusy(false);
       }
     }
@@ -99,6 +115,7 @@ export function EntrancePage() {
   }
 
   async function submitWalkin(action: 'create' | 'lookup') {
+    if (!localRecovery) {setMessage('Hosted walk-in recovery is unavailable. Please speak with the Owner.'); return;}
     if (inFlight.current || !navigator.onLine || !storageReady) return;
     inFlight.current = true;
     setBusy(true);
@@ -172,6 +189,7 @@ export function EntrancePage() {
           event.preventDefault();
           const next = event.key === 'Home' ? 'member' : event.key === 'End' ? 'walkin' : section === 'member' ? 'walkin' : 'member';
           setSection(next);
+          setChallengeToken('');
           setPin('');
           setIdentifier('');
           setCheckinMessage('');
@@ -179,6 +197,7 @@ export function EntrancePage() {
         }}>
           {(['member', 'walkin'] as const).map((option) => <button key={option} id={`entrance-${option}-tab`} type="button" role="tab" className="secondary-button" aria-selected={section === option} aria-controls={`entrance-${option}-panel`} tabIndex={section === option ? 0 : -1} disabled={busy || checkinBusy} onClick={() => {
             setSection(option);
+            setChallengeToken('');
             setPin('');
             setIdentifier('');
             setCheckinMessage('');
@@ -191,13 +210,14 @@ export function EntrancePage() {
             <form onSubmit={checkIn}>
               <div className="field"><label htmlFor="checkin-identifier">Member ID or registered mobile number</label><input id="checkin-identifier" value={identifier} onChange={(event) => setIdentifier(event.target.value)} maxLength={80} autoComplete="off" autoCapitalize="none" spellCheck={false} required disabled={checkinBusy} /></div>
               <div className="field"><label htmlFor="checkin-pin">Six-digit PIN</label><input id="checkin-pin" type="password" inputMode="numeric" autoComplete="off" pattern="[0-9]{6}" minLength={6} maxLength={6} value={pin} onChange={(event) => setPin(event.target.value)} required disabled={checkinBusy} /></div>
-              <button type="submit" className="primary-button" disabled={checkinBusy || !online}>{checkinBusy ? 'Submitting...' : 'Check in'}</button>
+              {!localRecovery && online && (siteKey ? <TurnstileChallenge key={challengeGeneration} siteKey={siteKey} onToken={setChallengeToken} /> : <p role="status">Security check unavailable. Please speak with the Owner.</p>)}
+              <button type="submit" className="primary-button" disabled={checkinBusy || !online || (!localRecovery && (!siteKey || !challengeToken))}>{checkinBusy ? 'Submitting...' : 'Check in'}</button>
             </form>
             {checkinMessage && <p className="feedback" role="status" aria-live="polite">{checkinMessage}</p>}
           </section>
         ) : <section id="entrance-walkin-panel" role="tabpanel" aria-labelledby="entrance-walkin-tab">
         <p className="security-note">The Owner must confirm actual receipt of payment before walk-in attendance is valid.</p>
-        {request ? (
+        {!localRecovery ? <p role="status">Online walk-in recovery is not yet available. Ask the Owner before paying or submitting another request.</p> : request ? (
           <section aria-label="Pending walk-in request">
             <h2>Awaiting Owner confirmation</h2>
             <dl>
@@ -220,7 +240,7 @@ export function EntrancePage() {
             <button type="submit" className="primary-button" disabled={busy || uncertain || !online || !storageReady}>{busy ? 'Requesting...' : uncertain ? 'Owner review required' : 'Request a walk-in visit'}</button>
           </form>
         )}
-        {hasActive && !request && <div className="member-modal-actions">
+        {localRecovery && hasActive && !request && <div className="member-modal-actions">
           <button type="button" className="secondary-button" disabled={busy || !online} onClick={() => void submitWalkin('lookup')}>Recover existing request</button>
           <button type="button" className="secondary-button" disabled={busy || !online || closed} onClick={() => void submitWalkin('create')}>Retry same request</button>
         </div>}

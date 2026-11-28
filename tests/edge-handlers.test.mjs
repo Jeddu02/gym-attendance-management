@@ -10,7 +10,7 @@ const actor = '91000000-0000-4000-8000-000000000002';
 const baseEnv = {
   APP_ORIGIN: origin, SUPABASE_URL: 'https://backend.example.test',
   SUPABASE_ANON_KEY: 'synthetic-public-key', SUPABASE_SERVICE_ROLE_KEY: 'synthetic-server-key',
-  PUBLIC_WALKIN_ENABLED: 'true', WALKIN_REQUEST_LIMIT_PER_MINUTE: '5',
+  PUBLIC_WALKIN_ENABLED: 'true', WALKIN_REQUEST_LIMIT_PER_MINUTE: '5', TURNSTILE_SECRET_KEY: 'synthetic-turnstile-secret',
 };
 let generation = 0;
 
@@ -20,6 +20,12 @@ async function loadHandler(name, env) {
   globalThis.Deno = { env: { get: (key) => env[key] }, serve: (callback) => { handler = callback; } };
   let source = stripTypeScriptTypes(await readFile(file, 'utf8'));
   source = source.replace(/from\s+(["'])([^"']+)\1/g, (_match, _quote, specifier) => {
+    // This check-in boundary test stops before any password work. A sentinel makes
+    // accidental KDF invocation observable without resolving Deno's npm: import.
+    if (name === 'member-checkin' && specifier === '../_shared/pin-password.ts') {
+      const sentinel = 'export async function verifyMemberPin(){globalThis.checkinKdfCalls++;throw Error("UNEXPECTED_KDF");}';
+      return 'from ' + JSON.stringify('data:text/javascript;base64,' + Buffer.from(sentinel).toString('base64'));
+    }
     const target = specifier.startsWith('npm:')
       ? import.meta.resolve('@supabase/supabase-js') : new URL(specifier, file).href;
     return `from ${JSON.stringify(target)}`;
@@ -104,6 +110,10 @@ test('payment and walk-in handlers preserve CORS, verified actors, RPC boundarie
   let authValid = true;
   globalThis.fetch = async (input, init) => {
     const url = new URL(typeof input === 'string' ? input : input.url ?? input.href);
+    if (url.href === 'https://challenges.cloudflare.com/turnstile/v0/siteverify') {
+      assert.equal(JSON.parse(init.body).secret, 'synthetic-turnstile-secret');
+      return Response.json({success: JSON.parse(init.body).response === 'synthetic-turnstile-token', hostname: 'gym.example.test', action: 'walkin_request'});
+    }
     assert.equal(url.origin, 'https://backend.example.test', 'No external network allowed');
     if (url.pathname === '/auth/v1/user') {
       calls.push({ auth: true });
@@ -154,15 +164,102 @@ test('payment and walk-in handlers preserve CORS, verified actors, RPC boundarie
     assert.equal((await publicHandler(request({ paymentMethod: 'cash', feePhp: '1' }))).status, 400);
     assert.equal(calls.length, 0);
     rpcResult = { id: '91000000-0000-4000-8000-000000000003', feePhp: '100.00', currency: 'PHP', paymentMethod: 'cash', createdAt: '2026-11-11T02:00:00Z', expiresAt: '2026-11-11T02:15:00Z', privateField: 'never expose' };
-    const created = await publicHandler(request({ paymentMethod: 'cash' }, { auth: false }));
+    assert.equal((await publicHandler(request({ paymentMethod: 'cash' }, { auth: false }))).status, 400);
+    assert.equal(calls.length, 0);
+    const created = await publicHandler(request({ paymentMethod: 'cash', turnstileToken: 'synthetic-turnstile-token' }, { auth: false }));
     assert.equal(created.status, 200);
     const data = await created.json();
     assert.equal(data.request.privateField, undefined);
     assert.deepEqual(calls.at(-1), { rpc: 'public_create_walkin_request', args: { p_payment_method: 'cash', p_request_limit: 5 } });
     rpcError = { code: 'P0001', message: 'WALKIN_RATE_LIMITED' };
-    assert.equal((await publicHandler(request({ paymentMethod: 'cash' }))).status, 429);
+    assert.equal((await publicHandler(request({ paymentMethod: 'cash', turnstileToken: 'synthetic-turnstile-token' }))).status, 429);
   } finally {
     globalThis.fetch = originalFetch;
     if (originalDeno === undefined) delete globalThis.Deno; else globalThis.Deno = originalDeno;
+  }
+});
+
+
+test('hosted member check-in verifies challenge before any database or KDF work', async () => {
+  const originalDeno = globalThis.Deno;
+  const originalFetch = globalThis.fetch;
+  const oldKdfCalls = globalThis.checkinKdfCalls;
+  globalThis.checkinKdfCalls = 0;
+  const key = Buffer.alloc(32, 17).toString('base64');
+  // Synthetic format-valid verifier; no password verification occurs in this test.
+  const dummy = '$argon2id$v=19$m=65536,t=3,p=1$' + Buffer.alloc(16, 3).toString('base64').replace(/=+$/, '') + '$' + key.replace(/=+$/, '');
+  const env = {
+    ...baseEnv, PUBLIC_MEMBER_CHECKIN_ENABLED: 'true',
+    PUBLIC_CHECKIN_LOOKUP_HMAC_KEY_B64: key,
+    MEMBER_MOBILE_HMAC_KEY_B64: Buffer.alloc(32, 19).toString('base64'),
+    DUMMY_PIN_HASH: dummy, CHECKIN_GLOBAL_LIMIT_PER_MINUTE: '30',
+    CHECKIN_IDENTIFIER_LIMIT_PER_MINUTE: '5',
+  };
+  const input = { identifier: 'MBR-ABCDEF123456', pin: '123456' };
+  const success = { success: true, hostname: 'gym.example.test', action: 'member_checkin' };
+  let provider = success;
+  let failProvider = false;
+  let order = [];
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(typeof input === 'string' ? input : input.url ?? input.href);
+    if (url.href === 'https://challenges.cloudflare.com/turnstile/v0/siteverify') {
+      order.push('verify');
+      assert.deepEqual(JSON.parse(init.body), { secret: env.TURNSTILE_SECRET_KEY, response: 'synthetic-token' });
+      if (failProvider) throw new Error('synthetic transport failure');
+      return Response.json(provider);
+    }
+    assert.equal(url.origin, env.SUPABASE_URL);
+    assert.equal(url.pathname, '/rest/v1/rpc/reserve_member_checkin_request');
+    order.push('reserve');
+    const args = JSON.parse(init.body);
+    assert.match(args.p_identifier_digest, /^[0-9a-f]{64}$/);
+    assert.equal(args.p_global_limit, 30);
+    assert.equal(args.p_identifier_limit, 5);
+    return Response.json({ allowed: false, retryAfterSeconds: 5 });
+  };
+  try {
+    const handler = await loadHandler('member-checkin', env);
+    const valid = { ...input, turnstileToken: 'synthetic-token' };
+    const verifyOutcome = async (handler, body, status, expectedOrder, options = {}) => {
+      order = [];
+      const response = await handler(request(body, { auth: false, ...options }));
+      assert.equal(response.status, status);
+      assert.deepEqual(order, expectedOrder);
+      assert.equal(globalThis.checkinKdfCalls, 0);
+      if (status !== 403) assert.deepEqual(await response.json(), { success: false, message: 'CHECKIN_UNAVAILABLE' });
+      return response;
+    };
+    await verifyOutcome(handler, input, 400, []);
+    await verifyOutcome(handler, { ...valid, pin: 'abc' }, 400, []);
+    await verifyOutcome(handler, { ...valid, unexpected: true }, 400, []);
+    await verifyOutcome(handler, { ...valid, turnstileToken: 'a'.repeat(2049) }, 400, []);
+    await verifyOutcome(handler, valid, 403, [], { origin: 'https://untrusted.example.test' });
+    for (const denial of [
+      { success: false, 'error-codes': ['timeout-or-duplicate'] },
+      { ...success, hostname: 'untrusted.example.test' },
+      { ...success, action: 'walkin_request' },
+    ]) {
+      provider = denial;
+      await verifyOutcome(handler, valid, 400, ['verify']);
+    }
+    provider = {};
+    await verifyOutcome(handler, valid, 503, ['verify']);
+    provider = success;
+    failProvider = true;
+    await verifyOutcome(handler, valid, 503, ['verify']);
+    failProvider = false;
+    const missing = await loadHandler('member-checkin', { ...env, TURNSTILE_SECRET_KEY: undefined });
+    await verifyOutcome(missing, valid, 503, []);
+    const disabled = await loadHandler('member-checkin', { ...env, PUBLIC_MEMBER_CHECKIN_ENABLED: 'false' });
+    await verifyOutcome(disabled, valid, 503, []);
+    const limited = await verifyOutcome(handler, valid, 429, ['verify', 'reserve']);
+    assert.equal(limited.headers.get('Retry-After'), '5');
+    // Simulate the provider rejecting reuse of the previously consumed token.
+    provider = { success: false, 'error-codes': ['timeout-or-duplicate'] };
+    await verifyOutcome(handler, valid, 400, ['verify']);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalDeno === undefined) delete globalThis.Deno; else globalThis.Deno = originalDeno;
+    if (oldKdfCalls === undefined) delete globalThis.checkinKdfCalls; else globalThis.checkinKdfCalls = oldKdfCalls;
   }
 });

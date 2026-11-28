@@ -41,7 +41,7 @@ export function parseMemberPinResetInput(
 }
 
 /** Bound actual streamed bytes, including chunked requests without a length. */
-export async function readPinRequestBody(request: Request): Promise<unknown> {
+export async function readPinRequestBody(request: Request, maxBytes = 2048): Promise<unknown> {
   if (
     request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !==
       "application/json"
@@ -52,7 +52,7 @@ export async function readPinRequestBody(request: Request): Promise<unknown> {
   if (
     declared !== null &&
     (!/^\d+$/u.test(declared) || !Number.isSafeInteger(Number(declared)) ||
-      Number(declared) > 2048)
+      Number(declared) > maxBytes)
   ) {
     throw new Error("INVALID_REQUEST");
   }
@@ -65,7 +65,7 @@ export async function readPinRequestBody(request: Request): Promise<unknown> {
       const { value, done } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > 2048) {
+      if (size > maxBytes) {
         await reader.cancel();
         throw new Error("INVALID_REQUEST");
       }
